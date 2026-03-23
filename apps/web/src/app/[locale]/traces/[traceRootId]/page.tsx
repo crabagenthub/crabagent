@@ -42,10 +42,10 @@ function mergeByEventId(base: TraceEvent[], extra: TraceEvent[]): TraceEvent[] {
 async function loadTraceEvents(
   baseUrl: string,
   apiKey: string,
-  traceRootId: string,
+  threadKey: string,
 ): Promise<{ items: TraceEvent[] }> {
   const b = baseUrl.replace(/\/+$/, "");
-  const res = await fetch(`${b}/v1/traces/${encodeURIComponent(traceRootId)}/events`, {
+  const res = await fetch(`${b}/v1/traces/${encodeURIComponent(threadKey)}/events`, {
     headers: collectorAuthHeaders(apiKey),
   });
   if (!res.ok) {
@@ -67,7 +67,8 @@ export default function TraceDetailPage() {
   const t = useTranslations("Traces");
   const queryClient = useQueryClient();
   const params = useParams<{ traceRootId: string }>();
-  const traceRootId = decodeURIComponent(params.traceRootId ?? "");
+  /** Route segment is the Collector **thread_key** (conversation id), not a single trace_root_id. */
+  const threadKey = decodeURIComponent(params.traceRootId ?? "");
 
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -92,9 +93,9 @@ export default function TraceDetailPage() {
   }, [queryClient]);
 
   const eventsQuery = useQuery({
-    queryKey: ["trace-events", baseUrl, apiKey, traceRootId],
-    queryFn: () => loadTraceEvents(baseUrl, apiKey, traceRootId),
-    enabled: mounted && baseUrl.length > 0 && traceRootId.length > 0,
+    queryKey: ["trace-events", baseUrl, apiKey, threadKey],
+    queryFn: () => loadTraceEvents(baseUrl, apiKey, threadKey),
+    enabled: mounted && baseUrl.length > 0 && threadKey.length > 0,
   });
 
   const merged = useMemo(() => {
@@ -133,10 +134,10 @@ export default function TraceDetailPage() {
   const sessionIdForDelete = useMemo(() => firstSessionIdInEvents(merged), [merged]);
 
   useEffect(() => {
-    if (!mounted || !baseUrl || !traceRootId) {
+    if (!mounted || !baseUrl || !threadKey) {
       return;
     }
-    const url = streamUrl(baseUrl, traceRootId, apiKey);
+    const url = streamUrl(baseUrl, threadKey, apiKey);
     const es = new EventSource(url);
 
     const onReady = () => setSseOpen(true);
@@ -160,7 +161,7 @@ export default function TraceDetailPage() {
       es.close();
       setSseOpen(false);
     };
-  }, [mounted, baseUrl, traceRootId, apiKey]);
+  }, [mounted, baseUrl, threadKey, apiKey]);
 
   const deleteSession = async () => {
     const sid = sessionIdForDelete;
@@ -178,8 +179,8 @@ export default function TraceDetailPage() {
     await eventsQuery.refetch();
   };
 
-  const traceShort =
-    traceRootId.length > 24 ? `${traceRootId.slice(0, 12)}…${traceRootId.slice(-8)}` : traceRootId;
+  const threadShort =
+    threadKey.length > 24 ? `${threadKey.slice(0, 12)}…${threadKey.slice(-8)}` : threadKey;
 
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
@@ -205,9 +206,9 @@ export default function TraceDetailPage() {
           /
         </span>
         <IdLabeledCopy
-          kind="trace_root"
-          value={traceRootId}
-          displayText={traceShort}
+          kind="thread_key"
+          value={threadKey}
+          displayText={threadShort}
           variant="compact"
           className="text-neutral-700"
         />
@@ -217,8 +218,8 @@ export default function TraceDetailPage() {
         <div className="min-w-0 flex-1">
           <div className="min-w-0">
             <IdLabeledCopy
-              kind="trace_root"
-              value={traceRootId}
+              kind="thread_key"
+              value={threadKey}
               valueClassName="text-xl font-semibold tracking-tight md:text-2xl"
             />
           </div>

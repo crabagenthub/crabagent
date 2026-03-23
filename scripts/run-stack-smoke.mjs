@@ -148,14 +148,16 @@ async function main() {
       process.exit(1);
     }
     const items = tracesJson.items ?? [];
-    const found = items.some((r) => r.trace_root_id === traceRoot);
+    const threadKey = "smoke-session";
+    const found = items.some((r) => r.thread_key === threadKey);
     if (!found) {
-      console.error("Expected trace_root_id in list:", traceRoot, "got", items);
+      console.error("Expected thread_key in list:", threadKey, "got", items);
       process.exit(1);
     }
 
     console.log("OK — Collector ingest + list smoke passed.");
-    console.log("  trace_root_id:", traceRoot);
+    console.log("  thread_key:", threadKey);
+    console.log("  trace_root_id (event):", traceRoot);
     console.log("  event_id:", eventId);
   } finally {
     kill();

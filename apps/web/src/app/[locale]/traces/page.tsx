@@ -10,9 +10,13 @@ import { MessageHint } from "@/components/message-hint";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
 
 type TraceRow = {
+  /** Conversation thread id (session_key → session_id → trace_root_id). */
+  thread_key: string;
   event_id: string;
-  trace_root_id: string | null;
+  event_count?: number;
+  trace_root_id?: string | null;
   session_id: string | null;
+  session_key?: string | null;
   type: string;
   created_at: string;
   channel?: string | null;
@@ -186,6 +190,7 @@ export default function TracesPage() {
                   <tr className="border-b border-ca-border text-xs uppercase tracking-wide text-ca-muted">
                     <th className="px-5 py-3 font-semibold">{t("traceRoot")}</th>
                     <th className="px-5 py-3 font-semibold">{t("channel")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("listEventCount")}</th>
                     <th className="px-5 py-3 font-semibold">{t("session")}</th>
                     <th className="px-5 py-3 font-semibold">{t("eventSample")}</th>
                     <th className="px-5 py-3 font-semibold">{t("type")}</th>
@@ -196,15 +201,20 @@ export default function TracesPage() {
                 <tbody className="divide-y divide-ca-border">
                   {traceRows.map((row) => (
                     <tr
-                      key={row.trace_root_id}
+                      key={row.thread_key}
                       className="bg-white transition-colors hover:bg-neutral-50/80"
                     >
-                      <td className="max-w-[220px] px-5 py-3.5 align-top">
-                        {row.trace_root_id ? (
-                          <IdLabeledCopy kind="trace_root" value={row.trace_root_id} variant="compact" />
-                        ) : (
-                          <span className="text-xs text-neutral-400">—</span>
-                        )}
+                      <td className="max-w-[260px] px-5 py-3.5 align-top">
+                        <IdLabeledCopy
+                          kind="thread_key"
+                          value={row.thread_key}
+                          displayText={
+                            row.thread_key.length > 36
+                              ? `${row.thread_key.slice(0, 18)}…${row.thread_key.slice(-10)}`
+                              : row.thread_key
+                          }
+                          variant="compact"
+                        />
                       </td>
                       <td className="max-w-[100px] px-5 py-3.5">
                         {rowHasChannel(row) ? (
@@ -214,6 +224,9 @@ export default function TracesPage() {
                         ) : (
                           <span className="text-xs text-neutral-400">—</span>
                         )}
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3.5 text-xs tabular-nums text-neutral-700">
+                        {typeof row.event_count === "number" ? row.event_count : "—"}
                       </td>
                       <td className="max-w-[200px] px-5 py-3.5 align-top">
                         <IdLabeledCopy kind="session_id" value={row.session_id} variant="compact" />
@@ -236,7 +249,7 @@ export default function TracesPage() {
                       <td className="whitespace-nowrap px-5 py-3.5 text-xs text-ca-muted">{row.created_at}</td>
                       <td className="px-5 py-3.5 text-right">
                         <LocalizedLink
-                          href={`/traces/${encodeURIComponent(row.trace_root_id!)}`}
+                          href={`/traces/${encodeURIComponent(row.thread_key)}`}
                           className="inline-flex rounded-lg bg-ca-accent px-3 py-1.5 text-xs font-medium text-white no-underline transition hover:bg-ca-accent-hover"
                         >
                           {t("open")}

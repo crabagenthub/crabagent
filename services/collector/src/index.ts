@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { openDatabase } from "./db.js";
 import { runIngestBatch } from "./ingest.js";
 import { sseSubscribe } from "./sse-hub.js";
+import { THREAD_KEY_SQL } from "./thread-key.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
@@ -88,47 +89,66 @@ app.get("/v1/traces", (c) => {
     return c.json({ error: "unauthorized" }, 401);
   }
   const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
-  /** One row per trace_root_id: that trace's latest event (fixes global LIMIT skew + wrong "type"). */
+  /**
+   * One row per **conversation thread** (session_key → session_id → trace_root_id), not per internal
+   * trace_root UUID — matches personal-user mental model ("one chat") and dev view of a session.
+   */
   const rows = db
     .prepare(
-      `WITH last_per_trace AS (
-         SELECT trace_root_id, MAX(id) AS max_id
+      `WITH per_event AS (
+         SELECT id, event_id, trace_root_id, session_id, session_key, type, created_at, channel, payload_json,
+                (${THREAD_KEY_SQL}) AS thread_key
          FROM events
-         WHERE trace_root_id IS NOT NULL AND TRIM(trace_root_id) != ''
-         GROUP BY trace_root_id
+         WHERE (${THREAD_KEY_SQL}) IS NOT NULL
+       ),
+       agg AS (
+         SELECT thread_key, MAX(id) AS max_id, COUNT(*) AS event_count
+         FROM per_event
+         GROUP BY thread_key
        ),
        ranked AS (
-         SELECT trace_root_id, max_id
-         FROM last_per_trace
+         SELECT thread_key, max_id, event_count
+         FROM agg
          ORDER BY max_id DESC
          LIMIT ?
        )
-       SELECT e.event_id, e.trace_root_id, e.session_id, e.type, e.created_at,
+       SELECT e.thread_key,
+              e.event_id,
+              e.trace_root_id,
+              e.session_id,
+              e.session_key,
+              e.type,
+              e.created_at,
+              r.event_count,
               NULLIF(
                 TRIM(COALESCE(e.channel, json_extract(e.payload_json, '$.channel'))),
                 ''
               ) AS channel
-       FROM events e
-       JOIN ranked r ON e.id = r.max_id
+       FROM ranked r
+       JOIN per_event e ON e.id = r.max_id
        ORDER BY e.id DESC`,
     )
     .all(limit) as Record<string, unknown>[];
   return c.json({ items: rows });
 });
 
+/** Path param is **thread_key** (URL-encoded): all events in that conversation, any trace_root_id. */
 app.get("/v1/traces/:traceRootId/events", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const traceRootId = c.req.param("traceRootId");
+  const threadKey = c.req.param("traceRootId");
   const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
   const rows = db
     .prepare(
       `SELECT id, event_id, trace_root_id, session_id, session_key, run_id, channel,
               type, payload_json, client_ts, schema_version, created_at
-       FROM events WHERE trace_root_id = ? ORDER BY id ASC LIMIT ?`,
+       FROM events
+       WHERE (${THREAD_KEY_SQL}) = ?
+       ORDER BY id ASC
+       LIMIT ?`,
     )
-    .all(traceRootId, limit) as Array<Record<string, unknown>>;
+    .all(threadKey, limit) as Array<Record<string, unknown>>;
   const items = rows.map((row) => ({
     ...row,
     payload: (() => {
@@ -139,7 +159,7 @@ app.get("/v1/traces/:traceRootId/events", (c) => {
       }
     })(),
   }));
-  return c.json({ trace_root_id: traceRootId, items });
+  return c.json({ thread_key: threadKey, items });
 });
 
 app.get("/v1/sessions/:sessionId/trace-root", (c) => {
@@ -167,11 +187,12 @@ app.delete("/v1/sessions/:sessionId", (c) => {
   return c.json({ ok: true, deleted: r.changes });
 });
 
+/** SSE channel = **thread_key** (same as list/detail aggregate). */
 app.get("/v1/traces/:traceRootId/stream", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const traceRootId = c.req.param("traceRootId");
+  const threadKey = c.req.param("traceRootId");
   const signal = c.req.raw.signal;
   const encoder = new TextEncoder();
 
@@ -188,8 +209,8 @@ app.get("/v1/traces/:traceRootId/stream", (c) => {
         }
       };
 
-      const unsubscribe = sseSubscribe(traceRootId, sendRaw);
-      sendRaw(`event: ready\ndata: ${JSON.stringify({ trace_root_id: traceRootId })}\n\n`);
+      const unsubscribe = sseSubscribe(threadKey, sendRaw);
+      sendRaw(`event: ready\ndata: ${JSON.stringify({ thread_key: threadKey })}\n\n`);
 
       const ping = setInterval(() => {
         if (signal.aborted) {

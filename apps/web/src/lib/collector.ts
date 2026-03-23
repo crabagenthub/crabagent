@@ -42,8 +42,9 @@ export function collectorAuthHeaders(apiKey: string): HeadersInit {
   return h;
 }
 
-export function streamUrl(baseUrl: string, traceRootId: string, apiKey: string): string {
+/** `threadKey` = conversation aggregate id (session_key → session_id → trace_root_id), same as list rows. */
+export function streamUrl(baseUrl: string, threadKey: string, apiKey: string): string {
   const b = baseUrl.replace(/\/+$/, "");
   const q = apiKey.trim() ? `?token=${encodeURIComponent(apiKey.trim())}` : "";
-  return `${b}/v1/traces/${encodeURIComponent(traceRootId)}/stream${q}`;
+  return `${b}/v1/traces/${encodeURIComponent(threadKey)}/stream${q}`;
 }

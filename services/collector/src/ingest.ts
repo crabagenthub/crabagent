@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { ssePublish } from "./sse-hub.js";
+import { computeThreadKey } from "./thread-key.js";
 
 export type IngestEventInput = Record<string, unknown>;
 
@@ -103,21 +104,27 @@ export function runIngestBatch(params: {
     });
     if (r.changes > 0) {
       accepted += 1;
-      if (traceRootId) {
-        const rowId = Number(r.lastInsertRowid);
-        ssePublish(traceRootId, {
-          id: rowId > 0 ? rowId : undefined,
-          event_id: eventId,
-          trace_root_id: traceRootId,
-          session_id: sessionId,
-          session_key: sessionKey ?? undefined,
-          run_id: runId ?? undefined,
-          channel: channelCol ?? undefined,
-          client_ts: clientTs ?? undefined,
-          type,
-          payload: payloadForStore,
-          created_at: new Date().toISOString(),
-        });
+      const rowId = Number(r.lastInsertRowid);
+      const payload = {
+        id: rowId > 0 ? rowId : undefined,
+        event_id: eventId,
+        trace_root_id: traceRootId ?? undefined,
+        session_id: sessionId,
+        session_key: sessionKey ?? undefined,
+        run_id: runId ?? undefined,
+        channel: channelCol ?? undefined,
+        client_ts: clientTs ?? undefined,
+        type,
+        payload: payloadForStore,
+        created_at: new Date().toISOString(),
+      };
+      const threadKey = computeThreadKey({
+        session_key: sessionKey,
+        session_id: sessionId,
+        trace_root_id: traceRootId,
+      });
+      if (threadKey) {
+        ssePublish(threadKey, { ...payload, thread_key: threadKey });
       }
     } else {
       skipped += 1;

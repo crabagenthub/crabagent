@@ -31,6 +31,10 @@ pnpm collector:clear-db
 
 若进程仍占用旧库，删文件后数据在内存里仍可见，**必须重启 Collector** 后 Web 才会变空。
 
+### Trace 列表：按「会话」一行
+
+`GET /v1/traces` 按 **会话线程** 聚合，线程键 `thread_key` = `session_key` → 否则 `session_id` → 否则 `trace_root_id`。同一聊天里多条内部 `trace_root_id` 在详情页合并为 **一条时间线**；实时流 `GET /v1/traces/:threadKey/stream` 也按 `thread_key` 扇入。每条事件仍保留 `trace_root_id` 供开发排查。
+
 ### 一键写入 OpenClaw 配置（需你确认后执行）
 
 先看将要合并的内容（不写盘）：

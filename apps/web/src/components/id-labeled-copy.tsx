@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 export type TraceIdKind =
   | "trace_root"
+  | "thread_key"
   | "session_id"
   | "session_key"
   | "run_id"
@@ -13,6 +14,7 @@ export type TraceIdKind =
 
 type TracesIdKindKey =
   | "idKinds.trace_root"
+  | "idKinds.thread_key"
   | "idKinds.session_id"
   | "idKinds.session_key"
   | "idKinds.run_id"
@@ -21,6 +23,7 @@ type TracesIdKindKey =
 
 const TRACE_ID_KIND_TO_MSG: Record<TraceIdKind, TracesIdKindKey> = {
   trace_root: "idKinds.trace_root",
+  thread_key: "idKinds.thread_key",
   session_id: "idKinds.session_id",
   session_key: "idKinds.session_key",
   run_id: "idKinds.run_id",
