@@ -21,6 +21,16 @@ pnpm build
 pnpm smoke           # 自动起临时 Collector（随机端口 + 临时 DB）→ ingest → 拉列表，无需手工起服务
 ```
 
+### 清空本机 trace 数据（SQLite）
+
+默认库文件固定在 **`services/collector/data/crabagent.db`**（与启动时 shell 的当前目录无关）。**先停掉 Collector**，再执行：
+
+```bash
+pnpm collector:clear-db
+```
+
+若进程仍占用旧库，删文件后数据在内存里仍可见，**必须重启 Collector** 后 Web 才会变空。
+
 ### 一键写入 OpenClaw 配置（需你确认后执行）
 
 先看将要合并的内容（不写盘）：

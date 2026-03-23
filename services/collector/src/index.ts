@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -7,7 +9,11 @@ import { sseSubscribe } from "./sse-hub.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
-const DB_PATH = process.env.CRABAGENT_DB_PATH ?? "./data/crabagent.db";
+/** Always under `services/collector/data/` so clearing data does not depend on shell cwd. */
+const collectorPackageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const defaultDbPath = path.join(collectorPackageRoot, "data", "crabagent.db");
+const DB_PATH = process.env.CRABAGENT_DB_PATH?.trim() || defaultDbPath;
+const DB_PATH_LOG = path.resolve(DB_PATH);
 
 const db = openDatabase(DB_PATH);
 const insertStmt = db.prepare(
@@ -216,7 +222,7 @@ app.get("/v1/traces/:traceRootId/stream", (c) => {
 });
 
 console.log(
-  `[crabagent-collector] listening on http://127.0.0.1:${PORT} db=${DB_PATH} auth=${API_KEY ? "on" : "off"}`,
+  `[crabagent-collector] listening on http://127.0.0.1:${PORT} db=${DB_PATH_LOG} auth=${API_KEY ? "on" : "off"}`,
 );
 
 serve({ fetch: app.fetch, port: PORT });

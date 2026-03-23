@@ -8,6 +8,7 @@
     "dev:collector": "pnpm --filter @crabagent/collector dev",
     "dev:web": "pnpm --filter @crabagent/web dev",
     "smoke": "pnpm --filter @crabagent/collector build && node scripts/run-stack-smoke.mjs",
+    "collector:clear-db": "node scripts/clear-collector-db.mjs",
     "openclaw:merge-config": "node scripts/merge-openclaw-config.mjs",
     "lint": "pnpm -r --if-present run lint"
   },
