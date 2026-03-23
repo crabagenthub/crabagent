@@ -1,0 +1,9 @@
+%% 数据流程：断网续传（Outbox）
+
+flowchart TD
+  H[Hook 入队] --> M[内存队列]
+  M --> W[Worker]
+  W -->|成功| S[删 Outbox 或标记 ack]
+  W -->|失败| O[(SQLite Outbox 持久化)]
+  O --> W2[重启后 Worker 重试]
+  W2 --> COL[Collector]

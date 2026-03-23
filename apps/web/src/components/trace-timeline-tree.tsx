@@ -1,0 +1,449 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
+import { IdLabeledCopy } from "@/components/id-labeled-copy";
+
+export type TraceTimelineEvent = {
+  id?: number;
+  event_id?: string;
+  trace_root_id?: string | null;
+  session_id?: string | null;
+  session_key?: string | null;
+  run_id?: string | null;
+  channel?: string | null;
+  client_ts?: string | null;
+  type?: string;
+  payload?: unknown;
+  created_at?: string;
+};
+
+function rowNumericId(e: TraceTimelineEvent): number {
+  const n = e.id;
+  if (typeof n === "number" && Number.isFinite(n)) {
+    return n;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortChronological(events: TraceTimelineEvent[]): TraceTimelineEvent[] {
+  return [...events].sort((a, b) => {
+    const da = rowNumericId(a);
+    const db = rowNumericId(b);
+    if (da !== db) {
+      return da - db;
+    }
+    const ta = String(a.client_ts ?? a.created_at ?? "");
+    const tb = String(b.client_ts ?? b.created_at ?? "");
+    return ta.localeCompare(tb);
+  });
+}
+
+function firstEventId(list: TraceTimelineEvent[]): number {
+  let m = Number.MAX_SAFE_INTEGER;
+  for (const e of list) {
+    m = Math.min(m, rowNumericId(e));
+  }
+  return m;
+}
+
+function shortRunLabel(runId: string): string {
+  const t = runId.trim();
+  if (t.length <= 18) {
+    return t;
+  }
+  return `${t.slice(0, 10)}…${t.slice(-6)}`;
+}
+
+function shortKeyLabel(s: string, head = 12, tail = 6): string {
+  const t = s.trim();
+  if (t.length <= head + tail + 1) {
+    return t;
+  }
+  return `${t.slice(0, head)}…${t.slice(-tail)}`;
+}
+
+function formatRoleCounts(roles: Record<string, number>): string {
+  const entries = Object.entries(roles).sort(([a], [b]) => a.localeCompare(b));
+  return entries.length > 0 ? entries.map(([k, v]) => `${k}:${v}`).join(", ") : "—";
+}
+
+function numStr(v: unknown): string {
+  return typeof v === "number" && Number.isFinite(v) ? String(v) : "—";
+}
+
+type ParsedPruneChange = {
+  index: number;
+  role: string;
+  toolName?: string;
+  charsBefore: number;
+  charsAfter: number;
+  charDelta: number;
+  phase: string;
+};
+
+function parseContextPruneMessageChanges(raw: unknown): ParsedPruneChange[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: ParsedPruneChange[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    const index = o.index;
+    if (typeof index !== "number" || !Number.isFinite(index)) {
+      continue;
+    }
+    const role = typeof o.role === "string" && o.role.trim() ? o.role.trim() : "?";
+    const toolName =
+      typeof o.toolName === "string" && o.toolName.trim() ? o.toolName.trim() : undefined;
+    const charsBefore =
+      typeof o.charsBefore === "number" && Number.isFinite(o.charsBefore) ? o.charsBefore : 0;
+    const charsAfter =
+      typeof o.charsAfter === "number" && Number.isFinite(o.charsAfter) ? o.charsAfter : 0;
+    const charDelta =
+      typeof o.charDelta === "number" && Number.isFinite(o.charDelta) ? o.charDelta : charsAfter - charsBefore;
+    const phaseRaw = typeof o.phase === "string" && o.phase.trim() ? o.phase.trim() : "unknown";
+    out.push({ index, role, toolName, charsBefore, charsAfter, charDelta, phase: phaseRaw });
+  }
+  out.sort((a, b) => a.index - b.index);
+  return out;
+}
+
+function formatCharDelta(d: number): string {
+  if (!Number.isFinite(d)) {
+    return "—";
+  }
+  if (d > 0) {
+    return `+${d}`;
+  }
+  return String(d);
+}
+
+const CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD = 12;
+
+function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> }) {
+  const t = useTranslations("Traces");
+  const changes = useMemo(() => parseContextPruneMessageChanges(p.messageChanges), [p.messageChanges]);
+  const truncated = p.messageChangesTruncated === true;
+  const [detailsOpen, setDetailsOpen] = useState(() => changes.length <= CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD);
+
+  const phaseLabel = (phase: string) => {
+    if (phase === "soft_trim") {
+      return t("contextPrunePhaseSoftTrim");
+    }
+    if (phase === "hard_clear") {
+      return t("contextPrunePhaseHardClear");
+    }
+    return t("contextPrunePhaseUnknown");
+  };
+
+  return (
+    <div className="mt-1 space-y-2">
+      <p className="text-xs leading-snug text-ca-muted">
+        {t("pipelineContextPrune", {
+          mode: String(p.mode ?? "—"),
+          before: numStr(p.messageCountBefore),
+          after: numStr(p.messageCountAfter),
+          cBefore: numStr(p.estimatedCharsBefore),
+          cAfter: numStr(p.estimatedCharsAfter),
+          delta: numStr(p.charDelta),
+        })}
+      </p>
+      {changes.length > 0 ? (
+        <details
+          className="rounded-lg border border-ca-border/80 bg-neutral-50/60 text-xs text-neutral-800"
+          open={detailsOpen}
+          onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
+        >
+          <summary className="cursor-pointer select-none px-2 py-1.5 font-medium text-ca-muted hover:bg-neutral-100/80">
+            {t("pipelineContextPruneChangesTitle", { count: String(changes.length) })}
+            {truncated ? <span className="ml-2 font-normal text-amber-700">· …</span> : null}
+          </summary>
+          <div className="border-t border-ca-border/60 px-1 pb-2 pt-1">
+            {truncated ? (
+              <p className="mb-2 px-1 text-[11px] leading-snug text-amber-800">
+                {t("pipelineContextPruneChangesTruncated")}
+              </p>
+            ) : null}
+            <div className="max-h-[min(14rem,35vh)] overflow-auto rounded-md border border-ca-border/50 bg-white/90">
+              <table className="w-full border-collapse text-left font-mono text-[10px] leading-tight">
+                <thead className="sticky top-0 z-[1] bg-neutral-100/95 text-[9px] uppercase tracking-wide text-ca-muted">
+                  <tr>
+                    <th className="whitespace-nowrap px-1.5 py-1 font-semibold">{t("contextPruneColIndex")}</th>
+                    <th className="whitespace-nowrap px-1.5 py-1 font-semibold">{t("contextPruneColRole")}</th>
+                    <th className="whitespace-nowrap px-1.5 py-1 font-semibold">{t("contextPruneColTool")}</th>
+                    <th className="whitespace-nowrap px-1.5 py-1 font-semibold">{t("contextPruneColPhase")}</th>
+                    <th className="whitespace-nowrap px-1.5 py-1 text-right font-semibold">
+                      {t("contextPruneColBefore")}
+                    </th>
+                    <th className="whitespace-nowrap px-1.5 py-1 text-right font-semibold">
+                      {t("contextPruneColAfter")}
+                    </th>
+                    <th className="whitespace-nowrap px-1.5 py-1 text-right font-semibold">
+                      {t("contextPruneColDelta")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="text-neutral-800">
+                  {changes.map((row) => (
+                    <tr
+                      key={`${row.index}-${row.role}-${row.toolName ?? ""}`}
+                      className="border-t border-ca-border/40 odd:bg-neutral-50/50"
+                    >
+                      <td className="whitespace-nowrap px-1.5 py-1 tabular-nums">{row.index}</td>
+                      <td className="max-w-[5rem] truncate px-1.5 py-1" title={row.role}>
+                        {row.role}
+                      </td>
+                      <td className="max-w-[6rem] truncate px-1.5 py-1" title={row.toolName ?? ""}>
+                        {row.toolName ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-1.5 py-1">{phaseLabel(row.phase)}</td>
+                      <td className="whitespace-nowrap px-1.5 py-1 text-right tabular-nums">{row.charsBefore}</td>
+                      <td className="whitespace-nowrap px-1.5 py-1 text-right tabular-nums">{row.charsAfter}</td>
+                      <td
+                        className={`whitespace-nowrap px-1.5 py-1 text-right tabular-nums ${
+                          row.charDelta < 0 ? "text-emerald-800" : row.charDelta > 0 ? "text-rose-800" : ""
+                        }`}
+                      >
+                        {formatCharDelta(row.charDelta)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function TraceEventPipelineSummary({
+  eventType,
+  payload,
+}: {
+  eventType?: string;
+  payload: unknown;
+}) {
+  const t = useTranslations("Traces");
+  if (!eventType) {
+    return null;
+  }
+  const p =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+
+  if (eventType === "before_model_resolve") {
+    return (
+      <p className="mt-1 text-xs leading-snug text-ca-muted">
+        {t("pipelineBeforeModelResolve", { chars: numStr(p.promptCharCount) })}
+      </p>
+    );
+  }
+  if (eventType === "before_prompt_build") {
+    const rc = p.historyRoleCounts;
+    const rolesStr =
+      rc && typeof rc === "object" && !Array.isArray(rc)
+        ? formatRoleCounts(rc as Record<string, number>)
+        : "—";
+    return (
+      <p className="mt-1 text-xs leading-snug text-ca-muted">
+        {t("pipelineBeforePromptBuild", {
+          history: numStr(p.historyMessageCount),
+          promptChars: numStr(p.promptCharCount),
+          roles: rolesStr,
+        })}
+      </p>
+    );
+  }
+  if (eventType === "llm_input") {
+    return (
+      <p className="mt-1 text-xs leading-snug text-ca-muted">
+        {t("pipelineLlmInput", {
+          provider: String(p.provider ?? "—"),
+          model: String(p.model ?? "—"),
+          history: numStr(p.historyMessageCount),
+          images: numStr(p.imagesCount),
+          delta: numStr(p.pluginPrependDeltaChars),
+        })}
+      </p>
+    );
+  }
+  if (eventType === "llm_output") {
+    const texts = p.assistantTexts;
+    const n = Array.isArray(texts) ? texts.length : 0;
+    return (
+      <p className="mt-1 text-xs leading-snug text-ca-muted">
+        {t("pipelineLlmOutput", { count: String(n) })}
+      </p>
+    );
+  }
+  if (eventType === "context_prune_applied") {
+    return <ContextPruneAppliedPipelineBlock p={p} />;
+  }
+  if (eventType === "hook_contribution") {
+    const source = String(p.sourceHook ?? "—");
+    const plugin = String(p.contributingPluginId ?? "—");
+    const tool = typeof p.toolName === "string" && p.toolName.trim() ? p.toolName.trim() : "";
+    return (
+      <p className="mt-1 text-xs leading-snug text-ca-muted">
+        {t("pipelineHookContribution", { source, plugin })}
+        {tool ? (
+          <>
+            {" · "}
+            {t("pipelineHookContributionTool", { tool })}
+          </>
+        ) : null}
+      </p>
+    );
+  }
+  return null;
+}
+
+function buildRunGroups(events: TraceTimelineEvent[]): { key: string; items: TraceTimelineEvent[] }[] {
+  const sorted = sortChronological(events);
+  const map = new Map<string, TraceTimelineEvent[]>();
+  for (const ev of sorted) {
+    const rid = typeof ev.run_id === "string" && ev.run_id.trim().length > 0 ? ev.run_id.trim() : "";
+    const key = rid || "__session__";
+    let bucket = map.get(key);
+    if (!bucket) {
+      bucket = [];
+      map.set(key, bucket);
+    }
+    bucket.push(ev);
+  }
+  const pairs = [...map.entries()];
+  pairs.sort(([ka, a], [kb, b]) => {
+    if (ka === "__session__") {
+      return -1;
+    }
+    if (kb === "__session__") {
+      return 1;
+    }
+    return firstEventId(a) - firstEventId(b);
+  });
+  return pairs.map(([key, items]) => ({ key, items }));
+}
+
+export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) {
+  const t = useTranslations("Traces");
+  const groups = useMemo(() => buildRunGroups(events), [events]);
+
+  return (
+    <div className="ca-tree space-y-3">
+      <p className="text-xs text-ca-muted">{t("treeHint")}</p>
+      {groups.map((g) => (
+        <details key={g.key} open className="overflow-hidden rounded-2xl border border-ca-border bg-white shadow-ca-sm">
+          <summary className="flex cursor-pointer list-none items-center gap-2 bg-neutral-50/90 px-4 py-3 text-sm font-semibold text-neutral-900">
+            <span className="ca-tree-chevron select-none" aria-hidden>
+              ▸
+            </span>
+            <span className="min-w-0 flex-1">
+              {g.key === "__session__" ? (
+                <span>{t("treeSessionWide")}</span>
+              ) : (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="shrink-0">{t("treeRun")}</span>
+                  <IdLabeledCopy
+                    kind="run_id"
+                    value={g.key}
+                    displayText={shortRunLabel(g.key)}
+                    variant="compact"
+                  />
+                </span>
+              )}
+            </span>
+            <span className="shrink-0 text-xs font-normal text-ca-muted">
+              {t("treeEventCount", { count: g.items.length })}
+            </span>
+          </summary>
+          <div className="space-y-3 border-l-2 border-ca-border/70 py-3 pl-4 ml-5 mr-2 border-t border-ca-border">
+            {g.items.map((row) => {
+              const when = row.client_ts ?? row.created_at ?? "—";
+              const key = String(row.event_id ?? row.id ?? `${g.key}-${when}-${row.type}`);
+              return (
+                <div
+                  key={key}
+                  className="overflow-hidden rounded-xl border border-ca-border/90 bg-neutral-50/40 shadow-sm"
+                >
+                  <div className="space-y-2 border-b border-ca-border/80 bg-white/90 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[11px] text-ca-muted">{when}</span>
+                      {row.channel ? (
+                        <span className="ca-pill-muted font-mono text-[10px]">{row.channel}</span>
+                      ) : null}
+                      <span className="ca-pill-muted font-mono text-[11px] font-semibold">
+                        {row.type ?? "—"}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      {typeof row.id === "number" ? (
+                        <IdLabeledCopy kind="row_id" value={row.id} variant="compact" />
+                      ) : null}
+                      {row.event_id ? (
+                        <IdLabeledCopy
+                          kind="event_id"
+                          value={row.event_id}
+                          displayText={
+                            row.event_id.length > 12 ? `…${row.event_id.slice(-8)}` : row.event_id
+                          }
+                          variant="compact"
+                        />
+                      ) : null}
+                      {row.run_id ? (
+                        <IdLabeledCopy
+                          kind="run_id"
+                          value={row.run_id}
+                          displayText={shortRunLabel(row.run_id)}
+                          variant="compact"
+                        />
+                      ) : null}
+                      {row.session_key ? (
+                        <IdLabeledCopy
+                          kind="session_key"
+                          value={row.session_key}
+                          displayText={shortKeyLabel(row.session_key)}
+                          variant="compact"
+                        />
+                      ) : null}
+                      {row.session_id ? (
+                        <IdLabeledCopy
+                          kind="session_id"
+                          value={row.session_id}
+                          displayText={
+                            row.session_id.length > 14
+                              ? `…${row.session_id.slice(-10)}`
+                              : row.session_id
+                          }
+                          variant="compact"
+                        />
+                      ) : null}
+                      {row.trace_root_id ? (
+                        <IdLabeledCopy
+                          kind="trace_root"
+                          value={row.trace_root_id}
+                          displayText={shortRunLabel(row.trace_root_id)}
+                          variant="compact"
+                        />
+                      ) : null}
+                    </div>
+                    <TraceEventPipelineSummary eventType={row.type} payload={row.payload} />
+                  </div>
+                  <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto rounded-none border-0 text-[11px] leading-relaxed">
+                    {JSON.stringify(row.payload ?? {}, null, 2)}
+                  </pre>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}

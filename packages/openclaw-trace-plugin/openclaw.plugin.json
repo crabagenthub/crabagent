@@ -1,0 +1,53 @@
+{
+  "id": "openclaw-trace-plugin",
+  "name": "Crabagent Trace",
+  "description": "Ship OpenClaw agent traces to Crabagent Collector (hooks + optional cache-trace tail).",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "collectorBaseUrl": {
+        "type": "string",
+        "description": "HTTPS (or http for dev) base URL of Crabagent Collector, no trailing slash."
+      },
+      "collectorApiKey": {
+        "type": "string",
+        "description": "Bearer / X-API-Key for Collector; must match CRABAGENT_API_KEY on collector."
+      },
+      "flushIntervalMs": {
+        "type": "number",
+        "minimum": 200,
+        "default": 2000,
+        "description": "Background flush interval."
+      },
+      "memoryQueueMax": {
+        "type": "number",
+        "minimum": 100,
+        "default": 10000,
+        "description": "Max queued events in memory before oldest dropped."
+      },
+      "sampleRateBps": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10000,
+        "default": 10000,
+        "description": "Sample rate in basis points (10000 = 100%). Fixed per session on session_start."
+      },
+      "cacheTracePath": {
+        "type": "string",
+        "description": "Optional override path to cache-trace.jsonl for per-model stream:context tail."
+      },
+      "enableCacheTraceTail": {
+        "type": "boolean",
+        "default": true,
+        "description": "Tail cache-trace.jsonl for stream:context (per model call)."
+      },
+      "cacheTracePollMs": {
+        "type": "number",
+        "minimum": 200,
+        "default": 750,
+        "description": "Poll interval for cache trace file."
+      }
+    }
+  }
+}

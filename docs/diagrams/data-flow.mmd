@@ -1,0 +1,55 @@
+%% Crabagent：数据流程图（主序列）
+%% SSE：订阅键为 trace_root_id；可从 session 入口由 Collector 解析后再订阅
+%% 可用：npx @mermaid-js/mermaid-cli -i data-flow.mmd -o data-flow.svg
+
+%% --- 端到端主流程 ---
+sequenceDiagram
+  participant Ch as 频道用户消息
+  participant GW as OpenClaw Gateway
+  participant AG as Agent Attempt
+  participant PL as Trace Plugin
+  participant MEM as 内存队列
+  participant WR as Flush Worker
+  participant COL as Collector API
+  participant DB as SQLite
+  participant WEB as Web 控制台
+
+  Ch ->> GW: 入站消息
+  GW ->> AG: 调度 Run（runId / sessionId）
+
+  Note over PL: 按 session 采样：未命中则直接 return
+
+  AG ->> PL: hook llm_input（turn 级快照）
+  PL ->> MEM: enqueue trace_event
+
+  opt 每跳模型请求（Cache Trace）
+    AG ->> PL: stream:context（tail JSONL 或等价）
+    PL ->> MEM: enqueue model_call span
+  end
+
+  loop 每个 Tool
+    AG ->> PL: before_tool_call / after_tool_call
+    PL ->> MEM: enqueue tool span
+  end
+
+  opt Compaction
+    AG ->> PL: before_compaction
+    PL ->> MEM: enqueue compaction_before
+    AG ->> PL: after_compaction
+    PL ->> MEM: enqueue compaction_after（可异步读 sessionFile diff）
+  end
+
+  AG ->> PL: llm_output + agent_end
+  PL ->> MEM: enqueue turn 结束事件
+
+  WR ->> MEM: 批量 dequeue
+  WR ->> COL: HTTPS POST /ingest（gzip）
+  COL ->> DB: 写入事件 + Outbox ACK
+
+  WEB ->> COL: GET /traces、GET /sessions/:id
+  COL ->> DB: 查询
+  DB ->> COL: rows
+  COL ->> WEB: JSON
+
+  WEB ->> COL: GET /traces/:traceRootId/stream（SSE）
+  COL -->> WEB: push 新 span / 状态

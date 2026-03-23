@@ -1,0 +1,10 @@
+%% 数据流程：变体兼容 / 能力降级
+
+flowchart LR
+  subgraph Detect["插件启动 / 周期性"]
+    A{存在 cache-trace<br/>且能解析 stream:context?}
+  end
+  A -->|是| F[capabilities.per_model_call = true]
+  A -->|否| G[capabilities.per_model_call = false]
+  F --> UI[控制台展示完整时间线]
+  G --> UI2[控制台降级：仅 turn 级模型块 + Tool]

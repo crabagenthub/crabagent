@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply text-neutral-900 antialiased;
+  }
+}
+
+@layer components {
+  .ca-page {
+    @apply mx-auto w-full max-w-[min(100%,1360px)] px-4 py-8 sm:px-5 md:py-10 lg:px-6;
+  }
+
+  .ca-page-narrow {
+    @apply mx-auto max-w-2xl px-4 py-8 sm:px-5 md:px-6 md:py-10;
+  }
+
+  .ca-card {
+    @apply rounded-2xl border border-ca-border bg-ca-surface shadow-ca-sm;
+  }
+
+  .ca-card-pad {
+    @apply ca-card p-6 md:p-8;
+  }
+
+  .ca-label {
+    @apply block text-xs font-medium uppercase tracking-wide text-ca-muted;
+  }
+
+  .ca-input {
+    @apply mt-2 w-full rounded-xl border border-ca-border bg-white px-4 py-3 font-mono text-sm text-neutral-900 outline-none transition
+      placeholder:text-neutral-400
+      focus:border-ca-accent focus:ring-2 focus:ring-ca-accent/15;
+  }
+
+  .ca-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-ca-accent px-5 py-2.5 text-sm font-medium text-white shadow-sm transition
+      hover:bg-ca-accent-hover disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .ca-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-ca-border bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 transition
+      hover:bg-neutral-50 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .ca-btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-ca-danger-soft px-5 py-2.5 text-sm font-medium text-red-700 transition
+      hover:bg-red-100 disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .ca-table-wrap {
+    @apply ca-card overflow-hidden;
+  }
+
+  .ca-code-block {
+    @apply rounded-xl bg-[#1e1e1e] p-4 font-mono text-xs leading-relaxed text-neutral-100;
+  }
+
+  .ca-pill {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .ca-pill-success {
+    @apply ca-pill bg-emerald-500/15 text-emerald-700;
+  }
+
+  .ca-pill-muted {
+    @apply ca-pill bg-neutral-200/80 text-neutral-600;
+  }
+
+  .ca-pill-warn {
+    @apply ca-pill bg-amber-500/15 text-amber-800;
+  }
+
+  .ca-tree > details > summary {
+    list-style: none;
+  }
+
+  .ca-tree > details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .ca-tree-chevron {
+    @apply inline-block shrink-0 text-ca-muted transition-transform;
+  }
+
+  details[open] > summary .ca-tree-chevron {
+    @apply rotate-90;
+  }
+}

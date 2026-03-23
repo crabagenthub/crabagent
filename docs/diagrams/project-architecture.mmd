@@ -1,0 +1,72 @@
+%% Crabagent：项目架构图（组件与边界）
+%% 含：Trace 采集 + Collector 内 Token 优化模块（MVP）
+%% 可用：npx @mermaid-js/mermaid-cli -i project-architecture.mmd -o project-architecture.svg
+
+flowchart TB
+  subgraph Users["使用者"]
+    U[内网用户浏览器]
+    OP[运维 / CI]
+  end
+
+  subgraph OpenClawHost["OpenClaw 网关机（全局 npm + 本机配置）"]
+    GW[OpenClaw Gateway]
+    AG[Embedded Agent / Pi Runner]
+    SF[streamFn + 可选 Cache Trace 写盘]
+    GW --> AG
+    AG --> SF
+  end
+
+  subgraph CrabagentPlugin["crabagent：openclaw-trace-plugin（独立 npm / load.paths）"]
+    H[Hooks：llm_in/out、agent_end、tool、compaction、subagent]
+    T[Tail：cache-trace.jsonl 可选]
+    Q[内存队列 有界]
+    W[后台 Flush Worker]
+    H --> Q
+    T --> Q
+    Q --> W
+  end
+
+  subgraph CrabagentBackend["crabagent：Collector 服务"]
+    API[HTTP API：REST + OpenAPI]
+    SSE[SSE：按 trace_root_id 扇入]
+    AUTH[鉴权：云多租户 / OAuth + API Key]
+    DB[(SQLite：Trace 事件 + Outbox + 策略存储)]
+
+    subgraph TokOpt["Token 优化（MVP 内嵌 Collector）"]
+      TPOL[策略中心：CRUD / 版本 / 范围]
+      TENG[规则引擎：诊断 + 节省估算]
+      TPOL --> DB
+      TENG --> DB
+    end
+
+    API --> AUTH
+    SSE --> AUTH
+    API --> DB
+    API --> TPOL
+    API --> TENG
+    TENG -.->|读 Trace / usage 聚合| DB
+  end
+
+  subgraph CrabagentWeb["crabagent：Web 控制台 Next.js"]
+    UI[App Router + next-intl 中/英]
+    RQ[TanStack Query]
+    ES[EventSource 订阅 SSE]
+    UI --> RQ
+    UI --> ES
+  end
+
+  AG -.->|同进程加载| H
+  SF -.->|JSONL| T
+  W -->|HTTPS 批量 ingest| API
+  U --> UI
+  RQ -->|REST：Trace + 策略 + 诊断| API
+  ES -->|SSE| SSE
+  OP -->|Bearer API Key| API
+
+  subgraph Optional["可选后续"]
+    DUCK[(DuckDB / Parquet ETL 分析)]
+    CLOUD[(公有云 SaaS 同架构多租户)]
+    POLSVC[独立 Policy 服务 V2+]
+  end
+  DB -.-> DUCK
+  TokOpt -.->|负载或隔离时拆分| POLSVC

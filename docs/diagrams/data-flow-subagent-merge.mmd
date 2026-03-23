@@ -1,0 +1,11 @@
+%% 数据流程：子代理合并到父 Trace
+
+flowchart LR
+  subgraph Parent["父会话"]
+    R[trace_root_id 固定]
+    S[subagent_spawned]
+    L[子 run：同 trace_root_id + parent_span_id]
+    E[subagent_ended]
+  end
+  R --> S --> L --> E
+  L -.->|child_session_key / childRunId| L

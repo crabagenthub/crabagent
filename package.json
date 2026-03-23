@@ -1,0 +1,17 @@
+{
+  "name": "crabagent",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm --filter @crabagent/collector build && pnpm --filter @crabagent/openclaw-trace-plugin run typecheck && pnpm --filter @crabagent/web build",
+    "dev": "concurrently -n collector,web -c blue,green \"pnpm dev:collector\" \"pnpm dev:web\"",
+    "dev:collector": "pnpm --filter @crabagent/collector dev",
+    "dev:web": "pnpm --filter @crabagent/web dev",
+    "smoke": "pnpm --filter @crabagent/collector build && node scripts/run-stack-smoke.mjs",
+    "openclaw:merge-config": "node scripts/merge-openclaw-config.mjs",
+    "lint": "pnpm -r --if-present run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
