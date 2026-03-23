@@ -130,10 +130,8 @@ export default {
       if (!traceState.shouldRecord(event.sessionId, event.sessionKey, cfg.sampleRateBps)) {
         return;
       }
-      const root = traceState.getOrCreateTraceRoot(event.sessionId, undefined);
-      if (event.sessionKey) {
-        traceState.bindSessionKey(event.sessionKey, root);
-      }
+      // Do not allocate trace_root here: `message_received` may have run first with only
+      // sessionKey; `enqueue` uses resolveTraceRoot so sessionKey + sessionId share one root.
       enqueue(
         "session_start",
         { sessionId: event.sessionId, sessionKey: event.sessionKey },

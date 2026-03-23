@@ -49,16 +49,33 @@ export class TraceState {
     }
   }
 
-  getOrCreateTraceRoot(sessionId: string | undefined, runId: string | undefined): string {
-    if (!sessionId) {
-      return runId?.trim() || randomUUID();
+  /**
+   * When `sessionId` appears after hooks that only had `sessionKey` (e.g. `message_received`),
+   * attach this session to the same trace root so one channel turn stays one trace.
+   */
+  private linkSessionToRoot(root: string, sessionId: string | undefined): void {
+    const sid = sessionId?.trim();
+    if (!sid) {
+      return;
     }
-    const existing = this.traceRootBySession.get(sessionId);
-    if (existing) {
-      return existing;
+    const prev = this.traceRootBySession.get(sid);
+    if (!prev || prev === root) {
+      this.traceRootBySession.set(sid, root);
+      return;
     }
-    const root = runId?.trim() || randomUUID();
-    this.traceRootBySession.set(sessionId, root);
+    // Prefer the root already tied to sessionKey / child map (conversation-stable).
+    this.traceRootBySession.set(sid, root);
+  }
+
+  /** Allocate a new trace root and register it under sessionId when present. */
+  private allocateNewRoot(sessionId: string | undefined, runId: string | undefined): string {
+    const rid = runId?.trim();
+    if (!sessionId?.trim()) {
+      return rid || randomUUID();
+    }
+    const sid = sessionId.trim();
+    const root = rid || randomUUID();
+    this.traceRootBySession.set(sid, root);
     return root;
   }
 
@@ -71,16 +88,22 @@ export class TraceState {
     if (sk) {
       const fromChild = this.childToParentTrace.get(sk);
       if (fromChild) {
+        this.linkSessionToRoot(fromChild, sessionId);
+        this.bindSessionKey(sk, fromChild);
         return fromChild;
       }
       const fromKey = this.traceRootBySessionKey.get(sk);
       if (fromKey) {
+        this.linkSessionToRoot(fromKey, sessionId);
         return fromKey;
       }
     }
     if (sessionId) {
       const fromSession = this.traceRootBySession.get(sessionId);
       if (fromSession) {
+        if (sk) {
+          this.bindSessionKey(sk, fromSession);
+        }
         return fromSession;
       }
     }
@@ -88,10 +111,18 @@ export class TraceState {
     if (rid) {
       const fromRun = this.traceRootByRunId.get(rid);
       if (fromRun) {
+        if (sk) {
+          this.bindSessionKey(sk, fromRun);
+        }
+        this.linkSessionToRoot(fromRun, sessionId);
         return fromRun;
       }
     }
-    return this.getOrCreateTraceRoot(sessionId, runId);
+    const root = this.allocateNewRoot(sessionId, runId);
+    if (sk) {
+      this.bindSessionKey(sk, root);
+    }
+    return root;
   }
 
   /** Parent trace for subagent: prefer requester sessionKey, else parent runId as ephemeral root. */
