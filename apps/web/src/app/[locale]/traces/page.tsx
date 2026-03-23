@@ -8,39 +8,76 @@ import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
+import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 
-type TraceRow = {
-  /** Conversation thread id (session_key → session_id → trace_root_id). */
-  thread_key: string;
+type TraceMessageRow = {
+  id: number;
   event_id: string;
-  event_count?: number;
+  thread_key: string;
   trace_root_id?: string | null;
   session_id: string | null;
   session_key?: string | null;
-  /** OpenClaw agent id (e.g. main), from latest row in thread. */
   agent_id?: string | null;
-  type: string;
-  created_at: string;
+  agent_name?: string | null;
+  chat_title?: string | null;
   channel?: string | null;
+  msg_id?: string | null;
+  created_at: string;
+  client_ts?: string | null;
+  message_preview?: string | null;
 };
 
-function rowHasChannel(row: TraceRow): boolean {
+function rowHasChannel(row: TraceMessageRow): boolean {
   return Boolean(row.channel != null && String(row.channel).trim().length > 0);
 }
 
-function rowHasAgent(row: TraceRow): boolean {
-  return Boolean(row.agent_id != null && String(row.agent_id).trim().length > 0);
+function rowHasAgent(row: TraceMessageRow): boolean {
+  const id = row.agent_id != null && String(row.agent_id).trim().length > 0;
+  const name = row.agent_name != null && String(row.agent_name).trim().length > 0;
+  return Boolean(id || name);
 }
 
-async function loadTraces(baseUrl: string, apiKey: string): Promise<{ items: TraceRow[] }> {
+function rowHasChatTitle(row: TraceMessageRow): boolean {
+  return Boolean(row.chat_title != null && String(row.chat_title).trim().length > 0);
+}
+
+function rowMsgId(row: TraceMessageRow): string | null {
+  const m = row.msg_id;
+  if (typeof m !== "string" || !m.trim()) {
+    return null;
+  }
+  return m.trim();
+}
+
+function messagePreviewText(row: TraceMessageRow): string {
+  const p = row.message_preview;
+  if (typeof p === "string" && p.trim().length > 0) {
+    return p.trim();
+  }
+  return "—";
+}
+
+function detailHref(row: TraceMessageRow): string {
+  const tk = encodeURIComponent(row.thread_key);
+  const mid = rowMsgId(row);
+  if (mid) {
+    return `/traces/${tk}?msg_id=${encodeURIComponent(mid)}`;
+  }
+  return `/traces/${tk}?msg=${encodeURIComponent(row.event_id)}`;
+}
+
+async function loadTraceMessages(
+  baseUrl: string,
+  apiKey: string,
+): Promise<{ items: TraceMessageRow[] }> {
   const b = baseUrl.replace(/\/+$/, "");
-  const res = await fetch(`${b}/v1/traces?limit=100`, {
+  const res = await fetch(`${b}/v1/trace-messages?limit=200`, {
     headers: collectorAuthHeaders(apiKey),
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
-  return res.json() as Promise<{ items: TraceRow[] }>;
+  return res.json() as Promise<{ items: TraceMessageRow[] }>;
 }
 
 export default function TracesPage() {
@@ -60,31 +97,25 @@ export default function TracesPage() {
     const onSettings = () => {
       setBaseUrl(loadCollectorUrl());
       setApiKey(loadApiKey());
-      void queryClient.invalidateQueries({ queryKey: ["traces"] });
+      void queryClient.invalidateQueries({ queryKey: ["trace-messages"] });
     };
     window.addEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
   }, [queryClient]);
 
   const q = useQuery({
-    queryKey: ["traces", baseUrl, apiKey],
-    queryFn: () => loadTraces(baseUrl, apiKey),
+    queryKey: ["trace-messages", baseUrl, apiKey],
+    queryFn: () => loadTraceMessages(baseUrl, apiKey),
     enabled: mounted && baseUrl.trim().length > 0,
     refetchInterval: 10_000,
     staleTime: 0,
   });
 
-  const traceRows = q.data?.items ?? [];
-  const rawCount = traceRows.length;
+  const rows = q.data?.items ?? [];
+  const rawCount = rows.length;
 
   const lastUpdated =
-    q.dataUpdatedAt > 0
-      ? new Date(q.dataUpdatedAt).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })
-      : null;
+    q.dataUpdatedAt > 0 ? formatTraceDateTimeLocal(new Date(q.dataUpdatedAt).toISOString()) : null;
 
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
@@ -137,7 +168,7 @@ export default function TracesPage() {
             <span className="font-mono text-ca-muted">{lastUpdated}</span>
           </p>
           {rawCount > 0 && (
-            <p className="mt-2 text-sm text-neutral-600">{t("stats", { traces: rawCount })}</p>
+            <p className="mt-2 text-sm text-neutral-600">{t("statsMessages", { count: rawCount })}</p>
           )}
           {rawCount === 0 && (
             <MessageHint
@@ -168,50 +199,119 @@ export default function TracesPage() {
             </LocalizedLink>
           </div>
         )}
-        {q.isSuccess && traceRows.length === 0 && !missingUrl && (
+        {q.isSuccess && rows.length === 0 && !missingUrl && (
           <div className="ca-card-pad">
             <div className="flex justify-center">
               <MessageHint
-                text={t("empty")}
+                text={t("listMessagesEmpty")}
                 textClassName="text-sm text-ca-muted text-center"
                 clampClass="line-clamp-4"
               />
             </div>
           </div>
         )}
-        {traceRows.length > 0 && (
+        {rows.length > 0 && (
           <div className="ca-table-wrap">
             <div className="border-b border-ca-border bg-neutral-50/90 px-5 py-4">
               <h2 className="text-sm font-semibold text-neutral-900">{t("tableTitle")}</h2>
               <MessageHint
-              text={t("tableSubtitle")}
-              className="mt-0.5"
-              textClassName="text-xs text-ca-muted"
-              clampClass="line-clamp-2"
-            />
+                text={t("tableSubtitle")}
+                className="mt-0.5"
+                textClassName="text-xs text-ca-muted"
+                clampClass="line-clamp-2"
+              />
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-sm">
+              <table className="w-full min-w-[1040px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-ca-border text-xs uppercase tracking-wide text-ca-muted">
-                    <th className="px-5 py-3 font-semibold">{t("traceRoot")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("messageColumn")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("time")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("chatTitle")}</th>
                     <th className="px-5 py-3 font-semibold">{t("channel")}</th>
                     <th className="px-5 py-3 font-semibold">{t("agent")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("listEventCount")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("session")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("eventSample")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("type")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("time")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("msgIdColumn")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("traceRoot")}</th>
                     <th className="px-5 py-3 font-semibold" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-ca-border">
-                  {traceRows.map((row) => (
-                    <tr
-                      key={row.thread_key}
-                      className="bg-white transition-colors hover:bg-neutral-50/80"
-                    >
-                      <td className="max-w-[260px] px-5 py-3.5 align-top">
+                  {rows.map((row) => {
+                    const correlationId = rowMsgId(row);
+                    return (
+                    <tr key={row.event_id} className="bg-white transition-colors hover:bg-neutral-50/80">
+                      <td className="max-w-md px-5 py-3.5 align-top">
+                        <p className="line-clamp-3 break-words text-neutral-900">{messagePreviewText(row)}</p>
+                        <div className="mt-1">
+                          <IdLabeledCopy
+                            kind="event_id"
+                            value={row.event_id}
+                            displayText={
+                              row.event_id.length > 14 ? `…${row.event_id.slice(-10)}` : row.event_id
+                            }
+                            variant="compact"
+                          />
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-ca-muted align-top">
+                        {formatTraceDateTimeLocal(row.client_ts ?? row.created_at)}
+                      </td>
+                      <td className="max-w-[180px] px-5 py-3.5 align-top">
+                        {rowHasChatTitle(row) ? (
+                          <span className="text-sm text-neutral-800" title={String(row.chat_title).trim()}>
+                            {String(row.chat_title).trim()}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="max-w-[100px] px-5 py-3.5 align-top">
+                        {rowHasChannel(row) ? (
+                          <span className="ca-pill-muted font-mono text-[11px] font-semibold">
+                            {String(row.channel).trim()}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="max-w-[200px] px-5 py-3.5 align-top">
+                        {rowHasAgent(row) ? (
+                          <div className="space-y-1">
+                            <span
+                              className="text-sm font-medium text-neutral-900"
+                              title={
+                                row.agent_name?.trim() && row.agent_id?.trim() && row.agent_name.trim() !== row.agent_id.trim()
+                                  ? row.agent_id.trim()
+                                  : undefined
+                              }
+                            >
+                              {(row.agent_name?.trim() || row.agent_id?.trim() || "—") as string}
+                            </span>
+                            {row.agent_name?.trim() &&
+                            row.agent_id?.trim() &&
+                            row.agent_name.trim() !== row.agent_id.trim() ? (
+                              <IdLabeledCopy kind="agent_id" value={row.agent_id.trim()} variant="compact" />
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="max-w-[200px] px-5 py-3.5 align-top">
+                        {correlationId ? (
+                          <IdLabeledCopy
+                            kind="msg_id"
+                            value={correlationId}
+                            displayText={
+                              correlationId.length > 14 ? `…${correlationId.slice(-10)}` : correlationId
+                            }
+                            variant="compact"
+                          />
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="max-w-[200px] px-5 py-3.5 align-top">
                         <IdLabeledCopy
                           kind="thread_key"
                           value={row.thread_key}
@@ -223,54 +323,17 @@ export default function TracesPage() {
                           variant="compact"
                         />
                       </td>
-                      <td className="max-w-[100px] px-5 py-3.5">
-                        {rowHasChannel(row) ? (
-                          <span className="ca-pill-muted font-mono text-[11px] font-semibold">
-                            {String(row.channel).trim()}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-neutral-400">—</span>
-                        )}
-                      </td>
-                      <td className="max-w-[120px] px-5 py-3.5">
-                        {rowHasAgent(row) ? (
-                          <IdLabeledCopy kind="agent_id" value={String(row.agent_id).trim()} variant="compact" />
-                        ) : (
-                          <span className="text-xs text-neutral-400">—</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-3.5 text-xs tabular-nums text-neutral-700">
-                        {typeof row.event_count === "number" ? row.event_count : "—"}
-                      </td>
-                      <td className="max-w-[200px] px-5 py-3.5 align-top">
-                        <IdLabeledCopy kind="session_id" value={row.session_id} variant="compact" />
-                      </td>
-                      <td className="max-w-[200px] px-5 py-3.5 align-top">
-                        <IdLabeledCopy
-                          kind="event_id"
-                          value={row.event_id}
-                          displayText={
-                            row.event_id.length > 14
-                              ? `…${row.event_id.slice(-10)}`
-                              : row.event_id
-                          }
-                          variant="compact"
-                        />
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className="ca-pill-muted font-mono text-[11px]">{row.type}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-3.5 text-xs text-ca-muted">{row.created_at}</td>
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-5 py-3.5 text-right align-top">
                         <LocalizedLink
-                          href={`/traces/${encodeURIComponent(row.thread_key)}`}
+                          href={detailHref(row)}
                           className="inline-flex rounded-lg bg-ca-accent px-3 py-1.5 text-xs font-medium text-white no-underline transition hover:bg-ca-accent-hover"
                         >
                           {t("open")}
                         </LocalizedLink>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

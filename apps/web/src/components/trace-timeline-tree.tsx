@@ -4,6 +4,10 @@ import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { MessageHint } from "@/components/message-hint";
+import { TraceCrabagentLayersPanel } from "@/components/trace-crabagent-layers-panel";
+import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { eventRunId } from "@/lib/trace-event-run-id";
+import { parseCrabagentPayload } from "@/lib/trace-crabagent-layers";
 
 export type TraceTimelineEvent = {
   id?: number;
@@ -12,7 +16,11 @@ export type TraceTimelineEvent = {
   session_id?: string | null;
   session_key?: string | null;
   agent_id?: string | null;
+  agent_name?: string | null;
+  chat_title?: string | null;
   run_id?: string | null;
+  /** Same id on message_received and correlated hooks (plugin). */
+  msg_id?: string | null;
   channel?: string | null;
   client_ts?: string | null;
   type?: string;
@@ -249,6 +257,34 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
   );
 }
 
+const PIPELINE_PHASE_KEYS = {
+  message_received: "phaseUserMessage",
+  session_start: "phaseSessionStart",
+  before_model_resolve: "phaseBeforeModelResolve",
+  before_prompt_build: "phaseBeforePromptBuild",
+  hook_contribution: "phaseHookContribution",
+  context_prune_applied: "phaseContextPrune",
+  model_stream_context: "phaseModelStreamContext",
+  llm_input: "phaseLlmInput",
+  llm_output: "phaseLlmOutput",
+  before_tool_call: "phaseToolCall",
+  after_tool_call: "phaseToolResult",
+  agent_end: "phaseAgentEnd",
+  before_compaction: "phaseCompactionBefore",
+  after_compaction: "phaseCompactionAfter",
+  subagent_spawned: "phaseSubagentSpawned",
+  subagent_ended: "phaseSubagentEnded",
+} as const;
+
+type PipelinePhaseMsgKey = (typeof PIPELINE_PHASE_KEYS)[keyof typeof PIPELINE_PHASE_KEYS];
+
+function pipelinePhaseKey(eventType: string | undefined): PipelinePhaseMsgKey | null {
+  if (!eventType) {
+    return null;
+  }
+  return (PIPELINE_PHASE_KEYS as Record<string, PipelinePhaseMsgKey>)[eventType] ?? null;
+}
+
 function TraceEventPipelineSummary({
   eventType,
   payload,
@@ -264,6 +300,22 @@ function TraceEventPipelineSummary({
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : {};
+
+  if (eventType === "model_stream_context") {
+    return (
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("pipelineModelStreamContext", {
+          seq: numStr(p.seq),
+          msgs: numStr(p.messageCount),
+          provider: String(p.provider ?? "—"),
+          model: String(p.modelId ?? "—"),
+        })}
+      />
+    );
+  }
 
   if (eventType === "before_model_resolve") {
     return (
@@ -344,11 +396,36 @@ function TraceEventPipelineSummary({
   return null;
 }
 
+function TraceEventPayloadFoldout({
+  defaultExpanded,
+  payload,
+}: {
+  defaultExpanded: boolean;
+  payload: unknown;
+}) {
+  const t = useTranslations("Traces");
+  const [open, setOpen] = useState(defaultExpanded);
+  return (
+    <details
+      className="rounded-b-xl border-t border-ca-border/70 bg-neutral-50/30"
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-ca-muted hover:bg-neutral-100/80">
+        {t("layersFullPayloadSummary")}
+      </summary>
+      <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto border-0 px-3 pb-3 text-[11px] leading-relaxed">
+        {JSON.stringify(payload ?? {}, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
 function buildRunGroups(events: TraceTimelineEvent[]): { key: string; items: TraceTimelineEvent[] }[] {
   const sorted = sortChronological(events);
   const map = new Map<string, TraceTimelineEvent[]>();
   for (const ev of sorted) {
-    const rid = typeof ev.run_id === "string" && ev.run_id.trim().length > 0 ? ev.run_id.trim() : "";
+    const rid = eventRunId(ev);
     const key = rid || "__session__";
     let bucket = map.get(key);
     if (!bucket) {
@@ -409,8 +486,10 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
           </summary>
           <div className="space-y-3 border-l-2 border-ca-border/70 py-3 pl-4 ml-5 mr-2 border-t border-ca-border">
             {g.items.map((row) => {
-              const when = row.client_ts ?? row.created_at ?? "—";
+              const when = formatTraceDateTimeLocal(row.client_ts ?? row.created_at);
+              const rowRunId = eventRunId(row);
               const key = String(row.event_id ?? row.id ?? `${g.key}-${when}-${row.type}`);
+              const crabagent = parseCrabagentPayload(row.payload);
               return (
                 <div
                   key={key}
@@ -419,12 +498,26 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                   <div className="space-y-2 border-b border-ca-border/80 bg-white/90 px-3 py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-[11px] text-ca-muted">{when}</span>
+                      {(() => {
+                        const pk = pipelinePhaseKey(row.type);
+                        return pk ? (
+                          <span
+                            className="max-w-[min(100%,14rem)] truncate rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-950"
+                            title={row.type}
+                          >
+                            {t(pk)}
+                          </span>
+                        ) : null;
+                      })()}
                       {row.channel ? (
                         <span className="ca-pill-muted font-mono text-[10px]">{row.channel}</span>
                       ) : null}
-                      {row.agent_id ? (
-                        <span className="rounded-full bg-violet-100/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-violet-950">
-                          {row.agent_id}
+                      {row.agent_name?.trim() || row.agent_id?.trim() ? (
+                        <span
+                          className="rounded-full bg-violet-100/90 px-2 py-0.5 text-[10px] font-semibold text-violet-950"
+                          title={row.agent_id?.trim() && row.agent_id.trim() !== (row.agent_name ?? "").trim() ? row.agent_id.trim() : undefined}
+                        >
+                          {row.agent_name?.trim() || row.agent_id?.trim()}
                         </span>
                       ) : null}
                       <span className="ca-pill-muted font-mono text-[11px] font-semibold">
@@ -445,11 +538,19 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                           variant="compact"
                         />
                       ) : null}
-                      {row.run_id ? (
+                      {rowRunId ? (
                         <IdLabeledCopy
                           kind="run_id"
-                          value={row.run_id}
-                          displayText={shortRunLabel(row.run_id)}
+                          value={rowRunId}
+                          displayText={shortRunLabel(rowRunId)}
+                          variant="compact"
+                        />
+                      ) : null}
+                      {typeof row.msg_id === "string" && row.msg_id.trim() ? (
+                        <IdLabeledCopy
+                          kind="msg_id"
+                          value={row.msg_id.trim()}
+                          displayText={shortKeyLabel(row.msg_id.trim(), 8, 6)}
                           variant="compact"
                         />
                       ) : null}
@@ -483,10 +584,13 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                       ) : null}
                     </div>
                     <TraceEventPipelineSummary eventType={row.type} payload={row.payload} />
+                    {crabagent ? (
+                      <div className="mt-2">
+                        <TraceCrabagentLayersPanel data={crabagent} />
+                      </div>
+                    ) : null}
                   </div>
-                  <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto rounded-b-xl border-0 text-[11px] leading-relaxed">
-                    {JSON.stringify(row.payload ?? {}, null, 2)}
-                  </pre>
+                  <TraceEventPayloadFoldout defaultExpanded={!crabagent} payload={row.payload} />
                 </div>
               );
             })}

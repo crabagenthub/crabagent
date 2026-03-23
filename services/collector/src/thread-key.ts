@@ -4,6 +4,11 @@
  */
 export const THREAD_KEY_SQL = `COALESCE(NULLIF(TRIM(session_key), ''), NULLIF(TRIM(session_id), ''), trace_root_id)`;
 
+/** Same key expression with a table alias (for subqueries). */
+export function threadKeySqlForAlias(alias: string): string {
+  return `COALESCE(NULLIF(TRIM(${alias}.session_key), ''), NULLIF(TRIM(${alias}.session_id), ''), ${alias}.trace_root_id)`;
+}
+
 /** Match ingest-time fan-out (must stay aligned with THREAD_KEY_SQL). */
 export function computeThreadKey(params: {
   session_key?: string | null;

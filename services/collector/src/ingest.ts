@@ -63,6 +63,44 @@ function pickChannelColumn(payload: Record<string, unknown>): string | null {
   return null;
 }
 
+function pickChatTitle(e: Record<string, unknown>): string | null {
+  const raw = e.chat_title;
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+}
+
+function pickAgentName(e: Record<string, unknown>): string | null {
+  const raw = e.agent_name;
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+}
+
+function pickRunId(e: Record<string, unknown>, payload: Record<string, unknown>): string | null {
+  const candidates: unknown[] = [e.run_id, e.runId, payload.run_id, payload.runId];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      return c.trim();
+    }
+  }
+  return null;
+}
+
+function pickMsgId(e: Record<string, unknown>, payload: Record<string, unknown>): string | null {
+  const candidates: unknown[] = [e.msg_id, e.msgId, payload.msg_id, payload.msgId];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      return c.trim();
+    }
+  }
+  return null;
+}
+
 export function runIngestBatch(params: {
   insertStmt: Database.Statement;
   events: IngestEventInput[];
@@ -85,19 +123,25 @@ export function runIngestBatch(params: {
     const sessionId = typeof e.session_id === "string" ? e.session_id : null;
     const sessionKey = typeof e.session_key === "string" ? e.session_key : null;
     const agentId = typeof e.agent_id === "string" ? e.agent_id.trim() || null : null;
-    const runId = typeof e.run_id === "string" ? e.run_id : null;
     const schemaVersion = typeof e.schema_version === "number" ? e.schema_version : 1;
     const payloadForStore = normalizeStoredPayload(e);
+    const runId = pickRunId(e, payloadForStore);
+    const msgId = pickMsgId(e, payloadForStore);
     const payloadJson = JSON.stringify(payloadForStore);
     const channelCol = pickChannelColumn(payloadForStore);
     const clientTs = pickClientTs(e);
+    const chatTitle = pickChatTitle(e);
+    const agentName = pickAgentName(e);
     const r = params.insertStmt.run({
       event_id: eventId,
       trace_root_id: traceRootId,
       session_id: sessionId,
       session_key: sessionKey,
       agent_id: agentId,
+      agent_name: agentName,
+      chat_title: chatTitle,
       run_id: runId,
+      msg_id: msgId,
       channel: channelCol,
       type,
       payload_json: payloadJson,
@@ -114,7 +158,10 @@ export function runIngestBatch(params: {
         session_id: sessionId,
         session_key: sessionKey ?? undefined,
         agent_id: agentId ?? undefined,
+        agent_name: agentName ?? undefined,
+        chat_title: chatTitle ?? undefined,
         run_id: runId ?? undefined,
+        msg_id: msgId ?? undefined,
         channel: channelCol ?? undefined,
         client_ts: clientTs ?? undefined,
         type,

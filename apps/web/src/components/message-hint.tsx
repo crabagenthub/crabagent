@@ -36,7 +36,14 @@ export type MessageHintProps = {
   className?: string;
   textClassName?: string;
   /** Tailwind line-clamp-* or false to hide inline text (icon + tooltip only). */
-  clampClass?: "line-clamp-1" | "line-clamp-2" | "line-clamp-3" | "line-clamp-4" | "line-clamp-5" | false;
+  clampClass?:
+    | "line-clamp-1"
+    | "line-clamp-2"
+    | "line-clamp-3"
+    | "line-clamp-4"
+    | "line-clamp-5"
+    | "line-clamp-6"
+    | false;
 };
 
 /**

@@ -10,6 +10,7 @@ export type TraceIdKind =
   | "session_id"
   | "session_key"
   | "run_id"
+  | "msg_id"
   | "event_id"
   | "row_id";
 
@@ -20,6 +21,7 @@ type TracesIdKindKey =
   | "idKinds.session_id"
   | "idKinds.session_key"
   | "idKinds.run_id"
+  | "idKinds.msg_id"
   | "idKinds.event_id"
   | "idKinds.row_id";
 
@@ -30,6 +32,7 @@ const TRACE_ID_KIND_TO_MSG: Record<TraceIdKind, TracesIdKindKey> = {
   session_id: "idKinds.session_id",
   session_key: "idKinds.session_key",
   run_id: "idKinds.run_id",
+  msg_id: "idKinds.msg_id",
   event_id: "idKinds.event_id",
   row_id: "idKinds.row_id",
 };

@@ -1,14 +1,30 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { OpenClawPluginApi, PluginServiceContext } from "openclaw/plugin-sdk/core";
 import { defaultCacheTracePath, startCacheTraceTail } from "./cache-trace-tail.js";
 import { resolvePluginConfig, type CrabagentTracePluginConfig } from "./config.js";
 import { EventQueue } from "./event-queue.js";
+import { deriveChatTitleFromMessageMetadata } from "./chat-title.js";
 import { buildEvent, inferAgentIdFromSessionKey } from "./envelope.js";
 import { postIngest } from "./flush.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
 import { buildContextPruneTracePayload } from "./context-prune-payload.js";
+import {
+  buildMemoryLayerFromHookContribution,
+  buildReasoningContextBeforePrompt,
+  buildReasoningContextPruneRef,
+  buildReasoningLayerFromLlmInput,
+  buildReasoningLayerFromLlmOutput,
+  buildStateLayerFromAgentEnd,
+  buildStateLayerFromToolError,
+  buildTaskLayerFromMessage,
+  buildTaskLayerFromSessionStart,
+  buildToolLayerAfter,
+  buildToolLayerBefore,
+  wrapCrabagentLayers,
+} from "./crabagent-layers.js";
 import { MessageReceivedDeduper } from "./message-received-dedupe.js";
-import { TraceState } from "./trace-state.js";
+import { TraceState, conversationCorrelationKey } from "./trace-state.js";
 import type {
   AgentCtx,
   AgentEndEvent,
@@ -38,6 +54,19 @@ function truncateTraceText(s: string, max: number): string {
     return s;
   }
   return `${s.slice(0, max)}\n…[truncated ${String(s.length - max)} chars]`;
+}
+
+/** OpenClaw hooks may use `runId` or `run_id` on the event object. */
+function trimRunIdFromHookPayload(ev: { runId?: unknown; run_id?: unknown }): string | undefined {
+  const a = ev.runId;
+  if (typeof a === "string" && a.trim().length > 0) {
+    return a.trim();
+  }
+  const b = ev.run_id;
+  if (typeof b === "string" && b.trim().length > 0) {
+    return b.trim();
+  }
+  return undefined;
 }
 
 /** Role histogram for session messages (OpenClaw `before_prompt_build`). */
@@ -79,6 +108,7 @@ export default {
       sessionId: ctx.sessionId,
       sessionKey: ctx.sessionKey,
       channelId: ctx.channelId,
+      conversationId: ctx.conversationId,
       messageProvider: ctx.messageProvider,
       agentId: ctx.agentId,
     });
@@ -97,31 +127,62 @@ export default {
         sessionId?: string;
         sessionKey?: string;
         channelId?: string;
+        conversationId?: string;
         messageProvider?: string;
         agentId?: string;
       },
       runId: string | undefined,
       payload: Record<string, unknown>,
+      opts?: {
+        chatTitle?: string;
+        agentName?: string;
+        msgId?: string;
+        /** When true with `msgId`, register that id for the conversation (from `message_received`). */
+        pinMsgIdToConversation?: boolean;
+      },
     ) => {
       const cfg = getCfg();
       if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
         return;
       }
-      const traceRootId = traceState.resolveTraceRoot(ctx.sessionKey, ctx.sessionId, runId);
+      traceState.rememberSessionKeyMapping(ctx.sessionId, ctx.sessionKey);
+      const sessionKeyForTrace = traceState.effectiveSessionKey(ctx.sessionId, ctx.sessionKey);
+      const traceRootId = traceState.resolveTraceRoot({
+        sessionKey: sessionKeyForTrace,
+        sessionId: ctx.sessionId,
+        runId,
+        channelId: ctx.channelId,
+        conversationId: ctx.conversationId,
+      });
       traceState.bindRunToTraceRoot(runId, traceRootId);
-      if (ctx.sessionKey?.trim()) {
-        traceState.bindSessionKey(ctx.sessionKey, traceRootId);
+      if (sessionKeyForTrace?.trim()) {
+        traceState.bindSessionKey(sessionKeyForTrace, traceRootId);
+      }
+      const convKey = conversationCorrelationKey({
+        channelId: ctx.channelId,
+        conversationId: ctx.conversationId,
+        sessionKey: sessionKeyForTrace,
+      });
+      let msgId: string | undefined;
+      if (opts?.pinMsgIdToConversation && opts.msgId?.trim()) {
+        msgId = opts.msgId.trim();
+        traceState.registerInboundMsgId(convKey, msgId);
+      } else {
+        msgId = opts?.msgId?.trim() || traceState.resolveMsgIdForEvent(type, runId, convKey);
       }
       getQueue().push(
         buildEvent({
           type,
           traceRootId,
           sessionId: ctx.sessionId,
-          sessionKey: ctx.sessionKey,
+          sessionKey: sessionKeyForTrace,
           agentId: ctx.agentId,
           channelId: ctx.channelId,
           messageProvider: ctx.messageProvider,
           runId,
+          chatTitle: opts?.chatTitle,
+          agentName: opts?.agentName,
+          msgId,
           payload,
         }),
       );
@@ -144,7 +205,12 @@ export default {
           agentId: sessCtx?.agentId,
         },
         undefined,
-        { resumedFrom: event.resumedFrom },
+        {
+          resumedFrom: event.resumedFrom,
+          ...wrapCrabagentLayers({
+            task: buildTaskLayerFromSessionStart({ resumedFrom: event.resumedFrom }),
+          }),
+        },
       );
     });
 
@@ -156,16 +222,30 @@ export default {
         channelId?: string;
         accountId?: string;
         conversationId?: string;
+        agentId?: string;
+        agentName?: string;
+        messageProvider?: string;
       };
+      const accountIdStr =
+        typeof ctx.accountId === "string" && ctx.accountId.trim() ? ctx.accountId.trim() : undefined;
       const cfg = getCfg();
       if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
         return;
       }
       const md =
         event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
-          ? event.metadata
+          ? (event.metadata as Record<string, unknown>)
           : {};
       const messageId = typeof md.messageId === "string" ? md.messageId : undefined;
+      const chatTitle = deriveChatTitleFromMessageMetadata(md);
+      const channelIdForTrace =
+        ctx.channelId?.trim().toLowerCase() ||
+        (typeof md.channelId === "string" ? md.channelId.trim().toLowerCase() : undefined);
+      const fromPeer = String(event.from ?? "").trim();
+      const conversationIdForTrace =
+        ctx.conversationId?.trim() ||
+        (typeof md.conversationId === "string" ? md.conversationId.trim() : undefined) ||
+        (fromPeer.length > 0 ? fromPeer : undefined);
       const contentStr = String(event.content ?? "");
       const now = Date.now();
       if (
@@ -181,13 +261,31 @@ export default {
       ) {
         return;
       }
+      const traceOpts: {
+        chatTitle?: string;
+        agentName?: string;
+        msgId: string;
+        pinMsgIdToConversation: boolean;
+      } = {
+        msgId: randomUUID(),
+        pinMsgIdToConversation: true,
+      };
+      if (chatTitle) {
+        traceOpts.chatTitle = chatTitle;
+      }
+      const agentNameRaw = typeof ctx.agentName === "string" ? ctx.agentName.trim() : "";
+      if (agentNameRaw) {
+        traceOpts.agentName = agentNameRaw;
+      }
       enqueue(
         "message_received",
         {
           sessionId: ctx.sessionId,
           sessionKey: ctx.sessionKey,
-          channelId: ctx.channelId,
-          messageProvider: undefined,
+          channelId: channelIdForTrace ?? ctx.channelId,
+          conversationId: conversationIdForTrace,
+          messageProvider: ctx.messageProvider,
+          agentId: ctx.agentId,
         },
         undefined,
         {
@@ -196,7 +294,33 @@ export default {
           timestamp: event.timestamp,
           messageId,
           threadId: md.threadId,
+          ...wrapCrabagentLayers({
+            task: buildTaskLayerFromMessage({
+              content: contentStr,
+              contentMaxChars: MAX_MESSAGE_TRACE_CHARS,
+              metadata: md,
+              channelLabel: channelIdForTrace ?? ctx.channelId,
+              messageProvider: ctx.messageProvider,
+              conversationId: conversationIdForTrace ?? (fromPeer.length > 0 ? fromPeer : undefined),
+              accountId: accountIdStr,
+              timestamp: event.timestamp,
+            }),
+            state:
+              md.error || md.hallucinationFlag || md.hallucination_flag
+                ? {
+                    kind: "message_metadata_signal",
+                    errorLog:
+                      typeof md.error === "string" && md.error.trim()
+                        ? { message: md.error.trim() }
+                        : undefined,
+                    flags: {
+                      hallucination: Boolean(md.hallucinationFlag ?? md.hallucination_flag),
+                    },
+                  }
+                : undefined,
+          }),
         },
+        traceOpts,
       );
     });
 
@@ -246,6 +370,13 @@ export default {
           promptPreview: truncateTraceText(p, MAX_MESSAGE_TRACE_CHARS),
           historyMessageCount: historyCount,
           historyRoleCounts: summarizeHistoryRoles(messages),
+          ...wrapCrabagentLayers({
+            reasoning: buildReasoningContextBeforePrompt({
+              messages,
+              promptPreview: truncateTraceText(p, MAX_MESSAGE_TRACE_CHARS),
+              promptCharCount: p.length,
+            }),
+          }),
         },
       );
     });
@@ -260,11 +391,17 @@ export default {
       if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
         return;
       }
+      const prunePayload = buildContextPruneTracePayload(ev);
       enqueue(
         "context_prune_applied",
         hookRecordingCtx(ctx),
         undefined,
-        buildContextPruneTracePayload(ev),
+        {
+          ...prunePayload,
+          ...wrapCrabagentLayers({
+            reasoning: buildReasoningContextPruneRef(prunePayload),
+          }),
+        },
       );
     });
 
@@ -275,7 +412,9 @@ export default {
       if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
         return;
       }
-      const runId = typeof ctx.runId === "string" && ctx.runId.trim() ? ctx.runId.trim() : undefined;
+      const runId =
+        trimRunIdFromHookPayload(ctx) ??
+        trimRunIdFromHookPayload(event as { runId?: unknown; run_id?: unknown });
       enqueue(
         "hook_contribution",
         hookRecordingCtx(ctx),
@@ -286,21 +425,32 @@ export default {
           toolName: event.toolName,
           toolCallId: event.toolCallId,
           contribution: event.contribution,
+          ...wrapCrabagentLayers({
+            memory: buildMemoryLayerFromHookContribution({
+              sourceHook: event.sourceHook,
+              pluginId: event.pluginId,
+              contribution: event.contribution,
+              toolName: event.toolName,
+            }),
+          }),
         },
       );
     });
 
     api.on("llm_input", (ev: unknown, c: unknown) => {
       const event = ev as LlmInputEvent;
+      const eventRec = ev as Record<string, unknown>;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
       const beforeHook =
         typeof event.promptBeforeHookPrepend === "string" ? event.promptBeforeHookPrepend : undefined;
       const pluginPrependDeltaChars =
         beforeHook !== undefined ? Math.max(0, event.prompt.length - beforeHook.length) : 0;
+      const histCount = Array.isArray(event.historyMessages) ? event.historyMessages.length : 0;
+      const histRoles = summarizeHistoryRoles(event.historyMessages);
       enqueue(
         "llm_input",
         hookRecordingCtx(ctx),
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           provider: event.provider,
           model: event.model,
@@ -315,24 +465,45 @@ export default {
           promptBeforeHookCharCount: beforeHook?.length ?? event.prompt.length,
           pluginPrependDeltaChars,
           imagesCount: event.imagesCount,
-          historyMessageCount: Array.isArray(event.historyMessages) ? event.historyMessages.length : 0,
-          historyRoleCounts: summarizeHistoryRoles(event.historyMessages),
+          historyMessageCount: histCount,
+          historyRoleCounts: histRoles,
+          ...wrapCrabagentLayers({
+            reasoning: buildReasoningLayerFromLlmInput({
+              event: eventRec,
+              promptTruncated: truncateTraceText(event.prompt, MAX_MESSAGE_TRACE_CHARS),
+              systemPromptTruncated: event.systemPrompt
+                ? truncateTraceText(event.systemPrompt, MAX_MESSAGE_TRACE_CHARS)
+                : undefined,
+              promptBeforeHookTruncated: beforeHook
+                ? truncateTraceText(beforeHook, MAX_MESSAGE_TRACE_CHARS)
+                : undefined,
+              historyMessageCount: histCount,
+              historyRoleCounts: histRoles,
+            }),
+          }),
         },
       );
     });
 
     api.on("llm_output", (ev: unknown, c: unknown) => {
       const event = ev as LlmOutputEvent;
+      const eventRec = ev as Record<string, unknown>;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
       enqueue(
         "llm_output",
         hookRecordingCtx(ctx),
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           provider: event.provider,
           model: event.model,
           assistantTexts: event.assistantTexts,
           usage: event.usage,
+          ...wrapCrabagentLayers({
+            reasoning: buildReasoningLayerFromLlmOutput({
+              event: eventRec,
+              assistantTexts: Array.isArray(event.assistantTexts) ? event.assistantTexts : [],
+            }),
+          }),
         },
       );
     });
@@ -349,6 +520,14 @@ export default {
           error: event.error,
           durationMs: event.durationMs,
           messageCount: Array.isArray(event.messages) ? event.messages.length : 0,
+          ...wrapCrabagentLayers({
+            state: buildStateLayerFromAgentEnd({
+              success: event.success,
+              error: typeof event.error === "string" ? event.error : undefined,
+              durationMs: event.durationMs,
+              messageCount: Array.isArray(event.messages) ? event.messages.length : 0,
+            }),
+          }),
         },
       );
     });
@@ -359,27 +538,56 @@ export default {
       enqueue(
         "before_tool_call",
         hookRecordingCtx(ctx),
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           toolName: event.toolName,
           toolCallId: event.toolCallId,
           params: event.params,
+          ...wrapCrabagentLayers({
+            tools: buildToolLayerBefore({
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              params: event.params,
+            }),
+          }),
         },
       );
     });
 
     api.on("after_tool_call", (ev: unknown, c: unknown) => {
       const event = ev as AfterToolEvent;
+      const eventRec = ev as Record<string, unknown>;
       const ctx = c as AgentCtx;
+      const errStr = typeof event.error === "string" ? event.error : undefined;
+      const retryRaw = eventRec.retryCount ?? eventRec.retry_count ?? eventRec.attempt;
+      const retryCount = typeof retryRaw === "number" && Number.isFinite(retryRaw) ? retryRaw : undefined;
       enqueue(
         "after_tool_call",
         hookRecordingCtx(ctx),
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           toolName: event.toolName,
           toolCallId: event.toolCallId,
           hasError: Boolean(event.error),
           durationMs: event.durationMs,
+          ...wrapCrabagentLayers({
+            tools: buildToolLayerAfter({
+              event: eventRec,
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+            }),
+            ...(errStr
+              ? {
+                  state: buildStateLayerFromToolError({
+                    toolName: event.toolName,
+                    toolCallId: event.toolCallId,
+                    error: errStr,
+                    durationMs: event.durationMs,
+                    retryCount,
+                  }),
+                }
+              : {}),
+          }),
         },
       );
     });
@@ -424,7 +632,7 @@ export default {
       enqueue(
         "subagent_spawned",
         { ...hookRecordingCtx(ctx), agentId: childAgent },
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           childSessionKey: event.childSessionKey,
           parentTraceRootId: parentRoot,
@@ -440,7 +648,7 @@ export default {
       enqueue(
         "subagent_ended",
         hookRecordingCtx(ctx),
-        event.runId,
+        trimRunIdFromHookPayload(event),
         {
           targetSessionKey: event.targetSessionKey,
           targetKind: event.targetKind,
@@ -481,6 +689,18 @@ export default {
           messagesDigest: obj.messagesDigest,
           systemDigest: obj.systemDigest,
           note: obj.note,
+          ...wrapCrabagentLayers({
+            reasoning: {
+              phase: "model_stream_context",
+              seq: obj.seq,
+              provider: obj.provider ?? model.provider,
+              modelId: obj.modelId ?? model.id,
+              messageCount: obj.messageCount,
+              messagesDigest: obj.messagesDigest,
+              systemDigest: obj.systemDigest,
+              note: obj.note,
+            },
+          }),
         },
       );
     };

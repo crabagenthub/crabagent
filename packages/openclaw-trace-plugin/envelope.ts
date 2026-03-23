@@ -42,6 +42,26 @@ export function inferChannelFromSessionKey(sessionKey: string | undefined): stri
 }
 
 /**
+ * Peer / chat id after `:direct:` in session keys, e.g.
+ * `agent:main:openclaw-weixin:direct:user@im.wechat` → `user@im.wechat`.
+ * Case preserved; {@link TraceState} normalizes when building the merge key.
+ */
+export function inferDirectPeerFromSessionKey(sessionKey: string | undefined): string | undefined {
+  const raw = sessionKey?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const lower = raw.toLowerCase();
+  const needle = ":direct:";
+  const idx = lower.indexOf(needle);
+  if (idx < 0) {
+    return undefined;
+  }
+  const peer = raw.slice(idx + needle.length).trim();
+  return peer.length > 0 ? peer : undefined;
+}
+
+/**
  * OpenClaw may omit `sessionKey` on hooks when the control UI is hidden, but still sets
  * `channelId` / `messageProvider` on the hook context.
  */
@@ -101,30 +121,60 @@ export function buildEvent(params: {
   channelId?: string;
   messageProvider?: string;
   runId?: string;
+  /** Optional display name for the chat/thread (ingested as top-level `chat_title`). */
+  chatTitle?: string;
+  /** Optional display name for the agent (ingested as top-level `agent_name`). */
+  agentName?: string;
+  /** Correlates one user turn with later hooks (`llm_input`, tools, etc.). */
+  msgId?: string;
   payload: Record<string, unknown>;
 }): Record<string, unknown> {
   const agent_id = resolveAgentIdForEnvelope({
     agentId: params.agentId,
     sessionKey: params.sessionKey,
   });
+  const runIdTrim =
+    typeof params.runId === "string" && params.runId.trim().length > 0 ? params.runId.trim() : "";
+  const mergedPayload = mergePayloadWithChannel({
+    sessionKey: params.sessionKey,
+    channelId: params.channelId,
+    messageProvider: params.messageProvider,
+    payload: params.payload,
+  });
+  if (runIdTrim) {
+    mergedPayload.run_id = runIdTrim;
+  }
+  const msgIdTrim =
+    typeof params.msgId === "string" && params.msgId.trim().length > 0 ? params.msgId.trim() : "";
+  if (msgIdTrim) {
+    mergedPayload.msg_id = msgIdTrim;
+  }
   const out: Record<string, unknown> = {
     schema_version: 1,
     event_id: randomUUID(),
     trace_root_id: params.traceRootId,
     session_id: params.sessionId,
     session_key: params.sessionKey,
-    run_id: params.runId,
     type: params.type,
-    payload: mergePayloadWithChannel({
-      sessionKey: params.sessionKey,
-      channelId: params.channelId,
-      messageProvider: params.messageProvider,
-      payload: params.payload,
-    }),
+    payload: mergedPayload,
     ts: new Date().toISOString(),
   };
+  if (runIdTrim) {
+    out.run_id = runIdTrim;
+  }
   if (agent_id) {
     out.agent_id = agent_id;
+  }
+  const title = params.chatTitle?.trim();
+  if (title) {
+    out.chat_title = title;
+  }
+  const agentNameTrim = params.agentName?.trim();
+  if (agentNameTrim) {
+    out.agent_name = agentNameTrim;
+  }
+  if (msgIdTrim) {
+    out.msg_id = msgIdTrim;
   }
   return out;
 }

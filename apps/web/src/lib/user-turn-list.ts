@@ -1,5 +1,7 @@
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import { eventRunId } from "@/lib/trace-event-run-id";
 import { stripInboundMetadata } from "@/lib/strip-inbound-meta";
+import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 
 const PREVIEW_LEN = 120;
 
@@ -16,6 +18,14 @@ export type UserTurnListItem = {
   linkedRunId: string | null;
   /** message_received | llm_input (fallback) */
   source: "message_received" | "llm_input";
+  /** Ingest trace root for this turn; detail timeline filters by this id. */
+  traceRootId: string | null;
+  agentId: string | null;
+  /** Config display name when present (collector `agent_name`). */
+  agentName: string | null;
+  chatTitle: string | null;
+  /** Plugin correlation id: same on message_received and later hooks for one user turn. */
+  msgId: string | null;
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {
@@ -24,6 +34,31 @@ function rowNumericId(e: TraceTimelineEvent): number {
     return n;
   }
   return Number.MAX_SAFE_INTEGER;
+}
+
+function dedupeKeyForEvent(e: TraceTimelineEvent): string {
+  if (typeof e.event_id === "string" && e.event_id.trim()) {
+    return `e:${e.event_id.trim()}`;
+  }
+  if (typeof e.id === "number" && Number.isFinite(e.id)) {
+    return `i:${e.id}`;
+  }
+  return `u:${String(e.type ?? "")}:${String(e.client_ts ?? e.created_at ?? "")}`;
+}
+
+/** Union two event lists by stable identity (event_id or row id). */
+function mergeTraceEventsDedupe(a: TraceTimelineEvent[], b: TraceTimelineEvent[]): TraceTimelineEvent[] {
+  const seen = new Set<string>();
+  const out: TraceTimelineEvent[] = [];
+  for (const row of [...a, ...b]) {
+    const k = dedupeKeyForEvent(row);
+    if (seen.has(k)) {
+      continue;
+    }
+    seen.add(k);
+    out.push(row);
+  }
+  return out;
 }
 
 function previewOf(text: string): string {
@@ -35,7 +70,28 @@ function previewOf(text: string): string {
 }
 
 function whenOf(e: TraceTimelineEvent): string {
-  return String(e.client_ts ?? e.created_at ?? "—");
+  return formatTraceDateTimeLocal(e.client_ts ?? e.created_at);
+}
+
+function strOrNull(v: unknown): string | null {
+  if (typeof v !== "string") {
+    return null;
+  }
+  const t = v.trim();
+  return t.length > 0 ? t : null;
+}
+
+/** Top-level `msg_id` from ingest, or `payload.msg_id` fallback. */
+export function eventMsgId(e: TraceTimelineEvent): string | null {
+  const top = strOrNull((e as { msg_id?: unknown }).msg_id);
+  if (top) {
+    return top;
+  }
+  const payload =
+    e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+      ? (e.payload as Record<string, unknown>)
+      : {};
+  return strOrNull(payload.msg_id);
 }
 
 function sessionsMatch(a: TraceTimelineEvent, b: TraceTimelineEvent): boolean {
@@ -153,13 +209,35 @@ function displayInboundText(raw: string): string {
 }
 
 /**
- * Find the first llm_input after `from` that matches session fields when possible.
+ * Find the first llm_input after `from` whose run_id should represent this user turn.
+ * Prefer same trace_root_id (matches ingest plugin correlation); then session_key/session_id;
+ * then any later llm_input.
  */
 function findNextLlmRunId(
   sorted: TraceTimelineEvent[],
   from: TraceTimelineEvent,
 ): string | null {
   const fromId = rowNumericId(from);
+  const fromTrace = strOrNull(from.trace_root_id);
+
+  if (fromTrace) {
+    for (const e of sorted) {
+      if (rowNumericId(e) <= fromId) {
+        continue;
+      }
+      if (e.type !== "llm_input") {
+        continue;
+      }
+      if (strOrNull(e.trace_root_id) !== fromTrace) {
+        continue;
+      }
+      const rid = eventRunId(e);
+      if (rid.length > 0) {
+        return rid;
+      }
+    }
+  }
+
   for (const e of sorted) {
     if (rowNumericId(e) <= fromId) {
       continue;
@@ -170,8 +248,10 @@ function findNextLlmRunId(
     if (!sessionsMatch(from, e)) {
       continue;
     }
-    const rid = typeof e.run_id === "string" ? e.run_id.trim() : "";
-    return rid.length > 0 ? rid : null;
+    const rid = eventRunId(e);
+    if (rid.length > 0) {
+      return rid;
+    }
   }
   for (const e of sorted) {
     if (rowNumericId(e) <= fromId) {
@@ -180,8 +260,25 @@ function findNextLlmRunId(
     if (e.type !== "llm_input") {
       continue;
     }
-    const rid = typeof e.run_id === "string" ? e.run_id.trim() : "";
-    return rid.length > 0 ? rid : null;
+    const rid = eventRunId(e);
+    if (rid.length > 0) {
+      return rid;
+    }
+  }
+  return null;
+}
+
+/** First non-empty llm_input.run_id in chronological order (for UI when linkedRunId was not precomputed). */
+export function firstLlmRunIdInEvents(events: TraceTimelineEvent[]): string | null {
+  const sorted = [...events].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+  for (const e of sorted) {
+    if (e.type !== "llm_input") {
+      continue;
+    }
+    const rid = eventRunId(e);
+    if (rid.length > 0) {
+      return rid;
+    }
   }
   return null;
 }
@@ -220,7 +317,12 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
         fullText,
         whenLabel: whenOf(e),
         linkedRunId: findNextLlmRunId(sorted, e),
-        source: "message_received",
+        source: "message_received" as const,
+        traceRootId: strOrNull(e.trace_root_id),
+        agentId: strOrNull(e.agent_id),
+        agentName: strOrNull(e.agent_name),
+        chatTitle: strOrNull(e.chat_title),
+        msgId: eventMsgId(e),
       };
     });
   }
@@ -228,7 +330,7 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
   const llmRows = sorted.filter((e) => e.type === "llm_input");
   return llmRows.map((e) => {
     const fullText = llmPromptPlainText(e);
-    const rid = typeof e.run_id === "string" ? e.run_id.trim() : "";
+    const rid = eventRunId(e);
     const eid = typeof e.event_id === "string" && e.event_id ? e.event_id : `row-${e.id ?? 0}`;
     return {
       listKey: eid,
@@ -237,9 +339,155 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
       fullText,
       whenLabel: whenOf(e),
       linkedRunId: rid.length > 0 ? rid : null,
-      source: "llm_input",
+      source: "llm_input" as const,
+      traceRootId: strOrNull(e.trace_root_id),
+      agentId: strOrNull(e.agent_id),
+      agentName: strOrNull(e.agent_name),
+      chatTitle: strOrNull(e.chat_title),
+      msgId: eventMsgId(e),
     };
   });
+}
+
+/** All events sharing the same ingest `trace_root_id` (one internal trace chain). */
+export function filterEventsForTraceRoot(
+  events: TraceTimelineEvent[],
+  traceRootId: string | null | undefined,
+): TraceTimelineEvent[] {
+  const tr = typeof traceRootId === "string" ? traceRootId.trim() : "";
+  if (!tr) {
+    return [];
+  }
+  return events.filter((e) => {
+    const er = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    return er === tr;
+  });
+}
+
+/**
+ * When `message_received` has no `trace_root_id` but later rows in the same thread already do
+ * (plugin assigns root on hooks before llm_input), use the first such root — same idea as
+ * Collector `effective_trace_root` SQL.
+ */
+function firstTraceRootIdAfterMessage(events: TraceTimelineEvent[], messageEventId: string): string | null {
+  const sorted = [...events].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+  const idx = sorted.findIndex((e) => e.event_id === messageEventId);
+  if (idx < 0) {
+    return null;
+  }
+  for (let i = idx + 1; i < sorted.length; i++) {
+    const tr = strOrNull(sorted[i]!.trace_root_id);
+    if (tr) {
+      return tr;
+    }
+  }
+  return null;
+}
+
+/** Prefer any event row that already carries `trace_root_id` (e.g. message_received). */
+export function resolveTraceRootIdFromRunId(
+  events: TraceTimelineEvent[],
+  runId: string | null | undefined,
+): string | null {
+  const r = typeof runId === "string" ? runId.trim() : "";
+  if (!r) {
+    return null;
+  }
+  for (const e of events) {
+    if (eventRunId(e) !== r) {
+      continue;
+    }
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (tr) {
+      return tr;
+    }
+  }
+  return null;
+}
+
+function resolveRunIdForTurnDetail(turn: UserTurnListItem, events: TraceTimelineEvent[]): string {
+  const direct = turn.linkedRunId?.trim();
+  if (direct) {
+    return direct;
+  }
+  return resolveLinkedRunIdForTurn(turn, events)?.trim() ?? "";
+}
+
+/**
+ * Effective trace root for UI: message row may omit `trace_root_id` while later `llm_*` rows have it.
+ */
+export function resolveEffectiveTraceRootId(
+  turn: UserTurnListItem,
+  events: TraceTimelineEvent[],
+): string | null {
+  const fromTurn = turn.traceRootId?.trim();
+  if (fromTurn) {
+    return fromTurn;
+  }
+  const run = resolveRunIdForTurnDetail(turn, events);
+  const fromRun = resolveTraceRootIdFromRunId(events, run || null);
+  if (fromRun) {
+    return fromRun;
+  }
+  return firstTraceRootIdAfterMessage(events, turn.listKey);
+}
+
+/**
+ * All events for the detail timeline: same trace_root as the turn (including pre-LLM hooks without run_id).
+ * Falls back to run-only slice when no trace root can be resolved.
+ */
+export function buildDetailEventList(
+  events: TraceTimelineEvent[],
+  turn: UserTurnListItem,
+): TraceTimelineEvent[] {
+  const run = resolveRunIdForTurnDetail(turn, events);
+  const root =
+    turn.traceRootId?.trim() ||
+    resolveTraceRootIdFromRunId(events, run || null) ||
+    firstTraceRootIdAfterMessage(events, turn.listKey) ||
+    "";
+
+  let slice: TraceTimelineEvent[];
+
+  if (root) {
+    slice = filterEventsForTraceRoot(events, root);
+    const msgKey = turn.listKey;
+    if (msgKey && !slice.some((e) => e.event_id === msgKey)) {
+      const orphan = events.find((e) => e.event_id === msgKey);
+      if (orphan) {
+        slice = [...slice, orphan];
+      }
+    }
+  } else if (run) {
+    slice = filterEventsForRun(events, run);
+  } else {
+    slice = events.filter((e) => e.event_id === turn.listKey);
+  }
+
+  const mid = turn.msgId?.trim();
+  if (mid) {
+    const sameMsg = events.filter((e) => eventMsgId(e) === mid);
+    slice = mergeTraceEventsDedupe(slice, sameMsg);
+  }
+
+  return [...slice].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+}
+
+/** Sidebar / header: prefer precomputed linkedRunId, else first llm run in the same trace_root slice. */
+export function resolveLinkedRunIdForTurn(
+  turn: UserTurnListItem,
+  allEvents: TraceTimelineEvent[],
+): string | null {
+  const direct = turn.linkedRunId?.trim();
+  if (direct) {
+    return direct;
+  }
+  const root =
+    turn.traceRootId?.trim() || firstTraceRootIdAfterMessage(allEvents, turn.listKey) || "";
+  if (!root) {
+    return null;
+  }
+  return firstLlmRunIdInEvents(filterEventsForTraceRoot(allEvents, root));
 }
 
 export function filterEventsForRun(
@@ -250,5 +498,5 @@ export function filterEventsForRun(
     return [];
   }
   const r = runId.trim();
-  return events.filter((e) => typeof e.run_id === "string" && e.run_id.trim() === r);
+  return events.filter((e) => eventRunId(e) === r);
 }

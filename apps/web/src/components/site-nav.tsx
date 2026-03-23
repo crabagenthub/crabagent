@@ -157,6 +157,8 @@ export function SiteNav() {
     [t],
   );
 
+  const devItems = useMemo(() => [{ href: "/devtools/db-query", label: t("dbQuery") }], [t]);
+
   const settingsItems = useMemo(() => [{ href: "/settings", label: t("settings") }], [t]);
 
   return (
@@ -201,6 +203,15 @@ export function SiteNav() {
           </p>
         ) : null}
         {mainItems.map((it) => (
+          <div key={it.href}>{navItem(it.href, it.label)}</div>
+        ))}
+
+        {!collapsed ? (
+          <p className="mt-3 px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ca-shell-muted">
+            {t("groupDev")}
+          </p>
+        ) : null}
+        {devItems.map((it) => (
           <div key={it.href}>{navItem(it.href, it.label)}</div>
         ))}
 

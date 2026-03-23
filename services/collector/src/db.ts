@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 export type CrabagentDb = ReturnType<typeof openDatabase>;
 
 /** Bump when `events` DDL changes; triggers DROP + recreate (trace data is ephemeral). */
-const SCHEMA_USER_VERSION = 5;
+const SCHEMA_USER_VERSION = 8;
 
 function applyEventsSchema(db: Database.Database) {
   db.exec(`
@@ -17,7 +17,10 @@ function applyEventsSchema(db: Database.Database) {
       session_id TEXT,
       session_key TEXT,
       agent_id TEXT,
+      agent_name TEXT,
+      chat_title TEXT,
       run_id TEXT,
+      msg_id TEXT,
       channel TEXT,
       type TEXT NOT NULL,
       payload_json TEXT NOT NULL,
@@ -30,6 +33,7 @@ function applyEventsSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_events_trace ON events(trace_root_id);
     CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_root_id, id);
     CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
+    CREATE INDEX IF NOT EXISTS idx_events_msg_id ON events(msg_id);
     CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
     CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);
   `);
@@ -59,7 +63,10 @@ export function openDatabase(dbPath: string): Database.Database {
         session_id TEXT,
         session_key TEXT,
         agent_id TEXT,
+        agent_name TEXT,
+        chat_title TEXT,
         run_id TEXT,
+        msg_id TEXT,
         channel TEXT,
         type TEXT NOT NULL,
         payload_json TEXT NOT NULL,
@@ -74,6 +81,7 @@ export function openDatabase(dbPath: string): Database.Database {
       CREATE INDEX IF NOT EXISTS idx_events_trace ON events(trace_root_id);
       CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_root_id, id);
       CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
+      CREATE INDEX IF NOT EXISTS idx_events_msg_id ON events(msg_id);
       CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);`);

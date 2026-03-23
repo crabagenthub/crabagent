@@ -6,6 +6,8 @@
 | [技术设计文档](./TECHNICAL_DESIGN.md) | TDD：组件、API 轮廓、数据模型、安全、部署、测试 |
 | [架构与数据流](./architecture.md) | 架构定稿 v1.1、Mermaid 图、ingest/SSE/认证/上传策略 |
 | [Token 优化策略](./product-token-optimization.md) | 商业化子产品说明与路线图 |
+| [OTEL + OTLP 设计文档](./opentelemetry-otlp-design.md) | 标准 Trace：中档 Span、Collector B 方案、多真源、自研 UI |
+| [OTEL + OTLP 技术文档](./opentelemetry-otlp-technical.md) | OTLP 接入、Span 模型、存储与查询 API、上下文传播 |
 | [图源 `diagrams/`](./diagrams/) | `project-architecture.mmd`、`data-flow*.mmd` 等 |
 
 **推荐阅读顺序**：产品设计 → 架构定稿 → 技术设计 → Token 优化（按需）。

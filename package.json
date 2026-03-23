@@ -8,6 +8,8 @@
     "dev:collector": "pnpm --filter @crabagent/collector dev",
     "dev:web": "pnpm --filter @crabagent/web dev",
     "smoke": "pnpm --filter @crabagent/collector build && node scripts/run-stack-smoke.mjs",
+    "verify:detail-chain": "cd apps/web && pnpm dlx tsx@4.19.0 --tsconfig tsconfig.json src/lib/detail-chain.verify.ts",
+    "test:trace": "pnpm verify:detail-chain && pnpm smoke",
     "collector:clear-db": "node scripts/clear-collector-db.mjs",
     "openclaw:merge-config": "node scripts/merge-openclaw-config.mjs",
     "lint": "pnpm -r --if-present run lint"

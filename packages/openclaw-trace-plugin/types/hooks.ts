@@ -5,8 +5,12 @@ export type AgentCtx = {
   sessionKey?: string;
   /** OpenClaw-configured agent id (e.g. `main`); also derivable from `sessionKey` when omitted. */
   agentId?: string;
+  /** Display name from OpenClaw config (`agents.list[].name`) or same as `agentId`. */
+  agentName?: string;
   /** OpenClaw hook context: messaging channel when sessionKey is omitted (e.g. control UI hidden). */
   channelId?: string;
+  /** Provider chat/thread id when present; keeps one trace when hooks omit session_key. */
+  conversationId?: string;
   messageProvider?: string;
 };
 
@@ -39,6 +43,10 @@ export type LlmInputEvent = {
   promptBeforeHookPrepend?: string;
   historyMessages: unknown[];
   imagesCount: number;
+  /** Forwarded into `crabagent.layers.reasoning.modelParams` when present. */
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
 };
 
 /** OpenClaw `before_model_resolve` — runs before provider/model resolution; no session messages yet. */
@@ -113,6 +121,11 @@ export type AfterToolEvent = {
   error?: string;
   durationMs?: number;
   runId?: string;
+  /** Full tool return; mirrored in `crabagent.layers.tools` when OpenClaw sends it. */
+  result?: unknown;
+  /** Subset passed back to the model; mirrored when present. */
+  resultForLlm?: unknown;
+  retryCount?: number;
 };
 
 export type CompactionBeforeEvent = {
