@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 export type CrabagentDb = ReturnType<typeof openDatabase>;
 
 /** Bump when `events` DDL changes; triggers DROP + recreate (trace data is ephemeral). */
-const SCHEMA_USER_VERSION = 4;
+const SCHEMA_USER_VERSION = 5;
 
 function applyEventsSchema(db: Database.Database) {
   db.exec(`
@@ -16,6 +16,7 @@ function applyEventsSchema(db: Database.Database) {
       trace_root_id TEXT,
       session_id TEXT,
       session_key TEXT,
+      agent_id TEXT,
       run_id TEXT,
       channel TEXT,
       type TEXT NOT NULL,
@@ -30,6 +31,7 @@ function applyEventsSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_root_id, id);
     CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
     CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);
   `);
   db.pragma(`user_version = ${SCHEMA_USER_VERSION}`);
 }
@@ -56,6 +58,7 @@ export function openDatabase(dbPath: string): Database.Database {
         trace_root_id TEXT,
         session_id TEXT,
         session_key TEXT,
+        agent_id TEXT,
         run_id TEXT,
         channel TEXT,
         type TEXT NOT NULL,
@@ -73,6 +76,7 @@ export function openDatabase(dbPath: string): Database.Database {
       CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
       CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
     `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);`);
   }
 
   return db;

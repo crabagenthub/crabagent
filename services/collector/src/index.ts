@@ -19,10 +19,10 @@ const DB_PATH_LOG = path.resolve(DB_PATH);
 const db = openDatabase(DB_PATH);
 const insertStmt = db.prepare(
   `INSERT OR IGNORE INTO events (
-     event_id, trace_root_id, session_id, session_key, run_id, channel,
+     event_id, trace_root_id, session_id, session_key, agent_id, run_id, channel,
      type, payload_json, schema_version, client_ts
    ) VALUES (
-     @event_id, @trace_root_id, @session_id, @session_key, @run_id, @channel,
+     @event_id, @trace_root_id, @session_id, @session_key, @agent_id, @run_id, @channel,
      @type, @payload_json, @schema_version, @client_ts
    )`,
 );
@@ -96,7 +96,7 @@ app.get("/v1/traces", (c) => {
   const rows = db
     .prepare(
       `WITH per_event AS (
-         SELECT id, event_id, trace_root_id, session_id, session_key, type, created_at, channel, payload_json,
+         SELECT id, event_id, trace_root_id, session_id, session_key, agent_id, type, created_at, channel, payload_json,
                 (${THREAD_KEY_SQL}) AS thread_key
          FROM events
          WHERE (${THREAD_KEY_SQL}) IS NOT NULL
@@ -117,6 +117,7 @@ app.get("/v1/traces", (c) => {
               e.trace_root_id,
               e.session_id,
               e.session_key,
+              e.agent_id,
               e.type,
               e.created_at,
               r.event_count,
@@ -141,7 +142,7 @@ app.get("/v1/traces/:traceRootId/events", (c) => {
   const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
   const rows = db
     .prepare(
-      `SELECT id, event_id, trace_root_id, session_id, session_key, run_id, channel,
+      `SELECT id, event_id, trace_root_id, session_id, session_key, agent_id, run_id, channel,
               type, payload_json, client_ts, schema_version, created_at
        FROM events
        WHERE (${THREAD_KEY_SQL}) = ?

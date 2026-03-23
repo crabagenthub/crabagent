@@ -1,6 +1,20 @@
 import { randomUUID } from "node:crypto";
 
 /**
+ * OpenClaw session keys use `agent:<agentId>:<rest>` (see `resolveSessionAgentId`).
+ * Returns the configured agent id / name segment (e.g. `main`).
+ */
+export function inferAgentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  const raw = sessionKey?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const m = /^agent:([^:]+):/i.exec(raw);
+  const id = m?.[1]?.trim();
+  return id || undefined;
+}
+
+/**
  * Best-effort messaging channel label from OpenClaw session keys, e.g.
  * `agent:main:telegram:direct:…` → `telegram`, `agent:main:main` → `main`.
  * Does not depend on OpenClaw core packages (keeps the plugin self-contained).
@@ -67,17 +81,33 @@ function mergePayloadWithChannel(params: {
   return { ...params.payload, channel: label };
 }
 
+function resolveAgentIdForEnvelope(params: {
+  agentId?: string;
+  sessionKey?: string;
+}): string | undefined {
+  const direct = params.agentId?.trim();
+  if (direct) {
+    return direct;
+  }
+  return inferAgentIdFromSessionKey(params.sessionKey);
+}
+
 export function buildEvent(params: {
   type: string;
   traceRootId: string;
   sessionId?: string;
   sessionKey?: string;
+  agentId?: string;
   channelId?: string;
   messageProvider?: string;
   runId?: string;
   payload: Record<string, unknown>;
 }): Record<string, unknown> {
-  return {
+  const agent_id = resolveAgentIdForEnvelope({
+    agentId: params.agentId,
+    sessionKey: params.sessionKey,
+  });
+  const out: Record<string, unknown> = {
     schema_version: 1,
     event_id: randomUUID(),
     trace_root_id: params.traceRootId,
@@ -93,4 +123,8 @@ export function buildEvent(params: {
     }),
     ts: new Date().toISOString(),
   };
+  if (agent_id) {
+    out.agent_id = agent_id;
+  }
+  return out;
 }

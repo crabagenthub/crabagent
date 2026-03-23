@@ -3,7 +3,7 @@ import type { OpenClawPluginApi, PluginServiceContext } from "openclaw/plugin-sd
 import { defaultCacheTracePath, startCacheTraceTail } from "./cache-trace-tail.js";
 import { resolvePluginConfig, type CrabagentTracePluginConfig } from "./config.js";
 import { EventQueue } from "./event-queue.js";
-import { buildEvent } from "./envelope.js";
+import { buildEvent, inferAgentIdFromSessionKey } from "./envelope.js";
 import { postIngest } from "./flush.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
 import { buildContextPruneTracePayload } from "./context-prune-payload.js";
@@ -80,6 +80,7 @@ export default {
       sessionKey: ctx.sessionKey,
       channelId: ctx.channelId,
       messageProvider: ctx.messageProvider,
+      agentId: ctx.agentId,
     });
 
     /** OpenClaw always puts sessionId on llm_* events; hook ctx sometimes omits it — merge for trace_root_id. */
@@ -97,6 +98,7 @@ export default {
         sessionKey?: string;
         channelId?: string;
         messageProvider?: string;
+        agentId?: string;
       },
       runId: string | undefined,
       payload: Record<string, unknown>,
@@ -116,6 +118,7 @@ export default {
           traceRootId,
           sessionId: ctx.sessionId,
           sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
           channelId: ctx.channelId,
           messageProvider: ctx.messageProvider,
           runId,
@@ -124,8 +127,9 @@ export default {
       );
     };
 
-    api.on("session_start", (ev: unknown) => {
+    api.on("session_start", (ev: unknown, c: unknown) => {
       const event = ev as SessionStartEvent;
+      const sessCtx = c as { agentId?: string } | undefined;
       const cfg = getCfg();
       if (!traceState.shouldRecord(event.sessionId, event.sessionKey, cfg.sampleRateBps)) {
         return;
@@ -134,7 +138,11 @@ export default {
       // sessionKey; `enqueue` uses resolveTraceRoot so sessionKey + sessionId share one root.
       enqueue(
         "session_start",
-        { sessionId: event.sessionId, sessionKey: event.sessionKey },
+        {
+          sessionId: event.sessionId,
+          sessionKey: event.sessionKey,
+          agentId: sessCtx?.agentId,
+        },
         undefined,
         { resumedFrom: event.resumedFrom },
       );
@@ -411,9 +419,11 @@ export default {
       const ctx = c as SubagentCtx;
       const parentRoot = traceState.parentTraceRootForSubagent(ctx.requesterSessionKey, ctx.runId);
       traceState.linkChildSessionKey(event.childSessionKey, parentRoot);
+      const childAgent =
+        event.agentId?.trim() || inferAgentIdFromSessionKey(event.childSessionKey);
       enqueue(
         "subagent_spawned",
-        hookRecordingCtx(ctx),
+        { ...hookRecordingCtx(ctx), agentId: childAgent },
         event.runId,
         {
           childSessionKey: event.childSessionKey,

@@ -52,6 +52,7 @@
     "empty": "暂无数据。请启用插件后运行 OpenClaw。",
     "traceRoot": "会话",
     "listEventCount": "事件数",
+    "agent": "智能体",
     "session": "会话",
     "channel": "通道",
     "type": "类型",
@@ -109,6 +110,7 @@
     "idKinds": {
       "trace_root": "trace_root_id",
       "thread_key": "列表会话键",
+      "agent_id": "agent_id",
       "session_id": "session_id",
       "session_key": "session_key",
       "run_id": "run_id",

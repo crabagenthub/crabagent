@@ -84,6 +84,7 @@ export function runIngestBatch(params: {
     const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
     const sessionId = typeof e.session_id === "string" ? e.session_id : null;
     const sessionKey = typeof e.session_key === "string" ? e.session_key : null;
+    const agentId = typeof e.agent_id === "string" ? e.agent_id.trim() || null : null;
     const runId = typeof e.run_id === "string" ? e.run_id : null;
     const schemaVersion = typeof e.schema_version === "number" ? e.schema_version : 1;
     const payloadForStore = normalizeStoredPayload(e);
@@ -95,6 +96,7 @@ export function runIngestBatch(params: {
       trace_root_id: traceRootId,
       session_id: sessionId,
       session_key: sessionKey,
+      agent_id: agentId,
       run_id: runId,
       channel: channelCol,
       type,
@@ -111,6 +113,7 @@ export function runIngestBatch(params: {
         trace_root_id: traceRootId ?? undefined,
         session_id: sessionId,
         session_key: sessionKey ?? undefined,
+        agent_id: agentId ?? undefined,
         run_id: runId ?? undefined,
         channel: channelCol ?? undefined,
         client_ts: clientTs ?? undefined,

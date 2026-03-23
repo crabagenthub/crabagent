@@ -11,6 +11,7 @@ export type TraceTimelineEvent = {
   trace_root_id?: string | null;
   session_id?: string | null;
   session_key?: string | null;
+  agent_id?: string | null;
   run_id?: string | null;
   channel?: string | null;
   client_ts?: string | null;
@@ -420,6 +421,11 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                       <span className="font-mono text-[11px] text-ca-muted">{when}</span>
                       {row.channel ? (
                         <span className="ca-pill-muted font-mono text-[10px]">{row.channel}</span>
+                      ) : null}
+                      {row.agent_id ? (
+                        <span className="rounded-full bg-violet-100/90 px-2 py-0.5 font-mono text-[10px] font-semibold text-violet-950">
+                          {row.agent_id}
+                        </span>
                       ) : null}
                       <span className="ca-pill-muted font-mono text-[11px] font-semibold">
                         {row.type ?? "—"}

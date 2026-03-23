@@ -3,6 +3,8 @@
 export type AgentCtx = {
   sessionId?: string;
   sessionKey?: string;
+  /** OpenClaw-configured agent id (e.g. `main`); also derivable from `sessionKey` when omitted. */
+  agentId?: string;
   /** OpenClaw hook context: messaging channel when sessionKey is omitted (e.g. control UI hidden). */
   channelId?: string;
   messageProvider?: string;
@@ -128,6 +130,8 @@ export type CompactionAfterEvent = {
 export type SubagentSpawnedEvent = {
   runId: string;
   childSessionKey: string;
+  /** Child agent id (OpenClaw `subagent_spawned` payload). */
+  agentId?: string;
   label?: string;
   mode: "run" | "session";
 };

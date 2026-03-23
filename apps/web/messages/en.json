@@ -52,6 +52,7 @@
     "empty": "No events yet. Run OpenClaw with the plugin enabled.",
     "traceRoot": "Conversation",
     "listEventCount": "Events",
+    "agent": "Agent",
     "session": "Session",
     "channel": "Channel",
     "type": "Type",
@@ -109,6 +110,7 @@
     "idKinds": {
       "trace_root": "trace_root_id",
       "thread_key": "thread (list id)",
+      "agent_id": "agent_id",
       "session_id": "session_id",
       "session_key": "session_key",
       "run_id": "run_id",

@@ -17,6 +17,8 @@ type TraceRow = {
   trace_root_id?: string | null;
   session_id: string | null;
   session_key?: string | null;
+  /** OpenClaw agent id (e.g. main), from latest row in thread. */
+  agent_id?: string | null;
   type: string;
   created_at: string;
   channel?: string | null;
@@ -24,6 +26,10 @@ type TraceRow = {
 
 function rowHasChannel(row: TraceRow): boolean {
   return Boolean(row.channel != null && String(row.channel).trim().length > 0);
+}
+
+function rowHasAgent(row: TraceRow): boolean {
+  return Boolean(row.agent_id != null && String(row.agent_id).trim().length > 0);
 }
 
 async function loadTraces(baseUrl: string, apiKey: string): Promise<{ items: TraceRow[] }> {
@@ -185,11 +191,12 @@ export default function TracesPage() {
             />
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-left text-sm">
+              <table className="w-full min-w-[960px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-ca-border text-xs uppercase tracking-wide text-ca-muted">
                     <th className="px-5 py-3 font-semibold">{t("traceRoot")}</th>
                     <th className="px-5 py-3 font-semibold">{t("channel")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("agent")}</th>
                     <th className="px-5 py-3 font-semibold">{t("listEventCount")}</th>
                     <th className="px-5 py-3 font-semibold">{t("session")}</th>
                     <th className="px-5 py-3 font-semibold">{t("eventSample")}</th>
@@ -221,6 +228,13 @@ export default function TracesPage() {
                           <span className="ca-pill-muted font-mono text-[11px] font-semibold">
                             {String(row.channel).trim()}
                           </span>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
+                      </td>
+                      <td className="max-w-[120px] px-5 py-3.5">
+                        {rowHasAgent(row) ? (
+                          <IdLabeledCopy kind="agent_id" value={String(row.agent_id).trim()} variant="compact" />
                         ) : (
                           <span className="text-xs text-neutral-400">—</span>
                         )}

@@ -33,7 +33,7 @@ pnpm collector:clear-db
 
 ### Trace 列表：按「会话」一行
 
-`GET /v1/traces` 按 **会话线程** 聚合，线程键 `thread_key` = `session_key` → 否则 `session_id` → 否则 `trace_root_id`。同一聊天里多条内部 `trace_root_id` 在详情页合并为 **一条时间线**；实时流 `GET /v1/traces/:threadKey/stream` 也按 `thread_key` 扇入。每条事件仍保留 `trace_root_id` 供开发排查。
+`GET /v1/traces` 按 **会话线程** 聚合，线程键 `thread_key` = `session_key` → 否则 `session_id` → 否则 `trace_root_id`。同一聊天里多条内部 `trace_root_id` 在详情页合并为 **一条时间线**；实时流 `GET /v1/traces/:threadKey/stream` 也按 `thread_key` 扇入。每条事件仍保留 `trace_root_id` 供开发排查。事件含 **`agent_id`**（OpenClaw 配置里的 agent 名，如 `main`；或由 `session_key` 的 `agent:<id>:` 段推断）。
 
 ### 一键写入 OpenClaw 配置（需你确认后执行）
 
