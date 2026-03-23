@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
+import { MessageHint } from "@/components/message-hint";
 
 export type TraceTimelineEvent = {
   id?: number;
@@ -124,10 +125,20 @@ function formatCharDelta(d: number): string {
 
 const CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD = 12;
 
+function contextPruneDetailLevel(p: Record<string, unknown>): string | undefined {
+  const tp = p.tracePlugin;
+  if (!tp || typeof tp !== "object" || Array.isArray(tp)) {
+    return undefined;
+  }
+  const level = (tp as Record<string, unknown>).detailLevel;
+  return typeof level === "string" ? level : undefined;
+}
+
 function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> }) {
   const t = useTranslations("Traces");
   const changes = useMemo(() => parseContextPruneMessageChanges(p.messageChanges), [p.messageChanges]);
   const truncated = p.messageChangesTruncated === true;
+  const aggregateOnly = contextPruneDetailLevel(p) === "aggregate_only";
   const [detailsOpen, setDetailsOpen] = useState(() => changes.length <= CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD);
 
   const phaseLabel = (phase: string) => {
@@ -142,8 +153,11 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
 
   return (
     <div className="mt-1 space-y-2">
-      <p className="text-xs leading-snug text-ca-muted">
-        {t("pipelineContextPrune", {
+      <MessageHint
+        className="text-xs"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("pipelineContextPrune", {
           mode: String(p.mode ?? "—"),
           before: numStr(p.messageCountBefore),
           after: numStr(p.messageCountAfter),
@@ -151,7 +165,15 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
           cAfter: numStr(p.estimatedCharsAfter),
           delta: numStr(p.charDelta),
         })}
-      </p>
+      />
+      {changes.length === 0 && aggregateOnly ? (
+        <MessageHint
+          className="text-[11px]"
+          textClassName="text-[11px] leading-snug text-ca-muted/90"
+          clampClass="line-clamp-3"
+          text={t("pipelineContextPruneAggregateHint")}
+        />
+      ) : null}
       {changes.length > 0 ? (
         <details
           className="rounded-lg border border-ca-border/80 bg-neutral-50/60 text-xs text-neutral-800"
@@ -164,9 +186,13 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
           </summary>
           <div className="border-t border-ca-border/60 px-1 pb-2 pt-1">
             {truncated ? (
-              <p className="mb-2 px-1 text-[11px] leading-snug text-amber-800">
-                {t("pipelineContextPruneChangesTruncated")}
-              </p>
+              <div className="mb-2 px-1">
+                <MessageHint
+                  textClassName="text-[11px] leading-snug text-amber-800"
+                  clampClass="line-clamp-3"
+                  text={t("pipelineContextPruneChangesTruncated")}
+                />
+              </div>
             ) : null}
             <div className="max-h-[min(14rem,35vh)] overflow-auto rounded-md border border-ca-border/50 bg-white/90">
               <table className="w-full border-collapse text-left font-mono text-[10px] leading-tight">
@@ -240,9 +266,12 @@ function TraceEventPipelineSummary({
 
   if (eventType === "before_model_resolve") {
     return (
-      <p className="mt-1 text-xs leading-snug text-ca-muted">
-        {t("pipelineBeforeModelResolve", { chars: numStr(p.promptCharCount) })}
-      </p>
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("pipelineBeforeModelResolve", { chars: numStr(p.promptCharCount) })}
+      />
     );
   }
   if (eventType === "before_prompt_build") {
@@ -252,35 +281,44 @@ function TraceEventPipelineSummary({
         ? formatRoleCounts(rc as Record<string, number>)
         : "—";
     return (
-      <p className="mt-1 text-xs leading-snug text-ca-muted">
-        {t("pipelineBeforePromptBuild", {
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("pipelineBeforePromptBuild", {
           history: numStr(p.historyMessageCount),
           promptChars: numStr(p.promptCharCount),
           roles: rolesStr,
         })}
-      </p>
+      />
     );
   }
   if (eventType === "llm_input") {
     return (
-      <p className="mt-1 text-xs leading-snug text-ca-muted">
-        {t("pipelineLlmInput", {
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("pipelineLlmInput", {
           provider: String(p.provider ?? "—"),
           model: String(p.model ?? "—"),
           history: numStr(p.historyMessageCount),
           images: numStr(p.imagesCount),
           delta: numStr(p.pluginPrependDeltaChars),
         })}
-      </p>
+      />
     );
   }
   if (eventType === "llm_output") {
     const texts = p.assistantTexts;
     const n = Array.isArray(texts) ? texts.length : 0;
     return (
-      <p className="mt-1 text-xs leading-snug text-ca-muted">
-        {t("pipelineLlmOutput", { count: String(n) })}
-      </p>
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-3"
+        text={t("pipelineLlmOutput", { count: String(n) })}
+      />
     );
   }
   if (eventType === "context_prune_applied") {
@@ -290,16 +328,16 @@ function TraceEventPipelineSummary({
     const source = String(p.sourceHook ?? "—");
     const plugin = String(p.contributingPluginId ?? "—");
     const tool = typeof p.toolName === "string" && p.toolName.trim() ? p.toolName.trim() : "";
+    const line =
+      t("pipelineHookContribution", { source, plugin }) +
+      (tool ? ` · ${t("pipelineHookContributionTool", { tool })}` : "");
     return (
-      <p className="mt-1 text-xs leading-snug text-ca-muted">
-        {t("pipelineHookContribution", { source, plugin })}
-        {tool ? (
-          <>
-            {" · "}
-            {t("pipelineHookContributionTool", { tool })}
-          </>
-        ) : null}
-      </p>
+      <MessageHint
+        className="mt-1"
+        textClassName="text-xs leading-snug text-ca-muted"
+        clampClass="line-clamp-4"
+        text={line}
+      />
     );
   }
   return null;
@@ -337,7 +375,12 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
 
   return (
     <div className="ca-tree space-y-3">
-      <p className="text-xs text-ca-muted">{t("treeHint")}</p>
+      <MessageHint
+        className="text-xs"
+        textClassName="text-xs text-ca-muted"
+        clampClass="line-clamp-4"
+        text={t("treeHint")}
+      />
       {groups.map((g) => (
         <details key={g.key} open className="overflow-hidden rounded-2xl border border-ca-border bg-white shadow-ca-sm">
           <summary className="flex cursor-pointer list-none items-center gap-2 bg-neutral-50/90 px-4 py-3 text-sm font-semibold text-neutral-900">
@@ -370,7 +413,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
               return (
                 <div
                   key={key}
-                  className="overflow-hidden rounded-xl border border-ca-border/90 bg-neutral-50/40 shadow-sm"
+                  className="rounded-xl border border-ca-border/90 bg-neutral-50/40 shadow-sm"
                 >
                   <div className="space-y-2 border-b border-ca-border/80 bg-white/90 px-3 py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
@@ -435,7 +478,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                     </div>
                     <TraceEventPipelineSummary eventType={row.type} payload={row.payload} />
                   </div>
-                  <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto rounded-none border-0 text-[11px] leading-relaxed">
+                  <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto rounded-b-xl border-0 text-[11px] leading-relaxed">
                     {JSON.stringify(row.payload ?? {}, null, 2)}
                   </pre>
                 </div>

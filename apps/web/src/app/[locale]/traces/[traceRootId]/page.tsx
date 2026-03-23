@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
+import { MessageHint } from "@/components/message-hint";
 import { TraceTimelineTree, type TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import {
   collectorAuthHeaders,
@@ -255,7 +256,11 @@ export default function TraceDetailPage() {
 
       {missingUrl && (
         <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950">
-          <p>{t("needCollectorUrl")}</p>
+          <MessageHint
+            text={t("needCollectorUrl")}
+            textClassName="text-sm leading-relaxed text-amber-950"
+            clampClass="line-clamp-4"
+          />
           <LocalizedLink href="/settings" className="mt-2 inline-block font-medium text-ca-accent no-underline hover:underline">
             {t("openSettings")}
           </LocalizedLink>
@@ -287,7 +292,12 @@ export default function TraceDetailPage() {
             >
               <div className="border-b border-ca-border px-3 py-2.5">
                 <h2 className="text-sm font-semibold text-neutral-900">{t("userMessagesTitle")}</h2>
-                <p className="mt-0.5 text-xs text-ca-muted">{t("userMessagesHint")}</p>
+                <MessageHint
+                  text={t("userMessagesHint")}
+                  className="mt-0.5"
+                  textClassName="text-xs text-ca-muted"
+                  clampClass="line-clamp-2"
+                />
               </div>
               <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5 sm:p-2">
                 {userTurns.map((u: UserTurnListItem) => {
@@ -334,7 +344,12 @@ export default function TraceDetailPage() {
                     <IdLabeledCopy kind="run_id" value={selectedTurn.linkedRunId} variant="compact" />
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-amber-800">{t("noLinkedRunDetail")}</p>
+                  <MessageHint
+                    text={t("noLinkedRunDetail")}
+                    className="mt-2"
+                    textClassName="text-xs text-amber-800"
+                    clampClass="line-clamp-3"
+                  />
                 )}
               </div>
 
@@ -351,7 +366,7 @@ export default function TraceDetailPage() {
                 {detailEvents.length > 0 ? (
                   <TraceTimelineTree events={detailEvents} />
                 ) : selectedTurn && !selectedTurn.linkedRunId ? (
-                  <p className="text-sm text-ca-muted">{t("noRunEventsYet")}</p>
+                  <MessageHint text={t("noRunEventsYet")} textClassName="text-sm text-ca-muted" />
                 ) : null}
               </div>
             </div>
@@ -359,14 +374,26 @@ export default function TraceDetailPage() {
         )}
 
         {merged.length > 0 && userTurns.length === 0 && !missingUrl && (
-          <div className="ca-card-pad text-center">
-            <p className="text-sm text-ca-muted">{t("noTurnsExtracted")}</p>
+          <div className="ca-card-pad">
+            <div className="flex justify-center">
+              <MessageHint
+                text={t("noTurnsExtracted")}
+                textClassName="text-sm text-ca-muted text-center"
+                clampClass="line-clamp-4"
+              />
+            </div>
           </div>
         )}
 
         {eventsQuery.isSuccess && merged.length === 0 && !missingUrl && (
-          <div className="ca-card-pad text-center">
-            <p className="text-sm text-ca-muted">{t("detailEmpty")}</p>
+          <div className="ca-card-pad">
+            <div className="flex justify-center">
+              <MessageHint
+                text={t("detailEmpty")}
+                textClassName="text-sm text-ca-muted text-center"
+                clampClass="line-clamp-4"
+              />
+            </div>
           </div>
         )}
       </section>

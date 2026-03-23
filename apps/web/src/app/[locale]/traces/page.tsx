@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
+import { MessageHint } from "@/components/message-hint";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
 
 type TraceRow = {
@@ -94,7 +95,12 @@ export default function TracesPage() {
       <header className="mb-10 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">{t("title")}</h1>
-          <p className="mt-2 max-w-2xl text-base text-ca-muted">{t("subtitle")}</p>
+          <MessageHint
+            text={t("subtitle")}
+            className="mt-2 max-w-2xl"
+            textClassName="text-base text-ca-muted"
+            clampClass="line-clamp-3"
+          />
         </div>
         <LocalizedLink href="/settings" className="ca-btn-secondary shrink-0 no-underline">
           {t("openSettings")}
@@ -103,7 +109,11 @@ export default function TracesPage() {
 
       {missingUrl && (
         <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950">
-          <p>{t("needCollectorUrl")}</p>
+          <MessageHint
+            text={t("needCollectorUrl")}
+            textClassName="text-sm leading-relaxed text-amber-950"
+            clampClass="line-clamp-4"
+          />
           <LocalizedLink href="/settings" className="mt-2 inline-block font-medium text-ca-accent no-underline hover:underline">
             {t("openSettings")}
           </LocalizedLink>
@@ -119,7 +129,14 @@ export default function TracesPage() {
           {rawCount > 0 && (
             <p className="mt-2 text-sm text-neutral-600">{t("stats", { traces: rawCount })}</p>
           )}
-          {rawCount === 0 && <p className="mt-2 text-sm text-ca-muted">{t("probeHint")}</p>}
+          {rawCount === 0 && (
+            <MessageHint
+              text={t("probeHint")}
+              className="mt-2"
+              textClassName="text-sm text-ca-muted"
+              clampClass="line-clamp-3"
+            />
+          )}
         </section>
       )}
 
@@ -133,22 +150,35 @@ export default function TracesPage() {
         {q.isError && !missingUrl && (
           <div className="rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4 text-sm text-red-800">
             <p className="font-medium">{String(q.error)}</p>
-            <p className="mt-2 text-red-700/90">{t("probeHint")}</p>
+            <div className="mt-2">
+              <MessageHint text={t("probeHint")} textClassName="text-sm text-red-700/90" clampClass="line-clamp-4" />
+            </div>
             <LocalizedLink href="/settings" className="mt-3 inline-block font-medium text-ca-accent no-underline hover:underline">
               {t("openSettings")}
             </LocalizedLink>
           </div>
         )}
         {q.isSuccess && traceRows.length === 0 && !missingUrl && (
-          <div className="ca-card-pad text-center">
-            <p className="text-sm text-ca-muted">{t("empty")}</p>
+          <div className="ca-card-pad">
+            <div className="flex justify-center">
+              <MessageHint
+                text={t("empty")}
+                textClassName="text-sm text-ca-muted text-center"
+                clampClass="line-clamp-4"
+              />
+            </div>
           </div>
         )}
         {traceRows.length > 0 && (
           <div className="ca-table-wrap">
             <div className="border-b border-ca-border bg-neutral-50/90 px-5 py-4">
               <h2 className="text-sm font-semibold text-neutral-900">{t("tableTitle")}</h2>
-              <p className="mt-0.5 text-xs text-ca-muted">{t("tableSubtitle")}</p>
+              <MessageHint
+              text={t("tableSubtitle")}
+              className="mt-0.5"
+              textClassName="text-xs text-ca-muted"
+              clampClass="line-clamp-2"
+            />
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[880px] text-left text-sm">

@@ -6,6 +6,8 @@ import { EventQueue } from "./event-queue.js";
 import { buildEvent } from "./envelope.js";
 import { postIngest } from "./flush.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
+import { buildContextPruneTracePayload } from "./context-prune-payload.js";
+import { MessageReceivedDeduper } from "./message-received-dedupe.js";
 import { TraceState } from "./trace-state.js";
 import type {
   AgentCtx,
@@ -14,7 +16,6 @@ import type {
   BeforeModelResolveEvent,
   BeforePromptBuildEvent,
   BeforeToolEvent,
-  ContextPruneAppliedEvent,
   HookContributionEvent,
   CompactionAfterEvent,
   CompactionBeforeEvent,
@@ -63,6 +64,7 @@ export default {
       resolvePluginConfig(api.pluginConfig as Record<string, unknown> | undefined);
 
     const traceState = new TraceState();
+    const messageReceivedDeduper = new MessageReceivedDeduper();
     let queue: EventQueue | null = null;
     let warnedNoBaseUrl = false;
 
@@ -158,6 +160,21 @@ export default {
           ? event.metadata
           : {};
       const messageId = typeof md.messageId === "string" ? md.messageId : undefined;
+      const contentStr = String(event.content ?? "");
+      const now = Date.now();
+      if (
+        messageReceivedDeduper.isDuplicate({
+          now,
+          sessionKey: ctx.sessionKey,
+          sessionId: ctx.sessionId,
+          from: String(event.from ?? ""),
+          content: contentStr,
+          timestamp: event.timestamp,
+          messageId,
+        })
+      ) {
+        return;
+      }
       enqueue(
         "message_received",
         {
@@ -169,7 +186,7 @@ export default {
         undefined,
         {
           from: event.from,
-          content: truncateTraceText(String(event.content ?? ""), MAX_MESSAGE_TRACE_CHARS),
+          content: truncateTraceText(contentStr, MAX_MESSAGE_TRACE_CHARS),
           timestamp: event.timestamp,
           messageId,
           threadId: md.threadId,
@@ -232,7 +249,6 @@ export default {
      * Skills packaged as plugins appear under their `pluginId`.
      */
     api.on("context_prune_applied", (ev: unknown, c: unknown) => {
-      const event = ev as ContextPruneAppliedEvent;
       const ctx = c as AgentCtx;
       const cfg = getCfg();
       if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
@@ -242,18 +258,7 @@ export default {
         "context_prune_applied",
         hookRecordingCtx(ctx),
         undefined,
-        {
-          mode: event.mode,
-          messageCountBefore: event.messageCountBefore,
-          messageCountAfter: event.messageCountAfter,
-          estimatedCharsBefore: event.estimatedCharsBefore,
-          estimatedCharsAfter: event.estimatedCharsAfter,
-          roleCountsBefore: event.roleCountsBefore,
-          roleCountsAfter: event.roleCountsAfter,
-          charDelta: event.estimatedCharsAfter - event.estimatedCharsBefore,
-          messageChanges: event.messageChanges,
-          messageChangesTruncated: event.messageChangesTruncated,
-        },
+        buildContextPruneTracePayload(ev),
       );
     });
 

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
+import { MessageHint } from "@/components/message-hint";
 import { loadCollectorUrl } from "@/lib/collector";
 
 function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
@@ -67,7 +68,12 @@ export default function HomePage() {
     <main className="ca-page-narrow">
       <div className="mb-10">
         <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">{t("title")}</h1>
-        <p className="mt-3 text-base leading-relaxed text-ca-muted">{t("subtitle")}</p>
+        <MessageHint
+          text={t("subtitle")}
+          className="mt-3"
+          textClassName="text-base leading-relaxed text-ca-muted"
+          clampClass="line-clamp-3"
+        />
         <div className="mt-6 flex flex-wrap gap-3">
           <LocalizedLink href="/traces" className="ca-btn-primary inline-flex no-underline">
             {t("openTraces")}
@@ -80,7 +86,7 @@ export default function HomePage() {
 
       <div className="space-y-6">
         <HealthCheck collectorUrl={url.trim()} />
-        <p className="text-sm leading-relaxed text-ca-muted">{t("tracesHint")}</p>
+        <MessageHint text={t("tracesHint")} textClassName="text-sm leading-relaxed text-ca-muted" />
       </div>
     </main>
   );

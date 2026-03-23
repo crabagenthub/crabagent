@@ -79,6 +79,7 @@
     "pipelineHookContribution": "按插件拆分 · 来源钩子 {source} · 贡献包 {plugin}",
     "pipelineHookContributionTool": "工具 {tool}",
     "pipelineContextPrune": "上下文裁剪（{mode}）：消息 {before}→{after}，约字符 {cBefore}→{cAfter}（Δ{delta}）。角色分布仍在 payload 中。",
+    "pipelineContextPruneAggregateHint": "当前为汇总事件，payload 中无逐条 messageChanges。若运行的 OpenClaw 在 context_prune_applied 中附带 messageChanges，表格会自动出现。",
     "pipelineContextPruneChangesTitle": "按消息 diff（{count} 条）",
     "pipelineContextPruneChangesTruncated": "列表已截断：实际变更的下标多于表格行数，请查看下方完整 JSON。",
     "contextPruneColIndex": "#",

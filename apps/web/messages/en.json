@@ -79,6 +79,7 @@
     "pipelineHookContribution": "Per-plugin mutation · source hook {source} · contributing package {plugin}",
     "pipelineHookContributionTool": "Tool {tool}",
     "pipelineContextPrune": "Context prune ({mode}): messages {before}→{after}, ~chars {cBefore}→{cAfter} (Δ{delta}). Role histograms remain in payload.",
+    "pipelineContextPruneAggregateHint": "Aggregate-only event: no per-message rows in payload. If your OpenClaw build adds messageChanges on context_prune_applied, the table appears automatically.",
     "pipelineContextPruneChangesTitle": "Per-message diff ({count})",
     "pipelineContextPruneChangesTruncated": "List truncated: more transcript indices changed than rows shown. Inspect full payload below.",
     "contextPruneColIndex": "#",
