@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Starts a temporary Collector (separate port + temp DB), POSTs a sample ingest,
- * verifies GET /v1/traces and /v1/trace-messages. No manual services required.
+ * verifies GET /v1/traces, /v1/trace-messages, /v1/trace-records, and /v1/semantic-spans. No manual services required.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -177,6 +177,49 @@ async function main() {
     const msgFound = msgItems.some((r) => r.event_id === msgEventId);
     if (!msgFound) {
       console.error("Expected message row in trace-messages:", msgEventId, "got", msgItems);
+      process.exit(1);
+    }
+
+    const recRes = await fetch(`${base}/v1/trace-records?limit=50`, {
+      headers: { "X-API-Key": API_KEY },
+    });
+    const recJson = await recRes.json();
+    if (!recRes.ok) {
+      console.error("trace-records failed", recRes.status, recJson);
+      process.exit(1);
+    }
+    const recItems = recJson.items ?? [];
+    const recRow = recItems.find(
+      (r) => r.trace_id === traceRoot && typeof r.thread_key === "string" && r.thread_key.length > 0,
+    );
+    if (!recRow) {
+      console.error("Expected trace-records row for trace_id", traceRoot, "got", recItems);
+      process.exit(1);
+    }
+    for (const k of ["loop_count", "tool_call_count", "saved_tokens_total", "optimization_rate_pct"]) {
+      if (!(k in recRow)) {
+        console.error("trace-records row missing field", k, recRow);
+        process.exit(1);
+      }
+    }
+
+    const searchRes = await fetch(
+      `${base}/v1/trace-records?limit=10&search=${encodeURIComponent("smoke hello")}`,
+      { headers: { "X-API-Key": API_KEY } },
+    );
+    const searchJson = await searchRes.json();
+    if (!searchRes.ok || !(searchJson.items ?? []).some((r) => r.trace_id === traceRoot)) {
+      console.error("trace-records search filter failed", searchRes.status, searchJson);
+      process.exit(1);
+    }
+
+    const semRes = await fetch(
+      `${base}/v1/semantic-spans?trace_id=${encodeURIComponent(traceRoot)}`,
+      { headers: { "X-API-Key": API_KEY } },
+    );
+    const semJson = await semRes.json();
+    if (!semRes.ok || !Array.isArray(semJson.items)) {
+      console.error("semantic-spans failed", semRes.status, semJson);
       process.exit(1);
     }
 

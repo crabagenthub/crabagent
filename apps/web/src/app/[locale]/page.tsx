@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
-import { MessageHint } from "@/components/message-hint";
+import { MessageHint, TitleHintIcon } from "@/components/message-hint";
 import { loadCollectorUrl } from "@/lib/collector";
 
 function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
@@ -67,7 +67,10 @@ export default function HomePage() {
   return (
     <main className="ca-page-narrow">
       <div className="mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">{t("title")}</h1>
+        <h1 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">
+          <span>{t("title")}</span>
+          <TitleHintIcon tooltipText={t("subtitle")} />
+        </h1>
         <MessageHint
           text={t("subtitle")}
           className="mt-3"

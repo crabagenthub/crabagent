@@ -90,7 +90,7 @@
 ### 4.2 推荐策略（实现前须评审定一种）
 
 **策略 A（推荐）**：新生成的 OTEL `trace_id` 与现有 **`trace_root_id` 解耦**；每条 Span 上带 attribute `crabagent.trace_root_id`。  
-- 优点：完全符合 OTEL 十六进制 trace_id，与 Jaeger/Tempo 无歧义。  
+- 优点：完全符合 OTEL 十六进制 trace_id，与常见后端无歧义。  
 - 缺点：用户需在 UI 同时理解两个 id，或通过 UI 只展示 `trace_id`。
 
 **策略 B**：将现有 **`trace_root_id`（UUID）** 规范化后 **嵌入** 为 trace_id（例如 UUID 去横杠 32 字符，需验证与各后端兼容性）。  
@@ -134,7 +134,7 @@
 
 | 方案 | 说明 |
 |------|------|
-| **SQLite 新表** | `spans` 或规范化多表；适合单机与现有部署；非全局唯一真源时仍可作为 **本地副本**。 |
+| **SQLite 新表** | OTLP → `otel_spans`；业务层 `traces` / `spans`（合成父级 `type=AGENT_LOOP`；子级 `type`=LLM/TOOL/SKILL/PLUGIN/IO/MEMORY；`module` 计费分桶；`metadata.action_details` JSON）/ `generations` / `optimizations`（`db.ts`、`observability-span-policy.ts`、`observability-ingest.ts`）。 |
 | **仅内存 + 转发** | Collector 不写 Span 落盘，只转发 OTLP 到 Tempo；**自研 UI 需读外部后端 API**（复杂度高）。 |
 | **混合** | 本地 SQLite 保留近期 Span；异步导出 OTLP 到 **外部真源**；UI 默认读本地，可配置读外部。 |
 
@@ -152,7 +152,7 @@
 | `GET` | `/v1/traces/otel/by-msg-id?msg_id=` | 解析索引得到 `trace_id` 再返回同上（或 302 到上一路径）。 |
 | `GET` | `/v1/traces/otel/by-trace-root?trace_root_id=` | 同上，依赖 attribute 索引。 |
 
-**响应格式**：建议贴近 **Jaeger JSON** 或内部 **稳定 schema**（版本字段 `schema_version`），便于前端一次解析画树。
+**响应格式**：建议采用内部 **稳定 schema**（版本字段 `schema_version`），便于前端一次解析画树。
 
 **SSE**：可选 `trace_id` 维度的 **实时 Span 追加**（实现难度大，可二期）。
 
@@ -186,7 +186,7 @@ flowchart TB
 
   subgraph Out["出口"]
     UI_API[Trace JSON API → Web]
-    OTLP_OUT[OTLP Exporter → Tempo/Jaeger/云]
+    OTLP_OUT[OTLP Exporter → Tempo/云]
   end
 
   OTLP_IN --> PROC
@@ -224,7 +224,7 @@ flowchart TB
 
 1. 单进程：一用户消息 → 连续钩子 → **一个 trace_id**，Span 树深度 ≥ 3。  
 2. `crabagent.msg_id` 在同一 trace 的多个 Span 上 **一致**（或根 Span 带、子 Span 继承策略明确）。  
-3. UI：给定 `trace_id` 渲染与 Jaeger **同结构**对比（允许展示字段子集）。  
+3. UI：给定 `trace_id` 渲染时间线（允许展示字段子集）。  
 4. 转发：外部后端可检索到 **相同 trace_id**（若采用策略 A，则对比 attribute 中的 `trace_root_id`）。
 
 ---

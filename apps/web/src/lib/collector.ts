@@ -33,6 +33,13 @@ export function saveApiKey(key: string): void {
   window.localStorage.setItem(API_KEY_KEY, key.trim());
 }
 
+export function clearApiKey(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.removeItem(API_KEY_KEY);
+}
+
 export function collectorAuthHeaders(apiKey: string): HeadersInit {
   const h: Record<string, string> = {};
   if (apiKey.trim()) {

@@ -7,7 +7,11 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
-import { MessageHint } from "@/components/message-hint";
+import { MessageHint, TitleHintIcon } from "@/components/message-hint";
+import { TraceConversationView } from "@/components/trace-conversation-view";
+import { TraceSpanAttributesPanel } from "@/components/trace-span-attributes-panel";
+import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
+import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceTimelineTree, type TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import {
   collectorAuthHeaders,
@@ -16,6 +20,8 @@ import {
   streamUrl,
 } from "@/lib/collector";
 import { pipelineCoverageFromEvents } from "@/lib/trace-detail-pipeline";
+import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
+import { loadSemanticSpans } from "@/lib/semantic-spans";
 import {
   buildDetailEventList,
   buildUserTurnList,
@@ -115,6 +121,9 @@ function TraceDetailContent() {
   const [mounted, setMounted] = useState(false);
   const [sseOpen, setSseOpen] = useState(false);
   const [liveEvents, setLiveEvents] = useState<TraceEvent[]>([]);
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const [treeFilter, setTreeFilter] = useState("");
+  const [detailViewMode, setDetailViewMode] = useState<"conversation" | "flow">("conversation");
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -127,6 +136,7 @@ function TraceDetailContent() {
       setBaseUrl(loadCollectorUrl());
       setApiKey(loadApiKey());
       void queryClient.invalidateQueries({ queryKey: ["trace-events"] });
+      void queryClient.invalidateQueries({ queryKey: ["semantic-spans"] });
     };
     window.addEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
@@ -287,6 +297,28 @@ function TraceDetailContent() {
     };
   }, [selectedTurn, detailEvents, effectiveTraceRootId]);
 
+  useEffect(() => {
+    setSelectedSpanId(null);
+  }, [selectedListKey, effectiveTraceRootId]);
+
+  const spansQuery = useQuery({
+    queryKey: ["semantic-spans", baseUrl, apiKey, detailHeader.traceRootId ?? ""],
+    queryFn: () => loadSemanticSpans(baseUrl, apiKey, detailHeader.traceRootId!),
+    enabled: mounted && baseUrl.trim().length > 0 && Boolean(detailHeader.traceRootId),
+  });
+
+  const spanForest = useMemo(
+    () => buildSpanForest(spansQuery.data?.items ?? []),
+    [spansQuery.data?.items],
+  );
+
+  const filteredSpanForest = useMemo(() => filterSpanForest(spanForest, treeFilter), [spanForest, treeFilter]);
+
+  const selectedSpan = useMemo(() => {
+    const items = spansQuery.data?.items ?? [];
+    return items.find((s) => s.span_id === selectedSpanId) ?? null;
+  }, [spansQuery.data?.items, selectedSpanId]);
+
   const sessionIdForDelete = useMemo(() => firstSessionIdInEvents(merged), [merged]);
 
   useEffect(() => {
@@ -372,12 +404,15 @@ function TraceDetailContent() {
 
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="min-w-0">
-            <IdLabeledCopy
-              kind="thread_key"
-              value={threadKey}
-              valueClassName="text-xl font-semibold tracking-tight md:text-2xl"
-            />
+          <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+            <div className="min-w-0 flex-1">
+              <IdLabeledCopy
+                kind="thread_key"
+                value={threadKey}
+                valueClassName="text-xl font-semibold tracking-tight md:text-2xl"
+              />
+            </div>
+            <TitleHintIcon tooltipText={t("detailPageHint")} className="mt-0.5 shrink-0" />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className={sseOpen ? "ca-pill-success" : "ca-pill-muted"}>
@@ -610,11 +645,43 @@ function TraceDetailContent() {
               <div className="space-y-2 border-b border-ca-border bg-neutral-50/80 px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <h2 className="text-sm font-semibold text-neutral-900">{t("detailRightPanelTitle")}</h2>
-                  {selectedTurn ? (
-                    <span className="shrink-0 rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-950">
-                      {t("detailSliceEventBadge", { count: detailEvents.length })}
-                    </span>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className="inline-flex rounded-lg border border-ca-border bg-white p-0.5 text-[11px] shadow-sm"
+                      role="group"
+                      aria-label={t("detailViewToggleGroupAria")}
+                    >
+                      <button
+                        type="button"
+                        className={`rounded-md px-2.5 py-1 font-medium transition ${
+                          detailViewMode === "conversation"
+                            ? "bg-ca-accent/15 font-semibold text-ca-accent"
+                            : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        aria-pressed={detailViewMode === "conversation"}
+                        onClick={() => setDetailViewMode("conversation")}
+                      >
+                        {t("viewModeConversation")}
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-md px-2.5 py-1 font-medium transition ${
+                          detailViewMode === "flow"
+                            ? "bg-ca-accent/15 font-semibold text-ca-accent"
+                            : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        aria-pressed={detailViewMode === "flow"}
+                        onClick={() => setDetailViewMode("flow")}
+                      >
+                        {t("viewModeFlow")}
+                      </button>
+                    </div>
+                    {selectedTurn ? (
+                      <span className="shrink-0 rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-950">
+                        {t("detailSliceEventBadge", { count: detailEvents.length })}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <MessageHint
                   text={t("detailRightPanelSubtitle")}
@@ -687,47 +754,125 @@ function TraceDetailContent() {
                 ) : null}
               </div>
 
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-                {selectedTurn ? (
-                  <div
-                    id={`ca-trace-inbound-${selectedTurn.listKey}`}
-                    className="rounded-xl border border-ca-border/80 bg-neutral-50/50 px-3 py-2.5 sm:px-4 sm:py-3 scroll-mt-4"
-                  >
-                    <p className="text-xs font-semibold text-neutral-600">{t("inboundTextLabel")}</p>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-900">
-                      {selectedTurn.fullText}
-                    </p>
-                  </div>
-                ) : null}
-
-                {detailEvents.length > 0 ? (
-                  <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/50 px-3 py-2.5 sm:px-4 sm:py-3">
-                    <p className="text-xs font-semibold text-emerald-950">{t("detailPipelineTitle")}</p>
-                    <p className="mt-1 text-[11px] text-emerald-900/80">
-                      {t("detailPipelineTypeCount", { count: String(detailPipeline.orderedTypes.length) })}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {detailPipeline.orderedTypes.map((ty) => (
-                        <span
-                          key={ty}
-                          className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/95 px-2 py-0.5 font-mono text-[10px] text-emerald-950 ring-1 ring-emerald-200/80"
-                          title={ty}
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:min-h-[min(560px,65vh)]">
+                {detailViewMode === "conversation" ? (
+                  <TraceConversationView events={detailEvents} turn={selectedTurn ?? null} />
+                ) : (
+                  <>
+                    <div className="max-h-[min(40vh,320px)] shrink-0 space-y-4 overflow-y-auto border-b border-ca-border p-4">
+                      {selectedTurn ? (
+                        <div
+                          id={`ca-trace-inbound-${selectedTurn.listKey}`}
+                          className="scroll-mt-4 rounded-xl border border-ca-border/80 bg-neutral-50/50 px-3 py-2.5 sm:px-4 sm:py-3"
                         >
-                          <span className="truncate">{ty}</span>
-                          <span className="shrink-0 tabular-nums text-emerald-700">
-                            ×{detailPipeline.counts[ty] ?? 0}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                          <p className="text-xs font-semibold text-neutral-600">{t("inboundTextLabel")}</p>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-900">
+                            {selectedTurn.fullText}
+                          </p>
+                        </div>
+                      ) : null}
 
-                {detailEvents.length > 0 ? (
-                  <TraceTimelineTree events={detailEvents} />
-                ) : selectedTurn && detailEvents.length === 0 ? (
-                  <MessageHint text={t("noRunEventsYet")} textClassName="text-sm text-ca-muted" />
-                ) : null}
+                      {detailEvents.length > 0 ? (
+                        <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/50 px-3 py-2.5 sm:px-4 sm:py-3">
+                          <p className="text-xs font-semibold text-emerald-950">{t("detailPipelineTitle")}</p>
+                          <p className="mt-1 text-[11px] text-emerald-900/80">
+                            {t("detailPipelineTypeCount", { count: String(detailPipeline.orderedTypes.length) })}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {detailPipeline.orderedTypes.map((ty) => (
+                              <span
+                                key={ty}
+                                className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-white/95 px-2 py-0.5 font-mono text-[10px] text-emerald-950 ring-1 ring-emerald-200/80"
+                                title={ty}
+                              >
+                                <span className="truncate">{ty}</span>
+                                <span className="shrink-0 tabular-nums text-emerald-700">
+                                  ×{detailPipeline.counts[ty] ?? 0}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex min-h-[min(480px,60vh)] min-h-0 flex-1 flex-col overflow-hidden bg-neutral-50/20 lg:min-h-0 lg:flex-row">
+                      <div className="flex min-h-[200px] min-w-0 flex-1 flex-col overflow-hidden border-ca-border lg:w-72 lg:max-w-[min(100%,320px)] lg:flex-none lg:border-r lg:bg-white">
+                        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ca-border bg-violet-50/50 px-3 py-2">
+                          <h3 className="text-[11px] font-bold uppercase tracking-wide text-violet-950">
+                            {t("detailSemanticTitle")}
+                          </h3>
+                          {detailHeader.traceRootId && spansQuery.isFetching ? (
+                            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-700" />
+                          ) : null}
+                        </div>
+                        <div className="shrink-0 border-b border-ca-border bg-white px-2 py-2">
+                          <input
+                            type="search"
+                            value={treeFilter}
+                            onChange={(e) => setTreeFilter(e.target.value)}
+                            placeholder={t("detailTreeSearchPlaceholder")}
+                            className="w-full rounded-lg border border-ca-border bg-neutral-50/80 px-2.5 py-1.5 text-xs outline-none ring-ca-accent/20 focus:border-ca-accent focus:ring-2"
+                            aria-label={t("detailTreeSearchPlaceholder")}
+                          />
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+                          {detailHeader.traceRootId ? (
+                            <>
+                              {spansQuery.isError ? (
+                                <div className="p-4 text-sm text-red-700">{String(spansQuery.error)}</div>
+                              ) : spansQuery.isLoading ? (
+                                <p className="p-4 text-sm text-ca-muted">{t("semanticSpansLoading")}</p>
+                              ) : spanForest.length > 0 ? (
+                                filteredSpanForest.length > 0 ? (
+                                  <TraceSemanticTree
+                                    forest={filteredSpanForest}
+                                    selectedId={selectedSpanId}
+                                    onSelect={setSelectedSpanId}
+                                  />
+                                ) : (
+                                  <p className="p-4 text-sm text-ca-muted">{t("detailTreeNoMatches")}</p>
+                                )
+                              ) : (
+                                <MessageHint
+                                  className="p-4"
+                                  text={t("semanticTreeEmptyDetail")}
+                                  textClassName="text-sm text-ca-muted"
+                                  clampClass="line-clamp-5"
+                                />
+                              )}
+                            </>
+                          ) : (
+                            <MessageHint
+                              className="p-4"
+                              text={t("semanticTreeNeedTraceRoot")}
+                              textClassName="text-sm text-amber-900"
+                              clampClass="line-clamp-4"
+                            />
+                          )}
+                          <details className="border-t border-ca-border bg-neutral-50/40" open>
+                            <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-neutral-800 hover:bg-neutral-100/80">
+                              {t("detailRawEventsToggle")}
+                            </summary>
+                            <div className="border-t border-ca-border p-3">
+                              {detailEvents.length > 0 ? (
+                                <TraceTimelineTree events={detailEvents} />
+                              ) : selectedTurn && detailEvents.length === 0 ? (
+                                <MessageHint text={t("noRunEventsYet")} textClassName="text-sm text-ca-muted" />
+                              ) : null}
+                            </div>
+                          </details>
+                        </div>
+                      </div>
+                      <div className="flex min-h-[280px] min-w-0 flex-[1.2] flex-col overflow-hidden border-ca-border bg-white lg:border-r">
+                        <TraceSpanRunPanel span={selectedSpan} />
+                      </div>
+                      <div className="flex min-h-[200px] w-full shrink-0 flex-col lg:w-56 lg:max-w-[260px] 2xl:w-64 2xl:max-w-none">
+                        <TraceSpanAttributesPanel span={selectedSpan} />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </>

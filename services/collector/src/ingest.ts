@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { applyObservabilityFromIngestedEvent } from "./observability-ingest.js";
 import { ssePublish } from "./sse-hub.js";
 import { computeThreadKey } from "./thread-key.js";
 
@@ -102,6 +103,7 @@ function pickMsgId(e: Record<string, unknown>, payload: Record<string, unknown>)
 }
 
 export function runIngestBatch(params: {
+  db: Database.Database;
   insertStmt: Database.Statement;
   events: IngestEventInput[];
 }): { accepted: number; skipped: number } {
@@ -150,6 +152,25 @@ export function runIngestBatch(params: {
     });
     if (r.changes > 0) {
       accepted += 1;
+      try {
+        applyObservabilityFromIngestedEvent(params.db, {
+          event_id: eventId,
+          trace_root_id: traceRootId,
+          session_id: sessionId,
+          session_key: sessionKey,
+          agent_id: agentId,
+          agent_name: agentName,
+          chat_title: chatTitle,
+          run_id: runId,
+          msg_id: msgId,
+          channel: channelCol,
+          type,
+          payload: payloadForStore,
+          client_ts: clientTs,
+        });
+      } catch {
+        // Observability mirrors must not break ingest.
+      }
       const rowId = Number(r.lastInsertRowid);
       const payload = {
         id: rowId > 0 ? rowId : undefined,

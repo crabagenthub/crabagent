@@ -6,8 +6,15 @@ import { cors } from "hono/cors";
 import { openDatabase } from "./db.js";
 import { runIngestBatch } from "./ingest.js";
 import { sseSubscribe } from "./sse-hub.js";
-import { devFiltersAreEmpty, parseDevEventFilters, runDevEventsQuery } from "./dev-events-query.js";
+import {
+  decodeOtlpId,
+  queryOtelTraceByTraceId,
+  resolveTraceIdByTraceRootId,
+  runOtlpTracesIngest,
+} from "./otlp-traces.js";
 import { THREAD_KEY_SQL, threadKeySqlForAlias } from "./thread-key.js";
+import { querySemanticSpansByTraceId } from "./semantic-spans-query.js";
+import { queryTraceRecords } from "./trace-records-query.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
@@ -18,6 +25,19 @@ const DB_PATH = process.env.CRABAGENT_DB_PATH?.trim() || defaultDbPath;
 const DB_PATH_LOG = path.resolve(DB_PATH);
 
 const db = openDatabase(DB_PATH);
+const spanInsertStmt = db.prepare(
+  `INSERT OR IGNORE INTO otel_spans (
+     trace_id, span_id, parent_span_id, name, kind,
+     start_time_unix_nano, end_time_unix_nano,
+     status_code, status_message, attributes_json, resource_json,
+     service_name, scope_name, trace_root_id, msg_id, event_id
+   ) VALUES (
+     @trace_id, @span_id, @parent_span_id, @name, @kind,
+     @start_time_unix_nano, @end_time_unix_nano,
+     @status_code, @status_message, @attributes_json, @resource_json,
+     @service_name, @scope_name, @trace_root_id, @msg_id, @event_id
+   )`,
+);
 const insertStmt = db.prepare(
   `INSERT OR IGNORE INTO events (
      event_id, trace_root_id, session_id, session_key, agent_id, agent_name, chat_title, run_id, msg_id, channel,
@@ -61,48 +81,69 @@ function checkApiKey(c: KeyCtx): boolean {
   return q === API_KEY;
 }
 
+function normalizeTraceIdParam(raw: string): string | null {
+  const t = raw.trim();
+  const decoded = decodeOtlpId(t) ?? decodeOtlpId(t.replace(/-/g, ""));
+  if (decoded && /^[0-9a-f]{32}$/i.test(decoded)) {
+    return decoded.toLowerCase();
+  }
+  return null;
+}
+
 app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
 
 /**
- * Dev-only: parameterized filter query over `events` (requires API key when configured).
- * At least one filter required to avoid full table scans.
+ * OTLP/HTTP JSON `ExportTraceServiceRequest` (same path as OTLP spec for JSON).
+ * Body: `{ "resourceSpans": [ ... ] }`.
  */
-app.get("/v1/dev/events/query", (c) => {
+app.post("/v1/traces", async (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const q = (name: string): string | undefined => c.req.query(name) ?? undefined;
-  const filters = parseDevEventFilters({
-    event_id: q("event_id"),
-    trace_root_id: q("trace_root_id"),
-    session_id: q("session_id"),
-    session_key: q("session_key"),
-    session_key_prefix: q("session_key_prefix"),
-    run_id: q("run_id"),
-    channel: q("channel"),
-    type: q("type"),
-    agent_id: q("agent_id"),
-    chat_title: q("chat_title"),
-    payload_contains: q("payload_contains"),
-    client_ts_from: q("client_ts_from"),
-    client_ts_to: q("client_ts_to"),
-    id_min: q("id_min"),
-    id_max: q("id_max"),
-  });
-  if (devFiltersAreEmpty(filters)) {
-    return c.json(
-      {
-        error: "at_least_one_filter_required",
-        hint: "Pass e.g. trace_root_id, event_id, session_key_prefix, type, id_min/max, payload_contains, …",
-      },
-      400,
-    );
+  const ct = c.req.header("content-type") ?? "";
+  if (!ct.includes("json")) {
+    return c.json({ error: "expected_json_body", hint: "Use Content-Type: application/json" }, 415);
   }
-  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
-  const offset = Math.max(0, Number(c.req.query("offset") ?? "0") || 0);
-  const omitPayloadBody = q("omit_payload") === "1" || q("omit_payload")?.toLowerCase() === "true";
-  const result = runDevEventsQuery(db, filters, limit, offset, omitPayloadBody);
-  return c.json({ ok: true, ...result });
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  if (!body || typeof body !== "object" || !Array.isArray((body as { resourceSpans?: unknown }).resourceSpans)) {
+    return c.json({ error: "expected_export_trace_service_request" }, 400);
+  }
+  const { accepted, skipped } = runOtlpTracesIngest({ db, insertStmt: spanInsertStmt, body });
+  return c.json({ ok: true, accepted, skipped });
+});
+
+/** Crabagent native trace JSON (flat spans). */
+app.get("/v1/traces/otel/:traceId", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const tid = normalizeTraceIdParam(c.req.param("traceId") ?? "");
+  if (!tid) {
+    return c.json({ error: "invalid_trace_id" }, 400);
+  }
+  const { trace_id, spans } = queryOtelTraceByTraceId(db, tid);
+  return c.json({ ok: true, trace_id, spans, schema_version: 1 });
+});
+
+app.get("/v1/traces/otel/by-trace-root", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const tr = c.req.query("trace_root_id")?.trim() ?? "";
+  if (!tr) {
+    return c.json({ error: "trace_root_id_required" }, 400);
+  }
+  const traceId = resolveTraceIdByTraceRootId(db, tr);
+  if (!traceId) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  const { spans } = queryOtelTraceByTraceId(db, traceId);
+  return c.json({ ok: true, trace_id: traceId, spans, schema_version: 1 });
 });
 
 app.post("/v1/ingest", async (c) => {
@@ -123,7 +164,7 @@ app.post("/v1/ingest", async (c) => {
     return c.json({ error: "expected_non_empty_events_array" }, 400);
   }
 
-  const { accepted, skipped } = runIngestBatch({ insertStmt, events });
+  const { accepted, skipped } = runIngestBatch({ db, insertStmt, events });
   return c.json({ ok: true, accepted, skipped, total: events.length });
 });
 
@@ -266,6 +307,54 @@ app.get("/v1/trace-messages", (c) => {
     )
     .all(limit) as Record<string, unknown>[];
   return c.json({ items: rows });
+});
+
+/**
+ * Semantic execution tree for one business trace (`trace_id` = ingest `trace_root_id`):
+ * spans + optional generations (tokens, context_full / context_sent for diff).
+ */
+app.get("/v1/semantic-spans", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const rawTid = c.req.query("trace_id");
+  const tid = typeof rawTid === "string" ? rawTid.trim() : "";
+  if (!tid) {
+    return c.json({ error: "missing trace_id" }, 400);
+  }
+  const items = querySemanticSpansByTraceId(db, tid);
+  return c.json({ trace_id: tid, items });
+});
+
+/**
+ * Time-machine list: one row per business `traces` record (trace_id = ingest `trace_root_id`).
+ * Joins last user message preview when present; `thread_key` for console deep links.
+ */
+app.get("/v1/trace-records", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order = orderRaw === "asc" ? "asc" : "desc";
+  const minTotalTokens = Number(c.req.query("min_total_tokens") ?? "");
+  const minLoopCount = Number(c.req.query("min_loop_count") ?? "");
+  const minToolCalls = Number(c.req.query("min_tool_calls") ?? "");
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+
+  const items = queryTraceRecords(db, {
+    limit,
+    offset,
+    order,
+    minTotalTokens: Number.isFinite(minTotalTokens) && minTotalTokens > 0 ? minTotalTokens : undefined,
+    minLoopCount: Number.isFinite(minLoopCount) && minLoopCount > 0 ? minLoopCount : undefined,
+    minToolCalls: Number.isFinite(minToolCalls) && minToolCalls > 0 ? minToolCalls : undefined,
+    search,
+  });
+
+  return c.json({ items });
 });
 
 /**

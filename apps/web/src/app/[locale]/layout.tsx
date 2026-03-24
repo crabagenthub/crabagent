@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { DocumentLang } from "@/components/document-lang";
 import { QueryProvider } from "@/components/query-provider";
 import { SiteNav } from "@/components/site-nav";
 import { routing } from "@/i18n/routing";
@@ -34,19 +35,16 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={inter.variable}>
-      <body
-        className={`${inter.className} h-dvh overflow-hidden antialiased`}
-      >
-        <NextIntlClientProvider messages={messages}>
-          <QueryProvider>
-            <div className="flex h-full min-h-0 w-full overflow-hidden">
-              <SiteNav />
-              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-white">{children}</div>
-            </div>
-          </QueryProvider>
-        </NextIntlClientProvider>
-      </body>
-    </html>
+    <NextIntlClientProvider messages={messages}>
+      <DocumentLang locale={locale} />
+      <QueryProvider>
+        <div
+          className={`${inter.variable} ${inter.className} flex h-dvh min-h-0 w-full overflow-hidden antialiased`}
+        >
+          <SiteNav />
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-white">{children}</div>
+        </div>
+      </QueryProvider>
+    </NextIntlClientProvider>
   );
 }
