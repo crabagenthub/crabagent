@@ -1,10 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
+import { ListTree } from "lucide-react";
+import { LocalizedLink } from "@/components/localized-link";
+import {
+  ChatContainerContent,
+  ChatContainerRoot,
+} from "@/components/prompt-kit/chat-container";
+import { Message, MessageContent } from "@/components/prompt-kit/message";
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
-import type { UserTurnListItem } from "@/lib/user-turn-list";
-import { buildConversationTimeline, type ConversationTimelineItem } from "@/lib/trace-conversation-timeline";
+import {
+  buildConversationTurnWindowEvents,
+  buildDetailEventList,
+  type UserTurnListItem,
+} from "@/lib/user-turn-list";
+import { buildConversationTimeline, type ConversationTimelineItem, type MemoryRefSnippet } from "@/lib/trace-conversation-timeline";
+import { cn } from "@/lib/utils";
+
+const TURN_DIVIDER = "#EEEEEE";
 
 function rowNumericId(e: TraceTimelineEvent): number {
   const n = e.id;
@@ -62,7 +76,7 @@ function MemoryMarkedText({
   memoryRefs,
 }: {
   text: string;
-  memoryRefs: { label: string; excerpt: string }[];
+  memoryRefs: MemoryRefSnippet[];
 }) {
   const parts = text.split(/(MEMORY\.md|memory\.md)/gi);
   const defaultTitle = memoryRefs[0]?.excerpt ?? "";
@@ -88,6 +102,97 @@ function MemoryMarkedText({
   );
 }
 
+/** Inline **bold** + MEMORY highlights. */
+function renderInlineWithMemory(segment: string, memoryRefs: MemoryRefSnippet[]) {
+  const fat = segment.split(/(\*\*[\s\S]*?\*\*)/g);
+  return fat.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      return (
+        <strong key={i} className="font-semibold text-neutral-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <MemoryMarkedText key={i} text={part} memoryRefs={memoryRefs} />;
+  });
+}
+
+function SimpleMarkdownBlocks({ text, memoryRefs }: { text: string; memoryRefs: MemoryRefSnippet[] }) {
+  const lines = text.split(/\r?\n/);
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
+    const ordered = /^\s*\d+\.\s+(.*)$/.exec(line);
+    if (bullet) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const m = /^\s*[-*]\s+(.*)$/.exec(lines[i]!);
+        if (!m) {
+          break;
+        }
+        items.push(m[1]!);
+        i++;
+      }
+      blocks.push(
+        <ul
+          key={`ul-${blocks.length}`}
+          className="my-2 list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed text-neutral-900 marker:text-neutral-400"
+        >
+          {items.map((item, j) => (
+            <li key={j}>{renderInlineWithMemory(item, memoryRefs)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    if (ordered) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const m = /^\s*\d+\.\s+(.*)$/.exec(lines[i]!);
+        if (!m) {
+          break;
+        }
+        items.push(m[1]!);
+        i++;
+      }
+      blocks.push(
+        <ol
+          key={`ol-${blocks.length}`}
+          className="my-2 list-decimal space-y-1.5 pl-5 text-[15px] leading-relaxed text-neutral-900 marker:text-neutral-500"
+        >
+          {items.map((item, j) => (
+            <li key={j}>{renderInlineWithMemory(item, memoryRefs)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+    const paraLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i]!.trim() !== "" &&
+      !/^\s*[-*]\s+/.test(lines[i]!) &&
+      !/^\s*\d+\.\s+/.test(lines[i]!)
+    ) {
+      paraLines.push(lines[i]!);
+      i++;
+    }
+    const para = paraLines.join("\n");
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="text-[15px] leading-relaxed text-neutral-900">
+        {renderInlineWithMemory(para, memoryRefs)}
+      </p>,
+    );
+  }
+  return <div className="space-y-1">{blocks}</div>;
+}
+
 function CollapsedPipelineBlock({
   item,
 }: {
@@ -108,13 +213,16 @@ function CollapsedPipelineBlock({
       : t("convCollapsedSummary", { count: events.length });
 
   return (
-    <details className="group max-w-[min(100%,42rem)] rounded-xl border border-neutral-200/90 bg-neutral-50/80 px-3 py-2 text-left shadow-sm">
-      <summary className="cursor-pointer list-none select-none text-[11px] text-neutral-600 marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="font-medium text-neutral-700">{summary}</span>
+    <details
+      className={cn(
+        "group w-full max-w-[min(100%,42rem)] rounded-xl border px-3 py-2.5 text-left shadow-sm",
+        "border-neutral-200/90 bg-[#F3F4F6]",
+      )}
+    >
+      <summary className="cursor-pointer list-none select-none text-[12px] text-neutral-600 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="font-medium text-neutral-800">{summary}</span>
         {hookish > 0 ? (
-          <span className="ml-2 text-neutral-500">
-            {t("convCollapsedToolish", { n: String(hookish) })}
-          </span>
+          <span className="ml-2 text-neutral-500">{t("convCollapsedToolish", { n: String(hookish) })}</span>
         ) : null}
         {typesShort ? (
           <span className="mt-0.5 block font-mono text-[10px] text-neutral-500">{typesShort}</span>
@@ -136,30 +244,53 @@ function AssistantBubble({
   text,
   thinking,
   memoryRefs,
+  threadKey,
+  msgId,
+  messagesOnly,
 }: {
   text: string;
   thinking: string | null;
-  memoryRefs: { label: string; excerpt: string }[];
+  memoryRefs: MemoryRefSnippet[];
+  threadKey: string;
+  msgId: string | null;
+  /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
+  messagesOnly?: boolean;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
+
+  const traceHref = useMemo(() => {
+    const base = `/traces/${encodeURIComponent(threadKey)}`;
+    const mid = (msgId ?? "").trim();
+    return mid ? `${base}?msg_id=${encodeURIComponent(mid)}` : base;
+  }, [threadKey, msgId]);
+
+  const showTraceLink = !messagesOnly && threadKey.trim().length > 0;
+
+  const assistantRichBody =
+    memoryRefs.length > 0 ? (
+      text.trim() ? (
+        <SimpleMarkdownBlocks text={text} memoryRefs={memoryRefs} />
+      ) : (
+        <p className="text-sm">—</p>
+      )
+    ) : null;
+
   return (
-    <div className="flex max-w-[min(100%,42rem)] flex-col items-stretch gap-1 self-end">
-      {thinking ? (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 bg-white text-xs text-neutral-500 shadow-sm hover:border-ca-accent hover:text-ca-accent"
-            aria-expanded={open}
-            aria-label={t("convThinkingToggleAria")}
-            title={t("convThinkingToggleAria")}
-            onClick={() => setOpen((v) => !v)}
-          >
-            ⚙
-          </button>
-        </div>
+    <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
+      {!messagesOnly && thinking ? (
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center self-start rounded-md border border-neutral-200/90 bg-white text-xs text-neutral-500 shadow-sm hover:border-neutral-300 hover:text-neutral-800"
+          aria-expanded={open}
+          aria-label={t("convThinkingToggleAria")}
+          title={t("convThinkingToggleAria")}
+          onClick={() => setOpen((v) => !v)}
+        >
+          ⚙
+        </button>
       ) : null}
-      {open && thinking ? (
+      {!messagesOnly && open && thinking ? (
         <div className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-[11px] leading-relaxed text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/80">
             {t("convThinkingTitle")}
@@ -167,63 +298,173 @@ function AssistantBubble({
           <p className="mt-1 font-mono text-[11px]">{thinking}</p>
         </div>
       ) : null}
-      <div className="rounded-2xl rounded-br-md border border-sky-200/90 bg-sky-50/95 px-4 py-3 text-sm leading-relaxed text-neutral-900 shadow-sm">
-        <p className="whitespace-pre-wrap break-words">
-          <MemoryMarkedText text={text} memoryRefs={memoryRefs} />
-        </p>
-      </div>
+      {memoryRefs.length > 0 ? (
+        <MessageContent
+          markdown={false}
+          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none"
+        >
+          {assistantRichBody as ReactNode}
+        </MessageContent>
+      ) : text.trim() ? (
+        <MessageContent
+          markdown
+          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none prose-headings:my-2 prose-p:my-1.5"
+        >
+          {text.trim()}
+        </MessageContent>
+      ) : (
+        <MessageContent
+          markdown={false}
+          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none"
+        >
+          <p className="text-sm">—</p>
+        </MessageContent>
+      )}
+      {showTraceLink ? (
+        <div className="flex flex-wrap items-center gap-2 pl-0.5 pt-0.5">
+          <LocalizedLink
+            href={traceHref}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
+          >
+            <ListTree className="size-4 shrink-0" strokeWidth={1.75} />
+            {t("convViewTrace")}
+          </LocalizedLink>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-export function TraceConversationView({
-  events,
-  turn,
+function ConversationTimelineBlocks({
+  items,
+  threadKey,
+  msgId,
+  messagesOnly,
 }: {
-  events: TraceTimelineEvent[];
-  turn: UserTurnListItem | null;
+  items: ConversationTimelineItem[];
+  threadKey: string;
+  msgId: string | null;
+  messagesOnly?: boolean;
 }) {
   const t = useTranslations("Traces");
-  const items = useMemo(() => buildConversationTimeline(events, turn), [events, turn]);
   const hasAssistant = items.some((i) => i.kind === "assistant");
 
-  if (!turn && items.length === 0) {
-    return <p className="p-6 text-sm text-ca-muted">{t("convNoTurn")}</p>;
-  }
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
-        {items.map((item) => {
+    <>
+      <div className="ml-auto w-full max-w-[min(100%,28rem)] sm:max-w-[min(100%,34rem)]">
+        {items.map((item, idx) => {
+          const isLast = idx === items.length - 1;
+          const dividerStyle = { borderColor: TURN_DIVIDER };
+
           if (item.kind === "user") {
             return (
-              <div key={item.key} className="flex justify-start">
-                <div className="max-w-[min(100%,42rem)] rounded-2xl rounded-bl-md border border-neutral-200 bg-white px-4 py-3 text-sm leading-relaxed text-neutral-900 shadow-sm">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
-                    {t("convUserLabel")}
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap break-words">{item.text}</p>
-                </div>
+              <div
+                key={item.key}
+                className={cn("flex justify-end pb-5", !isLast && "mb-5 border-b")}
+                style={!isLast ? dividerStyle : undefined}
+              >
+                <Message className="max-w-[min(100%,70%)] flex-row-reverse">
+                  <MessageContent
+                    markdown={false}
+                    className="!bg-[#E8EBFF] max-w-full border-0 text-[15px] leading-relaxed text-neutral-900"
+                  >
+                    <p className="whitespace-pre-wrap break-words">{item.text}</p>
+                  </MessageContent>
+                </Message>
               </div>
             );
           }
           if (item.kind === "collapsed") {
             return (
-              <div key={item.key} className="flex justify-center">
+              <div
+                key={item.key}
+                className={cn("flex justify-start pb-5", !isLast && "mb-5 border-b")}
+                style={!isLast ? dividerStyle : undefined}
+              >
                 <CollapsedPipelineBlock item={item} />
               </div>
             );
           }
           return (
-            <div key={item.key} className="flex flex-col items-end gap-1">
-              <AssistantBubble text={item.text} thinking={item.thinking} memoryRefs={item.memoryRefs} />
+            <div
+              key={item.key}
+              className={cn("flex flex-col pb-5", !isLast && "mb-5 border-b")}
+              style={!isLast ? dividerStyle : undefined}
+            >
+              <AssistantBubble
+                text={item.text}
+                thinking={item.thinking}
+                memoryRefs={item.memoryRefs}
+                threadKey={threadKey}
+                msgId={msgId}
+                messagesOnly={messagesOnly}
+              />
             </div>
           );
         })}
         {!hasAssistant && items.length > 0 ? (
-          <p className="text-center text-xs text-amber-800/90">{t("convEmptyAssistant")}</p>
+          <p className="pt-2 text-center text-xs text-amber-800/90">{t("convEmptyAssistant")}</p>
         ) : null}
       </div>
+    </>
+  );
+}
+
+export type TraceConversationViewVariant = "panel" | "turnEmbed";
+
+export function TraceConversationView({
+  events,
+  turn,
+  threadKey,
+  variant = "panel",
+  /** When `variant` is `turnEmbed`, pass full ordered turns so each block can slice [anchor, next anchor) and keep `llm_output` rows. */
+  conversationTurns,
+  /** 仅用户输入 + 助手输出（无折叠链路、thinking、查看全链路链接）。 */
+  messagesOnly = false,
+}: {
+  events: TraceTimelineEvent[];
+  turn: UserTurnListItem | null;
+  /** Conversation id for full-page trace link (same as route `/traces/[threadKey]`). */
+  threadKey: string;
+  /** `turnEmbed`: no outer chat chrome; for stacking in full-session transcript. */
+  variant?: TraceConversationViewVariant;
+  conversationTurns?: UserTurnListItem[];
+  messagesOnly?: boolean;
+}) {
+  const t = useTranslations("Traces");
+  const scopedEvents = useMemo(() => {
+    if (turn == null) {
+      return events;
+    }
+    if (variant === "turnEmbed" && conversationTurns != null && conversationTurns.length > 0) {
+      return buildConversationTurnWindowEvents(events, turn, conversationTurns);
+    }
+    return buildDetailEventList(events, turn);
+  }, [events, turn, variant, conversationTurns]);
+  const items = useMemo(
+    () => buildConversationTimeline(scopedEvents, turn, { messagesOnly }),
+    [scopedEvents, turn, messagesOnly],
+  );
+
+  if (!turn && items.length === 0) {
+    return <p className="p-6 text-sm text-ca-muted">{t("convNoTurn")}</p>;
+  }
+
+  const msgId = turn?.msgId ?? null;
+
+  const blocks = (
+    <ConversationTimelineBlocks items={items} threadKey={threadKey} msgId={msgId} messagesOnly={messagesOnly} />
+  );
+
+  if (variant === "turnEmbed") {
+    return <div className="min-w-0">{blocks}</div>;
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <ChatContainerRoot className="min-h-0 flex-1">
+        <ChatContainerContent className="gap-0 px-3 py-4 sm:px-5 sm:py-5">{blocks}</ChatContainerContent>
+      </ChatContainerRoot>
     </div>
   );
 }

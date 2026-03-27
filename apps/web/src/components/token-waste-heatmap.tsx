@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { ListEmptyState } from "@/components/list-empty-state";
 import { LocalizedLink } from "@/components/localized-link";
 import type { TokenWasteThreadRow } from "@/lib/token-waste-heatmap";
 
@@ -40,9 +41,16 @@ export function TokenWasteHeatmap(props: {
 
   if (rows.length === 0) {
     return (
-      <div className="ca-card rounded-xl border border-dashed border-ca-shell-border p-8 text-center text-sm text-ca-muted">
-        {t("wasteHeatmapEmpty")}
-      </div>
+      <ListEmptyState
+        variant="card"
+        title={t("wasteHeatmapEmptyTitle")}
+        description={t("wasteHeatmapEmpty")}
+        footer={
+          <LocalizedLink href="/traces" className="ca-btn-secondary inline-flex text-sm no-underline">
+            {t("wasteHeatmapOpenTraces")}
+          </LocalizedLink>
+        }
+      />
     );
   }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { MessageHint } from "@/components/message-hint";
@@ -10,6 +11,8 @@ import {
   toolResultChars,
 } from "@/lib/span-insights";
 import { extractRunChatBlocks, type ChatRole } from "@/lib/span-messages";
+import { spanTokenTotals } from "@/lib/span-token-display";
+import { cn } from "@/lib/utils";
 
 type MainTab = "run" | "metadata" | "feedback";
 
@@ -85,8 +88,8 @@ function ContextLineDiff({ full, sent }: { full: string; sent: string }) {
         clampClass="line-clamp-4"
       />
       <div className="grid max-h-[min(40vh,24rem)] grid-cols-1 gap-2 overflow-hidden md:grid-cols-2">
-        <div className="flex min-h-0 flex-col rounded-lg border border-ca-border bg-white">
-          <div className="border-b border-ca-border bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase text-ca-muted">
+        <div className="flex min-h-0 flex-col rounded-lg border border-border bg-white">
+          <div className="border-b border-border bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase text-ca-muted">
             {t("inspectorContextBefore")}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -100,8 +103,8 @@ function ContextLineDiff({ full, sent }: { full: string; sent: string }) {
             ))}
           </div>
         </div>
-        <div className="flex min-h-0 flex-col rounded-lg border border-ca-border bg-white">
-          <div className="border-b border-ca-border bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-900">
+        <div className="flex min-h-0 flex-col rounded-lg border border-border bg-white">
+          <div className="border-b border-border bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-900">
             {t("inspectorContextAfter")}
           </div>
           <pre className="m-0 min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[10px] text-neutral-800">
@@ -111,6 +114,21 @@ function ContextLineDiff({ full, sent }: { full: string; sent: string }) {
       </div>
     </div>
   );
+}
+
+function formatErrorBody(error: string): string {
+  const raw = error.trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      return JSON.stringify(JSON.parse(raw), null, 2);
+    }
+  } catch {
+    /* keep raw */
+  }
+  return raw;
 }
 
 function roleLabel(t: ReturnType<typeof useTranslations>, role: ChatRole): string {
@@ -128,19 +146,104 @@ function roleLabel(t: ReturnType<typeof useTranslations>, role: ChatRole): strin
   }
 }
 
-export function TraceSpanRunPanel({ span }: { span: SemanticSpanRow | null }) {
+function SpanInspectSection(props: {
+  title: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  search: string;
+  onSearchChange: (v: string) => void;
+  copyPayload: string;
+  prettyLabel: string;
+  t: ReturnType<typeof useTranslations>;
+  children: React.ReactNode;
+}) {
+  const { title, isOpen, onToggle, search, onSearchChange, copyPayload, prettyLabel, t, children } = props;
+  return (
+    <div className="border-b border-border">
+      <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/15 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 items-center gap-2 text-left text-sm font-medium text-foreground"
+        >
+          <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
+          <span className="truncate">{title}</span>
+        </button>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {prettyLabel}
+          </span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={t("inspectorSearchPlaceholder")}
+            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 font-mono text-[11px] text-foreground shadow-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 sm:w-36 sm:flex-initial"
+            aria-label={t("spanInspectSearchAria")}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={t("spanInspectCopyAria")}
+            onClick={() => void navigator.clipboard.writeText(copyPayload)}
+          >
+            <Copy className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+      {isOpen ? <div className="max-h-[min(55vh,28rem)] overflow-auto bg-background px-3 py-3 sm:px-4">{children}</div> : null}
+    </div>
+  );
+}
+
+export function TraceSpanRunPanel({
+  span,
+  chrome = "full",
+}: {
+  span: SemanticSpanRow | null;
+  /** `embedded`: no span summary header, only Details + Feedback tabs (Opik-style inspector). */
+  chrome?: "full" | "embedded";
+}) {
   const t = useTranslations("Traces");
+  const embedded = chrome === "embedded";
   const [mainTab, setMainTab] = useState<MainTab>("run");
   const [viewMode, setViewMode] = useState<"text" | "json">("text");
   const [rawMode, setRawMode] = useState(false);
   const [search, setSearch] = useState("");
+  const [openErr, setOpenErr] = useState(true);
+  const [openIn, setOpenIn] = useState(true);
+  const [openOut, setOpenOut] = useState(true);
+  const [openMeta, setOpenMeta] = useState(true);
+  const [sErr, setSErr] = useState("");
+  const [sIn, setSIn] = useState("");
+  const [sOut, setSOut] = useState("");
+  const [sMeta, setSMeta] = useState("");
 
   useEffect(() => {
     setMainTab("run");
     setViewMode("text");
     setRawMode(false);
     setSearch("");
+    setOpenErr(true);
+    setOpenIn(true);
+    setOpenOut(true);
+    setOpenMeta(true);
+    setSErr("");
+    setSIn("");
+    setSOut("");
+    setSMeta("");
   }, [span?.span_id]);
+
+  useEffect(() => {
+    if (embedded && mainTab === "metadata") {
+      setMainTab("run");
+    }
+  }, [embedded, mainTab]);
+
+  const tabDefs = embedded
+    ? (["run", "feedback"] as const)
+    : (["run", "metadata", "feedback"] as const);
 
   const inputJson = useMemo(() => formatJson(span?.input), [span?.input]);
   const outputJson = useMemo(() => formatJson(span?.output), [span?.output]);
@@ -154,6 +257,28 @@ export function TraceSpanRunPanel({ span }: { span: SemanticSpanRow | null }) {
     () => (span ? extractRunChatBlocks(span) : { input: [], output: [] }),
     [span],
   );
+
+  const displayInputStr = useMemo(() => {
+    if (!span) {
+      return "";
+    }
+    if (inputBlocks.length > 0) {
+      return inputBlocks.map((b) => `${roleLabel(t, b.role)}:\n${b.content}`).join("\n\n---\n\n");
+    }
+    return inputJson;
+  }, [span, inputBlocks, inputJson, t]);
+
+  const displayOutputStr = useMemo(() => {
+    if (!span) {
+      return "";
+    }
+    if (outputBlocks.length > 0) {
+      return outputBlocks.map((b) => `${roleLabel(t, b.role)}:\n${b.content}`).join("\n\n---\n\n");
+    }
+    return outputJson;
+  }, [span, outputBlocks, outputJson, t]);
+
+  const errorBody = span?.error ? formatErrorBody(span.error) : "";
 
   const canTextView = inputBlocks.length > 0 || outputBlocks.length > 0;
 
@@ -176,67 +301,221 @@ export function TraceSpanRunPanel({ span }: { span: SemanticSpanRow | null }) {
 
   if (!span) {
     return (
-      <div className="flex h-full min-h-[200px] flex-col justify-center border-t border-ca-border bg-white p-6 text-center lg:border-t-0">
+      <div className="flex h-full min-h-[200px] flex-col justify-center border-t border-border bg-white p-6 text-center lg:border-t-0">
         <p className="text-sm text-ca-muted">{t("inspectorEmpty")}</p>
       </div>
     );
   }
 
-  const totalTok = (span.prompt_tokens ?? 0) + (span.completion_tokens ?? 0);
+  const tok = spanTokenTotals(span);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-t border-ca-border bg-white lg:border-t-0">
-      <header className="shrink-0 space-y-2 border-b border-ca-border bg-white px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-semibold tracking-tight text-neutral-900">{span.name}</h2>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-              <span
-                className={[
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                  span.error ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-900",
-                ].join(" ")}
-              >
-                {span.error ? t("detailStatusError") : t("detailStatusSuccess")}
-              </span>
-              {durationMs != null ? (
-                <span className="tabular-nums text-neutral-600">
-                  {t("detailSpanLatency", { ms: durationMs.toLocaleString() })}
-                </span>
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-t border-border bg-white lg:border-t-0">
+      {!embedded ? (
+        <header className="shrink-0 space-y-2 border-b border-border bg-white px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-base font-semibold tracking-tight text-neutral-900">{span.name}</h2>
+              {span.model_name ? (
+                <p className="mt-1 truncate font-mono text-xs text-neutral-600" title={span.model_name}>
+                  {span.model_name}
+                </p>
               ) : null}
-              {totalTok > 0 ? (
-                <span className="tabular-nums text-neutral-600">
-                  {t("detailSpanTokens", { n: totalTok.toLocaleString() })}
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={[
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    span.error ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-900",
+                  ].join(" ")}
+                >
+                  {span.error ? t("detailStatusError") : t("detailStatusSuccess")}
                 </span>
-              ) : null}
+                {durationMs != null ? (
+                  <span className="tabular-nums text-neutral-600">
+                    {t("detailSpanLatency", { ms: durationMs.toLocaleString() })}
+                  </span>
+                ) : null}
+                {tok.hasAny && tok.displayTotal != null ? (
+                  <span className="tabular-nums text-neutral-600">
+                    {t("detailSpanTokens", { n: tok.displayTotal.toLocaleString() })}
+                  </span>
+                ) : null}
+                {tok.hasAny ? (
+                  <span className="tabular-nums text-neutral-600">
+                    {t("detailSpanTokenInOut", {
+                      in: tok.prompt.toLocaleString(),
+                      out: tok.completion.toLocaleString(),
+                    })}
+                  </span>
+                ) : null}
+                {tok.cacheRead > 0 ? (
+                  <span className="tabular-nums text-neutral-500">
+                    {t("detailSpanTokenCache", { n: tok.cacheRead.toLocaleString() })}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      ) : null}
 
-      <div className="flex shrink-0 gap-1 border-b border-ca-border bg-neutral-50 px-2 py-1.5">
-        {(["run", "metadata", "feedback"] as const).map((k) => (
+      <div
+        className={
+          embedded
+            ? "flex shrink-0 gap-6 border-b border-border bg-background px-4"
+            : "flex shrink-0 gap-1 border-b border-border bg-neutral-50 px-2 py-1.5"
+        }
+      >
+        {tabDefs.map((k) => (
           <button
             key={k}
             type="button"
             onClick={() => setMainTab(k)}
             className={[
-              "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
-              mainTab === k ? "bg-white text-ca-accent shadow-sm ring-1 ring-ca-border" : "text-neutral-600 hover:text-neutral-900",
+              embedded
+                ? "relative pb-3 pt-3 text-sm font-medium transition-colors after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5"
+                : "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+              embedded
+                ? mainTab === k
+                  ? "text-blue-600 after:bg-blue-600"
+                  : "text-neutral-500 after:bg-transparent hover:text-neutral-800"
+                : mainTab === k
+                  ? "bg-white text-primary shadow-sm ring-1 ring-border"
+                  : "text-neutral-600 hover:text-neutral-900",
             ].join(" ")}
           >
-            {k === "run" ? t("detailRunTab") : k === "metadata" ? t("detailMetadataTab") : t("detailFeedbackTab")}
+            {k === "run"
+              ? embedded
+                ? t("traceInspectTabDetails")
+                : t("detailRunTab")
+              : k === "metadata"
+                ? t("detailMetadataTab")
+                : embedded
+                  ? t("traceInspectTabFeedback")
+                  : t("detailFeedbackTab")}
           </button>
         ))}
       </div>
 
+      {embedded ? (
+        <div className="shrink-0 space-y-1.5 border-b border-border bg-muted/25 px-4 py-2.5">
+          {span.model_name ? (
+            <p className="truncate font-mono text-xs font-medium text-neutral-900" title={span.model_name}>
+              {span.model_name}
+            </p>
+          ) : null}
+          {tok.hasAny ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-neutral-600">
+              {tok.displayTotal != null ? (
+                <span className="text-neutral-800">
+                  <span className="font-medium text-neutral-500">{t("detailAttrTokens")}: </span>
+                  {tok.displayTotal.toLocaleString()}
+                </span>
+              ) : null}
+              <span>
+                {t("detailSpanTokenInOut", {
+                  in: tok.prompt.toLocaleString(),
+                  out: tok.completion.toLocaleString(),
+                })}
+              </span>
+              {tok.cacheRead > 0 ? (
+                <span className="text-neutral-500">
+                  {t("detailSpanTokenCache", { n: tok.cacheRead.toLocaleString() })}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-[11px] text-neutral-400">{t("detailNoTokenStats")}</p>
+          )}
+        </div>
+      ) : null}
+
       {mainTab === "run" ? (
+        embedded ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-background">
+            {errorBody ? (
+              <SpanInspectSection
+                title={t("spanInspectSectionError")}
+                isOpen={openErr}
+                onToggle={() => setOpenErr((v) => !v)}
+                search={sErr}
+                onSearchChange={setSErr}
+                copyPayload={errorBody}
+                prettyLabel={t("spanInspectPretty")}
+                t={t}
+              >
+                <HighlightedBlock text={errorBody} query={sErr} />
+              </SpanInspectSection>
+            ) : null}
+            <SpanInspectSection
+              title={t("detailInputSection")}
+              isOpen={openIn}
+              onToggle={() => setOpenIn((v) => !v)}
+              search={sIn}
+              onSearchChange={setSIn}
+              copyPayload={displayInputStr}
+              prettyLabel={t("spanInspectPretty")}
+              t={t}
+            >
+              <HighlightedBlock text={displayInputStr || "—"} query={sIn} />
+            </SpanInspectSection>
+            <SpanInspectSection
+              title={t("detailOutputSection")}
+              isOpen={openOut}
+              onToggle={() => setOpenOut((v) => !v)}
+              search={sOut}
+              onSearchChange={setSOut}
+              copyPayload={displayOutputStr}
+              prettyLabel={t("spanInspectPretty")}
+              t={t}
+            >
+              <HighlightedBlock text={displayOutputStr || "—"} query={sOut} />
+            </SpanInspectSection>
+            <SpanInspectSection
+              title={t("spanInspectSectionMetadata")}
+              isOpen={openMeta}
+              onToggle={() => setOpenMeta((v) => !v)}
+              search={sMeta}
+              onSearchChange={setSMeta}
+              copyPayload={metadataJson}
+              prettyLabel={t("spanInspectPretty")}
+              t={t}
+            >
+              <HighlightedBlock text={metadataJson} query={sMeta} />
+            </SpanInspectSection>
+            {showToolHint ? (
+              <div className="border-b border-border px-3 py-2 sm:px-4">
+                <MessageHint
+                  text={t("inspectorToolPayloadHint", { kb: String(Math.round(resultChars / 1024)) })}
+                  textClassName="text-[11px] leading-snug text-amber-900"
+                  clampClass="line-clamp-5"
+                />
+              </div>
+            ) : null}
+            {estimatePayloadChars(span.output.result ?? span.output.resultForLlm) > 0 && resultChars < LARGE_TOOL_RESULT_CHARS ? (
+              <p className="px-3 py-2 text-[10px] text-ca-muted sm:px-4">
+                {t("inspectorToolResultSize", { chars: String(resultChars) })}
+              </p>
+            ) : null}
+            {hasContextDiff ? (
+              <div className="border-t border-border px-3 py-3 sm:px-4">
+                <p className="mb-2 text-xs font-semibold text-neutral-800">{t("inspectorTabContext")}</p>
+                <ContextLineDiff full={span.context_full!} sent={span.context_sent!} />
+              </div>
+            ) : null}
+          </div>
+        ) : (
         <>
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ca-border bg-neutral-50/90 px-3 py-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-neutral-50/90 px-3 py-2">
             <span className="text-xs font-semibold text-neutral-700">{t("detailInputSection")}</span>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-neutral-600">
-                <input type="checkbox" className="rounded border-ca-border" checked={rawMode} onChange={(e) => setRawMode(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded border border-input accent-primary shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                  checked={rawMode}
+                  onChange={(e) => setRawMode(e.target.checked)}
+                />
                 {t("detailRawToggle")}
               </label>
               <div className="flex rounded-lg bg-neutral-200/80 p-0.5">
@@ -265,13 +544,13 @@ export function TraceSpanRunPanel({ span }: { span: SemanticSpanRow | null }) {
               </div>
             </div>
           </div>
-          <div className="shrink-0 border-b border-ca-border bg-neutral-50/80 px-3 py-2">
+          <div className="shrink-0 border-b border-border bg-neutral-50/80 px-3 py-2">
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("inspectorSearchPlaceholder")}
-              className="w-full rounded-lg border border-ca-border bg-white px-2 py-1.5 font-mono text-[11px] outline-none ring-ca-accent/25 focus:ring-2"
+              className="w-full rounded-lg border border-input bg-background px-2 py-1.5 font-mono text-[11px] text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto bg-neutral-50/30 p-3">
@@ -328,23 +607,24 @@ export function TraceSpanRunPanel({ span }: { span: SemanticSpanRow | null }) {
             ) : null}
           </div>
         </>
+        )
       ) : null}
 
       {mainTab === "metadata" ? (
         <>
-          <div className="shrink-0 border-b border-ca-border bg-neutral-50/80 px-3 py-2">
+          <div className="shrink-0 border-b border-border bg-neutral-50/80 px-3 py-2">
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("inspectorSearchPlaceholder")}
-              className="w-full rounded-lg border border-ca-border bg-white px-2 py-1.5 font-mono text-[11px] outline-none ring-ca-accent/25 focus:ring-2"
+              className="w-full rounded-lg border border-input bg-background px-2 py-1.5 font-mono text-[11px] text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             <HighlightedBlock text={metadataJson} query={search} />
           {hasContextDiff ? (
-            <div className="mt-6 border-t border-ca-border pt-4">
+            <div className="mt-6 border-t border-border pt-4">
               <p className="mb-2 text-xs font-semibold text-neutral-800">{t("inspectorTabContext")}</p>
               <ContextLineDiff full={span.context_full!} sent={span.context_sent!} />
             </div>

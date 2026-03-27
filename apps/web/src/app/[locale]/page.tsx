@@ -3,9 +3,10 @@
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
-import { MessageHint, TitleHintIcon } from "@/components/message-hint";
+import { MessageHint } from "@/components/message-hint";
 import { loadCollectorUrl } from "@/lib/collector";
 
 function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
@@ -54,23 +55,23 @@ export default function HomePage() {
 
   if (!mounted) {
     return (
-      <main className="ca-page-narrow">
-        <div className="animate-pulse space-y-4">
-          <div className="h-9 w-48 rounded-lg bg-neutral-200" />
-          <div className="h-4 w-full max-w-md rounded bg-neutral-200" />
-        </div>
-        <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
-      </main>
+      <AppPageShell variant="home">
+        <main className="ca-page-narrow relative z-[1]">
+          <div className="animate-pulse space-y-4">
+            <div className="h-9 w-48 rounded-lg bg-neutral-200" />
+            <div className="h-4 w-full max-w-md rounded bg-neutral-200" />
+          </div>
+          <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
+        </main>
+      </AppPageShell>
     );
   }
 
   return (
-    <main className="ca-page-narrow">
-      <div className="mb-10">
-        <h1 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-3xl font-semibold tracking-tight text-neutral-900 md:text-4xl">
-          <span>{t("title")}</span>
-          <TitleHintIcon tooltipText={t("subtitle")} />
-        </h1>
+    <AppPageShell variant="home">
+      <main className="ca-page-narrow relative z-[1]">
+      <div className="mb-6">
+        <h1 className="ca-page-title">{t("title")}</h1>
         <MessageHint
           text={t("subtitle")}
           className="mt-3"
@@ -92,5 +93,6 @@ export default function HomePage() {
         <MessageHint text={t("tracesHint")} textClassName="text-sm leading-relaxed text-ca-muted" />
       </div>
     </main>
+    </AppPageShell>
   );
 }

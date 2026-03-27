@@ -185,7 +185,7 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
       ) : null}
       {changes.length > 0 ? (
         <details
-          className="rounded-lg border border-ca-border/80 bg-neutral-50/60 text-xs text-neutral-800"
+          className="rounded-lg border border-border/80 bg-neutral-50/60 text-xs text-neutral-800"
           open={detailsOpen}
           onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
         >
@@ -193,7 +193,7 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
             {t("pipelineContextPruneChangesTitle", { count: String(changes.length) })}
             {truncated ? <span className="ml-2 font-normal text-amber-700">· …</span> : null}
           </summary>
-          <div className="border-t border-ca-border/60 px-1 pb-2 pt-1">
+          <div className="border-t border-border/60 px-1 pb-2 pt-1">
             {truncated ? (
               <div className="mb-2 px-1">
                 <MessageHint
@@ -203,7 +203,7 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
                 />
               </div>
             ) : null}
-            <div className="max-h-[min(14rem,35vh)] overflow-auto rounded-md border border-ca-border/50 bg-white/90">
+            <div className="max-h-[min(14rem,35vh)] overflow-auto rounded-md border border-border/50 bg-white/90">
               <table className="w-full border-collapse text-left font-mono text-[10px] leading-tight">
                 <thead className="sticky top-0 z-[1] bg-neutral-100/95 text-[9px] uppercase tracking-wide text-ca-muted">
                   <tr>
@@ -226,7 +226,7 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
                   {changes.map((row) => (
                     <tr
                       key={`${row.index}-${row.role}-${row.toolName ?? ""}`}
-                      className="border-t border-ca-border/40 odd:bg-neutral-50/50"
+                      className="border-t border-border/40 odd:bg-neutral-50/50"
                     >
                       <td className="whitespace-nowrap px-1.5 py-1 tabular-nums">{row.index}</td>
                       <td className="max-w-[5rem] truncate px-1.5 py-1" title={row.role}>
@@ -407,7 +407,7 @@ function TraceEventPayloadFoldout({
   const [open, setOpen] = useState(defaultExpanded);
   return (
     <details
-      className="rounded-b-xl border-t border-ca-border/70 bg-neutral-50/30"
+      className="rounded-b-xl border-t border-border/70 bg-neutral-50/30"
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
@@ -460,7 +460,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
         text={t("treeHint")}
       />
       {groups.map((g) => (
-        <details key={g.key} open className="overflow-hidden rounded-2xl border border-ca-border bg-white shadow-ca-sm">
+        <details key={g.key} open className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
           <summary className="flex cursor-pointer list-none items-center gap-2 bg-neutral-50/90 px-4 py-3 text-sm font-semibold text-neutral-900">
             <span className="ca-tree-chevron select-none" aria-hidden>
               ▸
@@ -484,7 +484,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
               {t("treeEventCount", { count: g.items.length })}
             </span>
           </summary>
-          <div className="space-y-3 border-l-2 border-ca-border/70 py-3 pl-4 ml-5 mr-2 border-t border-ca-border">
+          <div className="space-y-3 border-l-2 border-border/70 py-3 pl-4 ml-5 mr-2 border-t border-border">
             {g.items.map((row) => {
               const when = formatTraceDateTimeLocal(row.client_ts ?? row.created_at);
               const rowRunId = eventRunId(row);
@@ -493,9 +493,9 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
               return (
                 <div
                   key={key}
-                  className="rounded-xl border border-ca-border/90 bg-neutral-50/40 shadow-sm"
+                  className="rounded-xl border border-border/90 bg-neutral-50/40 shadow-sm"
                 >
-                  <div className="space-y-2 border-b border-ca-border/80 bg-white/90 px-3 py-2.5">
+                  <div className="space-y-2 border-b border-border/80 bg-white/90 px-3 py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-[11px] text-ca-muted">{when}</span>
                       {(() => {

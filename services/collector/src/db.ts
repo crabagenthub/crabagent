@@ -5,196 +5,187 @@ import Database from "better-sqlite3";
 export type CrabagentDb = ReturnType<typeof openDatabase>;
 
 /**
- * Bump when `events` / `otel_spans` / observability DDL changes.
- * v13: `spans.metadata` JSON; synthetic `AGENT_LOOP` parents; refined `type` (LLM / MEMORY / …).
+ * 仅保留 opik-openclaw / Opik SDK 形态表（Thread → Trace → Span、附件、反馈、原始包）。
  */
-const SCHEMA_USER_VERSION = 13;
-
-const OTEL_SPANS_DDL = `
-    DROP TABLE IF EXISTS otel_spans;
-    CREATE TABLE otel_spans (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trace_id TEXT NOT NULL,
-      span_id TEXT NOT NULL,
-      parent_span_id TEXT,
-      name TEXT NOT NULL,
-      kind INTEGER,
-      start_time_unix_nano TEXT NOT NULL,
-      end_time_unix_nano TEXT NOT NULL,
-      status_code TEXT,
-      status_message TEXT,
-      attributes_json TEXT NOT NULL DEFAULT '{}',
-      resource_json TEXT NOT NULL DEFAULT '{}',
-      service_name TEXT,
-      scope_name TEXT,
-      trace_root_id TEXT,
-      msg_id TEXT,
-      event_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(trace_id, span_id)
+function opikSchemaDdl(): string {
+  return `
+    CREATE TABLE opik_threads (
+      thread_id TEXT NOT NULL,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      first_seen_ms INTEGER NOT NULL,
+      last_seen_ms INTEGER NOT NULL,
+      metadata_json TEXT,
+      agent_name TEXT,
+      channel_name TEXT,
+      PRIMARY KEY (thread_id, workspace_name, project_name)
     );
-    CREATE INDEX IF NOT EXISTS idx_otel_spans_trace ON otel_spans(trace_id);
-    CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_root ON otel_spans(trace_root_id);
-    CREATE INDEX IF NOT EXISTS idx_otel_spans_msg_id ON otel_spans(msg_id);
-    CREATE INDEX IF NOT EXISTS idx_otel_spans_event_id ON otel_spans(event_id);
-`;
+    CREATE INDEX idx_opik_threads_last_seen ON opik_threads(last_seen_ms DESC);
 
-const OBSERVABILITY_CREATE_DDL = `
-    CREATE TABLE traces (
+    CREATE TABLE opik_traces (
       trace_id TEXT PRIMARY KEY,
-      session_id TEXT,
-      user_id TEXT,
-      start_time INTEGER NOT NULL,
-      end_time INTEGER,
-      status TEXT NOT NULL DEFAULT 'RUNNING',
-      total_tokens INTEGER NOT NULL DEFAULT 0,
-      metadata TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      thread_id TEXT,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      name TEXT,
+      tags_json TEXT,
+      input_json TEXT,
+      output_json TEXT,
+      metadata_json TEXT,
+      error_info_json TEXT,
+      success INTEGER,
+      duration_ms INTEGER,
+      total_cost REAL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER,
+      ended_at_ms INTEGER,
+      is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1)),
+      created_from TEXT NOT NULL DEFAULT 'opik-openclaw',
+      FOREIGN KEY (thread_id, workspace_name, project_name)
+        REFERENCES opik_threads (thread_id, workspace_name, project_name)
+        ON DELETE SET NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id);
-    CREATE INDEX IF NOT EXISTS idx_traces_user ON traces(user_id);
-    CREATE INDEX IF NOT EXISTS idx_traces_start ON traces(start_time DESC);
-    CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
+    CREATE INDEX idx_opik_traces_thread ON opik_traces(thread_id, workspace_name, project_name);
+    CREATE INDEX idx_opik_traces_project ON opik_traces(workspace_name, project_name, created_at_ms DESC);
+    CREATE INDEX idx_opik_traces_created ON opik_traces(created_at_ms DESC);
+    CREATE INDEX idx_opik_traces_complete ON opik_traces(is_complete, ended_at_ms);
 
-    CREATE TABLE spans (
+    CREATE TABLE opik_spans (
       span_id TEXT PRIMARY KEY,
-      trace_id TEXT NOT NULL,
-      parent_id TEXT,
-      module TEXT NOT NULL DEFAULT 'OTHER',
-      type TEXT NOT NULL DEFAULT 'IO',
+      trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      parent_span_id TEXT REFERENCES opik_spans(span_id) ON DELETE SET NULL,
       name TEXT NOT NULL,
-      input TEXT NOT NULL DEFAULT '{}',
-      output TEXT NOT NULL DEFAULT '{}',
-      start_time INTEGER NOT NULL,
-      end_time INTEGER,
-      error TEXT,
-      metadata TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
+      span_type TEXT NOT NULL DEFAULT 'general'
+        CHECK (span_type IN ('general', 'tool', 'llm', 'guardrail')),
+      start_time_ms INTEGER,
+      end_time_ms INTEGER,
+      duration_ms INTEGER,
+      metadata_json TEXT,
+      input_json TEXT,
+      output_json TEXT,
+      tags_json TEXT,
+      usage_json TEXT,
+      model TEXT,
+      provider TEXT,
+      error_info_json TEXT,
+      total_cost REAL,
+      sort_index INTEGER,
+      is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1))
     );
-    CREATE INDEX IF NOT EXISTS idx_sem_spans_trace ON spans(trace_id);
-    CREATE INDEX IF NOT EXISTS idx_sem_spans_parent ON spans(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_sem_spans_module ON spans(module);
-    CREATE INDEX IF NOT EXISTS idx_sem_spans_type ON spans(type);
+    CREATE INDEX idx_opik_spans_trace ON opik_spans(trace_id);
+    CREATE INDEX idx_opik_spans_parent ON opik_spans(parent_span_id);
+    CREATE INDEX idx_opik_spans_type ON opik_spans(span_type);
 
-    CREATE TABLE generations (
-      span_id TEXT PRIMARY KEY,
-      model_name TEXT,
-      prompt_tokens INTEGER NOT NULL DEFAULT 0,
-      completion_tokens INTEGER NOT NULL DEFAULT 0,
-      system_prompt TEXT,
-      context_full TEXT,
-      context_sent TEXT,
-      FOREIGN KEY (span_id) REFERENCES spans(span_id) ON DELETE CASCADE
+    CREATE TABLE opik_attachments (
+      attachment_id TEXT PRIMARY KEY,
+      trace_id TEXT REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      span_id TEXT REFERENCES opik_spans(span_id) ON DELETE SET NULL,
+      entity_type TEXT NOT NULL CHECK (entity_type IN ('trace', 'span')),
+      content_type TEXT,
+      file_name TEXT,
+      url TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at_ms INTEGER NOT NULL
     );
+    CREATE INDEX idx_opik_attachments_trace ON opik_attachments(trace_id);
+    CREATE INDEX idx_opik_attachments_span ON opik_attachments(span_id);
 
-    CREATE TABLE optimizations (
-      opt_id TEXT PRIMARY KEY,
-      span_id TEXT NOT NULL,
-      saved_tokens INTEGER NOT NULL DEFAULT 0,
-      strategy TEXT NOT NULL,
-      cost_saved REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (span_id) REFERENCES spans(span_id) ON DELETE CASCADE
+    CREATE TABLE opik_trace_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      score_name TEXT NOT NULL,
+      value REAL NOT NULL,
+      category_name TEXT,
+      reason TEXT,
+      created_at_ms INTEGER NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_opts_span ON optimizations(span_id);
-`;
+    CREATE INDEX idx_opik_feedback_trace ON opik_trace_feedback(trace_id);
 
-function applyEventsSchema(db: Database.Database) {
+    CREATE TABLE opik_raw_ingest (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      received_at_ms INTEGER NOT NULL,
+      route TEXT,
+      trace_id TEXT,
+      span_id TEXT,
+      body_json TEXT NOT NULL
+    );
+    CREATE INDEX idx_opik_raw_trace ON opik_raw_ingest(trace_id);
+    CREATE INDEX idx_opik_raw_received ON opik_raw_ingest(received_at_ms DESC);
+  `;
+}
+
+/**
+ * 仅在显式重置（`CRABAGENT_DB_RESET=1`）时调用：删除 opik 与历史 Crabagent 表，便于得到干净 schema。
+ * 顺序：子表 → 父表（`IF EXISTS`）。
+ */
+function dropAllTables(db: Database.Database) {
   db.exec(`
-    DROP TABLE IF EXISTS optimizations;
-    DROP TABLE IF EXISTS generations;
+    DROP TABLE IF EXISTS opik_raw_ingest;
+    DROP TABLE IF EXISTS opik_trace_feedback;
+    DROP TABLE IF EXISTS opik_attachments;
+    DROP TABLE IF EXISTS opik_spans;
+    DROP TABLE IF EXISTS opik_traces;
+    DROP TABLE IF EXISTS opik_threads;
+
+    DROP TABLE IF EXISTS ext_raw_ingest;
+    DROP TABLE IF EXISTS ext_attachments;
+    DROP TABLE IF EXISTS ext_spans;
+    DROP TABLE IF EXISTS ext_traces;
+    DROP TABLE IF EXISTS ext_threads;
+
+    DROP TABLE IF EXISTS evaluations;
     DROP TABLE IF EXISTS spans;
     DROP TABLE IF EXISTS traces;
+    DROP TABLE IF EXISTS daily_session_aggregates;
+    DROP TABLE IF EXISTS daily_aggregates;
+    DROP TABLE IF EXISTS optimizations;
+    DROP TABLE IF EXISTS generations;
+    DROP TABLE IF EXISTS sessions;
+    DROP TABLE IF EXISTS channel_peers;
+    DROP TABLE IF EXISTS agents;
     DROP TABLE IF EXISTS otel_spans;
     DROP TABLE IF EXISTS events;
-    CREATE TABLE events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      event_id TEXT NOT NULL,
-      trace_root_id TEXT,
-      session_id TEXT,
-      session_key TEXT,
-      agent_id TEXT,
-      agent_name TEXT,
-      chat_title TEXT,
-      run_id TEXT,
-      msg_id TEXT,
-      channel TEXT,
-      type TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      schema_version INTEGER NOT NULL DEFAULT 1,
-      client_ts TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(event_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-    CREATE INDEX IF NOT EXISTS idx_events_trace ON events(trace_root_id);
-    CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_root_id, id);
-    CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
-    CREATE INDEX IF NOT EXISTS idx_events_msg_id ON events(msg_id);
-    CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
-    CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);
   `);
-  db.exec(OTEL_SPANS_DDL);
-  db.exec(OBSERVABILITY_CREATE_DDL);
-  db.pragma(`user_version = ${SCHEMA_USER_VERSION}`);
 }
 
-function migrateV9OtelSpansRename(db: Database.Database) {
-  const rows = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[];
-  const names = new Set(rows.map((r) => r.name));
-  if (names.has("spans") && !names.has("otel_spans")) {
-    db.exec(`ALTER TABLE spans RENAME TO otel_spans;`);
+function resetSchema(db: Database.Database) {
+  dropAllTables(db);
+  db.exec(opikSchemaDdl());
+}
+
+function opikCoreTableExists(db: Database.Database): boolean {
+  const row = db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'opik_traces'`)
+    .get() as { ok: number } | undefined;
+  return row != null;
+}
+
+function opikThreadsTableExists(db: Database.Database): boolean {
+  const row = db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'opik_threads'`)
+    .get() as { ok: number } | undefined;
+  return row != null;
+}
+
+/** Add agent / channel columns on existing DBs (no-op when already present). */
+function ensureOpikThreadsAgentChannelColumns(db: Database.Database): void {
+  if (!opikThreadsTableExists(db)) {
+    return;
+  }
+  const cols = db.prepare(`PRAGMA table_info(opik_threads)`).all() as { name: string }[];
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has("agent_name")) {
+    db.exec(`ALTER TABLE opik_threads ADD COLUMN agent_name TEXT`);
+  }
+  if (!names.has("channel_name")) {
+    db.exec(`ALTER TABLE opik_threads ADD COLUMN channel_name TEXT`);
   }
 }
 
-function migrateV9AddObservabilityTables(db: Database.Database) {
-  const rows = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[];
-  const names = new Set(rows.map((r) => r.name));
-  if (!names.has("traces")) {
-    db.exec(OBSERVABILITY_CREATE_DDL);
-  }
-}
-
-function migrateV10AddSpansTypeColumn(db: Database.Database) {
-  const rows = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='spans'`).get();
-  if (!rows) {
-    return;
-  }
-  const cols = db.prepare(`PRAGMA table_info(spans)`).all() as { name: string }[];
-  if (cols.some((c) => c.name === "type")) {
-    return;
-  }
-  db.exec(`ALTER TABLE spans ADD COLUMN type TEXT NOT NULL DEFAULT 'IO';`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sem_spans_type ON spans(type);`);
-}
-
-function migrateV11AddSpansModuleColumn(db: Database.Database) {
-  const rows = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='spans'`).get();
-  if (!rows) {
-    return;
-  }
-  const cols = db.prepare(`PRAGMA table_info(spans)`).all() as { name: string }[];
-  if (cols.some((c) => c.name === "module")) {
-    return;
-  }
-  db.exec(`ALTER TABLE spans ADD COLUMN module TEXT NOT NULL DEFAULT 'OTHER';`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sem_spans_module ON spans(module);`);
-}
-
-function migrateV12AddSpansMetadataColumn(db: Database.Database) {
-  const rows = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='spans'`).get();
-  if (!rows) {
-    return;
-  }
-  const cols = db.prepare(`PRAGMA table_info(spans)`).all() as { name: string }[];
-  if (cols.some((c) => c.name === "metadata")) {
-    return;
-  }
-  db.exec(`ALTER TABLE spans ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';`);
-}
-
+/**
+ * 打开 SQLite：默认**保留已有数据**，仅在库中尚无 `opik_traces` 时创建 Opik 形态表。
+ * 开发/清库：启动前设置 `CRABAGENT_DB_RESET=1`（或 `true`）会执行 `dropAllTables` 后重建。
+ */
 export function openDatabase(dbPath: string): Database.Database {
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
@@ -204,149 +195,15 @@ export function openDatabase(dbPath: string): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 
-  const rawVersion = db.pragma("user_version", { simple: true });
-  const userVersion =
-    typeof rawVersion === "number" && Number.isFinite(rawVersion) ? rawVersion : 0;
+  const resetFlag = process.env.CRABAGENT_DB_RESET?.trim().toLowerCase();
+  const forceReset = resetFlag === "1" || resetFlag === "true" || resetFlag === "yes";
 
-  if (userVersion === 8) {
-    const hasOtel = db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='otel_spans'`)
-      .get();
-    const hasLegacySpans = db
-      .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='spans'`)
-      .get();
-    if (hasLegacySpans && !hasOtel) {
-      db.exec(`ALTER TABLE spans RENAME TO otel_spans;`);
-    } else if (!hasOtel) {
-      db.exec(`
-        CREATE TABLE otel_spans (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          trace_id TEXT NOT NULL,
-          span_id TEXT NOT NULL,
-          parent_span_id TEXT,
-          name TEXT NOT NULL,
-          kind INTEGER,
-          start_time_unix_nano TEXT NOT NULL,
-          end_time_unix_nano TEXT NOT NULL,
-          status_code TEXT,
-          status_message TEXT,
-          attributes_json TEXT NOT NULL DEFAULT '{}',
-          resource_json TEXT NOT NULL DEFAULT '{}',
-          service_name TEXT,
-          scope_name TEXT,
-          trace_root_id TEXT,
-          msg_id TEXT,
-          event_id TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          UNIQUE(trace_id, span_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_otel_spans_trace ON otel_spans(trace_id);
-        CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_root ON otel_spans(trace_root_id);
-        CREATE INDEX IF NOT EXISTS idx_otel_spans_msg_id ON otel_spans(msg_id);
-        CREATE INDEX IF NOT EXISTS idx_otel_spans_event_id ON otel_spans(event_id);
-      `);
-    }
-    db.pragma("user_version = 9");
-  }
-
-  const readUv = (): number => {
-    const v = db.pragma("user_version", { simple: true });
-    return typeof v === "number" && Number.isFinite(v) ? v : 0;
-  };
-
-  let uv = readUv();
-
-  if (uv === 9) {
-    migrateV9OtelSpansRename(db);
-    migrateV9AddObservabilityTables(db);
-    db.pragma("user_version = 10");
-    uv = 10;
-  }
-
-  if (uv === 10) {
-    migrateV10AddSpansTypeColumn(db);
-    db.pragma("user_version = 11");
-    uv = readUv();
-  }
-
-  if (uv === 11) {
-    migrateV11AddSpansModuleColumn(db);
-    db.pragma("user_version = 12");
-    uv = readUv();
-  }
-
-  if (uv === 12) {
-    migrateV12AddSpansMetadataColumn(db);
-    db.pragma(`user_version = ${SCHEMA_USER_VERSION}`);
-    uv = SCHEMA_USER_VERSION;
-  }
-
-  if (uv !== SCHEMA_USER_VERSION) {
-    applyEventsSchema(db);
+  if (forceReset) {
+    resetSchema(db);
+  } else if (!opikCoreTableExists(db)) {
+    db.exec(opikSchemaDdl());
   } else {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_id TEXT NOT NULL,
-        trace_root_id TEXT,
-        session_id TEXT,
-        session_key TEXT,
-        agent_id TEXT,
-        agent_name TEXT,
-        chat_title TEXT,
-        run_id TEXT,
-        msg_id TEXT,
-        channel TEXT,
-        type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        schema_version INTEGER NOT NULL DEFAULT 1,
-        client_ts TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE(event_id)
-      );
-    `);
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-      CREATE INDEX IF NOT EXISTS idx_events_trace ON events(trace_root_id);
-      CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_root_id, id);
-      CREATE INDEX IF NOT EXISTS idx_events_run ON events(trace_root_id, run_id, id);
-      CREATE INDEX IF NOT EXISTS idx_events_msg_id ON events(msg_id);
-      CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
-    `);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_events_agent ON events(agent_id);`);
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS otel_spans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        trace_id TEXT NOT NULL,
-        span_id TEXT NOT NULL,
-        parent_span_id TEXT,
-        name TEXT NOT NULL,
-        kind INTEGER,
-        start_time_unix_nano TEXT NOT NULL,
-        end_time_unix_nano TEXT NOT NULL,
-        status_code TEXT,
-        status_message TEXT,
-        attributes_json TEXT NOT NULL DEFAULT '{}',
-        resource_json TEXT NOT NULL DEFAULT '{}',
-        service_name TEXT,
-        scope_name TEXT,
-        trace_root_id TEXT,
-        msg_id TEXT,
-        event_id TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE(trace_id, span_id)
-      );
-    `);
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_otel_spans_trace ON otel_spans(trace_id);
-      CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_root ON otel_spans(trace_root_id);
-      CREATE INDEX IF NOT EXISTS idx_otel_spans_msg_id ON otel_spans(msg_id);
-      CREATE INDEX IF NOT EXISTS idx_otel_spans_event_id ON otel_spans(event_id);
-    `);
-    migrateV9AddObservabilityTables(db);
-    migrateV10AddSpansTypeColumn(db);
-    migrateV11AddSpansModuleColumn(db);
-    migrateV12AddSpansMetadataColumn(db);
+    ensureOpikThreadsAgentChannelColumns(db);
   }
 
   return db;

@@ -1,18 +1,18 @@
 {
   "id": "openclaw-trace-plugin",
-  "name": "Crabagent Trace",
-  "description": "Ship OpenClaw agent traces to Crabagent Collector (hooks + optional cache-trace tail).",
+  "name": "Crabagent Trace (Opik layout)",
+  "description": "OpenClaw hooks → opik-openclaw-shaped batches → Collector POST /v1/opik/batch (SQLite opik_* only). Gmail/hook preset agent runs skip message_received; traces rely on before_prompt_build + agent_end. Agents using CLI backends emit no plugin hooks—use an API model for that agent if you need traces without patching OpenClaw.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "collectorBaseUrl": {
         "type": "string",
-        "description": "HTTPS (or http for dev) base URL of Crabagent Collector, no trailing slash."
+        "description": "Crabagent Collector base URL (no trailing slash)."
       },
       "collectorApiKey": {
         "type": "string",
-        "description": "Bearer / X-API-Key for Collector; must match CRABAGENT_API_KEY on collector."
+        "description": "Bearer / X-API-Key; must match CRABAGENT_API_KEY on collector."
       },
       "flushIntervalMs": {
         "type": "number",
@@ -22,31 +22,52 @@
       },
       "memoryQueueMax": {
         "type": "number",
-        "minimum": 100,
+        "minimum": 10,
         "default": 10000,
-        "description": "Max queued events in memory before oldest dropped."
+        "description": "Max queued opik batches in memory before oldest dropped."
       },
       "sampleRateBps": {
         "type": "number",
         "minimum": 0,
         "maximum": 10000,
         "default": 10000,
-        "description": "Sample rate in basis points (10000 = 100%). Fixed per session on session_start."
+        "description": "LLM trace sampling in basis points (10000 = 100%). Below 10000 skips llm_input trace rows but agent_end can still emit a non-LLM trace from pending/transcript when ingestible."
       },
-      "cacheTracePath": {
+      "opikWorkspaceName": {
         "type": "string",
-        "description": "Optional override path to cache-trace.jsonl for per-model stream:context tail."
+        "default": "default",
+        "description": "Opik workspace name stored in opik_threads / opik_traces."
       },
-      "enableCacheTraceTail": {
+      "opikProjectName": {
+        "type": "string",
+        "default": "openclaw",
+        "description": "Opik project name stored in opik_threads / opik_traces."
+      },
+      "debugLogHooks": {
+        "type": "boolean",
+        "default": false,
+        "description": "Hook / queue / flush 调试日志（plugin logger info）。Env: CRABAGENT_TRACE_DEBUG_HOOKS=1 or CRABAGENT_TRACE_DEBUG=1 if openclaw.json cannot set this key."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Same as debugLogHooks (alias for @cozeloop/openclaw-cozeloop-trace style config)."
+      },
+      "inboundHookInfoLogs": {
         "type": "boolean",
         "default": true,
-        "description": "Tail cache-trace.jsonl for stream:context (per model call)."
+        "description": "logger.info one line on session_start and message_received. Set false or env CRABAGENT_TRACE_NO_INBOUND_INFO=1 to disable."
       },
-      "cacheTracePollMs": {
-        "type": "number",
-        "minimum": 200,
-        "default": 750,
-        "description": "Poll interval for cache trace file."
+      "mirrorInboundPendingAgentIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Sub-agent ids to mirror message_received pending onto (\\x1fagent:<id> aliases). Env: CRABAGENT_TRACE_MIRROR_AGENT_IDS=id1,id2 when openclaw.json cannot set this."
+      },
+      "persistPendingToDisk": {
+        "type": "boolean",
+        "default": true,
+        "description": "Persist in-memory trace pending to plugin stateDir (crabagent/pending/) so hook:gmail / isolated runs survive process crash before agent_end."
       }
     }
   }

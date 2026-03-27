@@ -1,7 +1,7 @@
 "use client";
 
-import { SectionPlaceholderPage } from "@/components/section-placeholder-page";
+import { OverviewDashboard } from "@/components/overview-dashboard";
 
 export default function OverviewPage() {
-  return <SectionPlaceholderPage ns="Overview" />;
+  return <OverviewDashboard />;
 }

@@ -121,7 +121,7 @@ export function IdLabeledCopy({
   const copyBtn = (
     <button
       type="button"
-      className="shrink-0 rounded-md border border-ca-border bg-white px-2 py-0.5 text-[10px] font-medium text-neutral-600 shadow-sm hover:bg-neutral-50"
+      className="shrink-0 rounded-md border border-border bg-white px-2 py-0.5 text-[10px] font-medium text-neutral-600 shadow-sm hover:bg-neutral-50"
       onClick={(e) => void copy(e)}
       aria-label={t("copyIdAria", { kind: kindLabel })}
     >

@@ -4,7 +4,8 @@ import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
-import { MessageHint, TitleHintIcon } from "@/components/message-hint";
+import { MessageHint } from "@/components/message-hint";
+import { AppPageShell } from "@/components/app-page-shell";
 import { TokenWasteHeatmap } from "@/components/token-waste-heatmap";
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
@@ -137,42 +138,41 @@ export default function AnalyticsPage() {
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
   return (
-    <main className="ca-page max-w-6xl">
-      <header className="mb-8">
-        <h1 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-3xl font-semibold tracking-tight text-neutral-900">
-          <span>{t("title")}</span>
-          <TitleHintIcon tooltipText={t("subtitle")} />
-        </h1>
-        <MessageHint
-          text={t("subtitle")}
-          className="mt-2"
-          textClassName="text-base text-ca-muted"
-          clampClass="line-clamp-3"
-        />
-      </header>
+    <AppPageShell variant="analytics">
+      <main className="ca-page relative z-[1]">
+        <header className="mb-6">
+          <h1 className="ca-page-title">{t("title")}</h1>
+          <MessageHint
+            text={t("subtitle")}
+            className="mt-2"
+            textClassName="text-base text-ca-muted"
+            clampClass="line-clamp-3"
+          />
+        </header>
 
-      {missingUrl ? (
-        <p className="text-sm text-ca-muted">{t("needCollector")}</p>
-      ) : (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-900">{t("wasteHeatmapTitle")}</h2>
-            <p className="mt-1 text-xs text-ca-muted">{t("wasteHeatmapHint")}</p>
-          </div>
+        {missingUrl ? (
+          <p className="text-sm text-ca-muted">{t("needCollector")}</p>
+        ) : (
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold text-neutral-900">{t("wasteHeatmapTitle")}</h2>
+              <p className="mt-1 text-xs text-ca-muted">{t("wasteHeatmapHint")}</p>
+            </div>
 
-          {q.isFetching && !q.data ? (
-            <p className="text-sm text-ca-muted">{t("wasteHeatmapLoading")}</p>
-          ) : null}
-          {q.isError ? (
-            <p className="text-sm text-red-700">
-              {t("wasteHeatmapError", { message: q.error instanceof Error ? q.error.message : "error" })}
-            </p>
-          ) : null}
-          {q.data ? (
-            <TokenWasteHeatmap rows={q.data.rows} maxTurnCols={q.data.maxTurnCols} />
-          ) : null}
-        </section>
-      )}
-    </main>
+            {q.isFetching && !q.data ? (
+              <p className="text-sm text-ca-muted">{t("wasteHeatmapLoading")}</p>
+            ) : null}
+            {q.isError ? (
+              <p className="text-sm text-red-700">
+                {t("wasteHeatmapError", { message: q.error instanceof Error ? q.error.message : "error" })}
+              </p>
+            ) : null}
+            {q.data ? (
+              <TokenWasteHeatmap rows={q.data.rows} maxTurnCols={q.data.maxTurnCols} />
+            ) : null}
+          </section>
+        )}
+      </main>
+    </AppPageShell>
   );
 }

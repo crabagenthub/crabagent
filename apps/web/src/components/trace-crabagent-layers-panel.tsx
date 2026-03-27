@@ -23,7 +23,7 @@ function dash(v: unknown): string {
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h4 className="mb-1.5 border-b border-ca-border/60 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-ca-muted">
+    <h4 className="mb-1.5 border-b border-border/60 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-ca-muted">
       {children}
     </h4>
   );
@@ -44,7 +44,7 @@ function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?
   }
   return (
     <pre
-      className={`ca-code-block m-0 overflow-auto rounded-md border border-ca-border/60 bg-white/80 p-2 text-[10px] leading-relaxed text-neutral-800 ${maxHeightClass ?? "max-h-40"}`}
+      className={`ca-code-block m-0 overflow-auto rounded-md border border-border/60 bg-white/80 p-2 text-[10px] leading-relaxed text-neutral-800 ${maxHeightClass ?? "max-h-40"}`}
     >
       {value}
     </pre>
@@ -57,7 +57,7 @@ function KeyValueGrid({ obj }: { obj: Record<string, unknown> }) {
     return null;
   }
   return (
-    <div className="space-y-1 rounded-md border border-ca-border/50 bg-white/60 p-2">
+    <div className="space-y-1 rounded-md border border-border/50 bg-white/60 p-2">
       {entries.map(([k, v]) => (
         <DlRow
           key={k}
@@ -273,7 +273,7 @@ function MemoryBlock({ memory }: { memory: Record<string, unknown> }) {
           <div className="mb-1 text-[10px] font-medium text-ca-muted">{t("layersMemoryHitsTitle")}</div>
           <ul className="space-y-1 text-[11px] text-neutral-800">
             {hits.slice(0, 8).map((h, i) => (
-              <li key={i} className="rounded border border-ca-border/40 bg-white/70 p-1.5 font-mono text-[10px] break-words">
+              <li key={i} className="rounded border border-border/40 bg-white/70 p-1.5 font-mono text-[10px] break-words">
                 {typeof h === "string" ? h : JSON.stringify(h).slice(0, 500)}
                 {typeof h === "object" && JSON.stringify(h).length > 500 ? "…" : ""}
               </li>

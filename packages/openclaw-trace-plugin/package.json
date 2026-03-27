@@ -4,6 +4,11 @@
   "description": "Crabagent trace ingest plugin for OpenClaw",
   "type": "module",
   "license": "MIT",
+  "exports": {
+    ".": "./index.ts",
+    "./flush.js": "./flush.ts",
+    "./opik-types.js": "./opik-types.ts"
+  },
   "openclaw": {
     "extensions": ["./index.ts"]
   },
@@ -17,10 +22,12 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "pnpm exec tsc -p tsconfig.json",
+    "test": "pnpm exec tsx --test opik-runtime-non-llm.test.ts trace-session-key.test.ts plugin-register-smoke.test.ts ingest-chain-smoke.test.ts",
     "lint": "echo \"no lint yet\""
   }
 }

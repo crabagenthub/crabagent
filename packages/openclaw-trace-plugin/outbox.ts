@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { OpikBatchPayload } from "./opik-types.js";
 
 export function ensureDirForFile(filePath: string): void {
   const dir = path.dirname(filePath);
@@ -8,8 +9,8 @@ export function ensureDirForFile(filePath: string): void {
   }
 }
 
-/** Read all JSON lines and clear the file. Malformed lines are skipped. */
-export function drainOutboxFile(filePath: string): Record<string, unknown>[] {
+/** 每行一个 `OpikBatchPayload` JSON。 */
+export function drainOutboxFile(filePath: string): OpikBatchPayload[] {
   if (!fs.existsSync(filePath)) {
     return [];
   }
@@ -19,7 +20,7 @@ export function drainOutboxFile(filePath: string): Record<string, unknown>[] {
   } catch {
     return [];
   }
-  const out: Record<string, unknown>[] = [];
+  const out: OpikBatchPayload[] = [];
   for (const line of raw.split("\n")) {
     const t = line.trim();
     if (!t) {
@@ -28,7 +29,7 @@ export function drainOutboxFile(filePath: string): Record<string, unknown>[] {
     try {
       const v = JSON.parse(t) as unknown;
       if (v && typeof v === "object") {
-        out.push(v as Record<string, unknown>);
+        out.push(v as OpikBatchPayload);
       }
     } catch {
       // skip
@@ -37,11 +38,11 @@ export function drainOutboxFile(filePath: string): Record<string, unknown>[] {
   return out;
 }
 
-export function appendOutboxFile(filePath: string, events: Record<string, unknown>[]): void {
-  if (events.length === 0) {
+export function appendOutboxFile(filePath: string, batches: OpikBatchPayload[]): void {
+  if (batches.length === 0) {
     return;
   }
   ensureDirForFile(filePath);
-  const lines = events.map((e) => `${JSON.stringify(e)}\n`).join("");
+  const lines = batches.map((e) => `${JSON.stringify(e)}\n`).join("");
   fs.appendFileSync(filePath, lines, "utf8");
 }

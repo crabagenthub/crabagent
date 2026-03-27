@@ -1,5 +1,6 @@
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import { parseCrabagentPayload } from "@/lib/trace-crabagent-layers";
+import { usageFromTracePayload } from "@/lib/trace-payload-usage";
 import { buildUserTurnList } from "@/lib/user-turn-list";
 
 function rowNumericId(e: TraceTimelineEvent): number {
@@ -12,50 +13,6 @@ function rowNumericId(e: TraceTimelineEvent): number {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return Boolean(v && typeof v === "object" && !Array.isArray(v));
-}
-
-function pickNum(u: unknown): number {
-  if (typeof u === "number" && Number.isFinite(u) && u >= 0) {
-    return u;
-  }
-  return 0;
-}
-
-function usageFromPayload(payload: Record<string, unknown>): { prompt: number; completion: number } {
-  let prompt = 0;
-  let completion = 0;
-  const u = payload.usage;
-  if (isPlainObject(u)) {
-    prompt =
-      pickNum(u.prompt_tokens) ||
-      pickNum(u.promptTokens) ||
-      pickNum(u.input_tokens) ||
-      pickNum(u.inputTokens);
-    completion =
-      pickNum(u.completion_tokens) ||
-      pickNum(u.completionTokens) ||
-      pickNum(u.output_tokens) ||
-      pickNum(u.outputTokens);
-  }
-  const crab = parseCrabagentPayload(payload);
-  const tm = crab?.reasoning?.tokenMetrics;
-  if (isPlainObject(tm)) {
-    if (!prompt) {
-      prompt =
-        pickNum(tm.prompt_tokens) ||
-        pickNum(tm.promptTokens) ||
-        pickNum(tm.input_tokens) ||
-        pickNum(tm.inputTokens);
-    }
-    if (!completion) {
-      completion =
-        pickNum(tm.completion_tokens) ||
-        pickNum(tm.completionTokens) ||
-        pickNum(tm.output_tokens) ||
-        pickNum(tm.outputTokens);
-    }
-  }
-  return { prompt, completion };
 }
 
 function assistantCharsFromPayload(payload: Record<string, unknown>): number {
@@ -138,7 +95,7 @@ export function buildTokenWasteRowForThread(params: {
         e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
           ? (e.payload as Record<string, unknown>)
           : {};
-      const u = usageFromPayload(payload);
+      const u = usageFromTracePayload(payload);
       promptTokens += u.prompt;
       completionTokens += u.completion;
       assistantChars += assistantCharsFromPayload(payload);

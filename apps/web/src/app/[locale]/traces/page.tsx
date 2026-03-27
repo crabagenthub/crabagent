@@ -1,72 +1,199 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "@/i18n/navigation";
+import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
-import { IdLabeledCopy } from "@/components/id-labeled-copy";
-import { LocalizedLink } from "@/components/localized-link";
-import { MessageHint, TitleHintIcon } from "@/components/message-hint";
-import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { ListEmptyState } from "@/components/list-empty-state";
+import { MessageHint } from "@/components/message-hint";
+import { ObserveListFiltersDialog } from "@/components/observe-list-filters-dialog";
+import { ObserveListKindSwitcher } from "@/components/observe-list-kind-switcher";
+import { ObserveListToolbar } from "@/components/observe-list-toolbar";
 import {
-  formatDurationMs,
-  formatOptimizationRate,
-  loadTraceRecords,
-  statusBandLabel,
-  statusBandPillClass,
-  traceRecordAgentName,
-  traceRecordChannel,
-  traceRecordDurationMs,
-  traceRecordStatusBand,
-  traceRecordTaskSummary,
-  type TraceRecordRow,
-} from "@/lib/trace-records";
+  defaultObserveDateRange,
+  isObserveDateRangeAll,
+  readStoredObserveDateRange,
+  resolveObserveSinceUntil,
+  writeStoredObserveDateRange,
+  type ObserveDateRange,
+} from "@/lib/observe-date-range";
+import { SpanRecordInspectDrawer } from "@/components/span-record-inspect-drawer";
+import { SpansDataTable } from "@/components/spans-data-table";
+import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
+import { ThreadsOpikTable } from "@/components/threads-opik-table";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
+import { TracesOpikTable } from "@/components/traces-opik-table";
+import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
+import {
+  loadObserveFacets,
+  type ObserveListSortParam,
+  type ObserveListStatusParam,
+} from "@/lib/observe-facets";
+import { loadSpanRecords, type SpanRecordRow } from "@/lib/span-records";
+import { loadThreadRecords, type ThreadRecordRow } from "@/lib/thread-records";
+import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
+import { loadTraceRecords, type TraceRecordRow } from "@/lib/trace-records";
+import { cn } from "@/lib/utils";
 
-const PAGE_LIMIT = 80;
-/** Loops strictly greater than 5 → at least 6 AGENT_LOOP spans */
-const ANOMALY_MIN_LOOPS = 6;
-/** Tokens strictly greater than 5000 */
-const ANOMALY_MIN_TOKENS = 5001;
-/** Many tool calls */
-const ANOMALY_MIN_TOOLS = 15;
-const DEFAULT_TOKEN_WARN = 8000;
+const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 60, 80, 100] as const;
 
-function detailHref(row: TraceRecordRow): string {
-  return `/traces/${encodeURIComponent(row.thread_key)}`;
+const PAGE_SIZE_STORAGE_KEY = "crabagent-observe-list-page-size";
+
+function readStoredPageSize(): number {
+  if (typeof window === "undefined") {
+    return 10;
+  }
+  try {
+    const raw = window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+    const n = raw != null ? Number(raw) : Number.NaN;
+    if (PAGE_SIZE_OPTIONS.includes(n as (typeof PAGE_SIZE_OPTIONS)[number])) {
+      return n;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 10;
 }
 
-function sessionLine(row: TraceRecordRow): string {
-  const sid = row.session_id?.trim();
-  if (sid) {
-    return sid.length > 40 ? `${sid.slice(0, 18)}…${sid.slice(-10)}` : sid;
+type ListKind = "threads" | "traces" | "spans";
+
+/** 1-based page indices for shadcn-style pagination (with ellipses). */
+function buildVisiblePages(current1Based: number, totalPages: number): (number | "ellipsis")[] {
+  if (totalPages <= 1) {
+    return [1];
   }
-  const tk = row.thread_key?.trim();
-  if (tk) {
-    return tk.length > 44 ? `${tk.slice(0, 20)}…${tk.slice(-12)}` : tk;
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
   }
-  return "—";
+  const delta = 1;
+  const range = new Set<number>();
+  range.add(1);
+  range.add(totalPages);
+  const l = Math.max(2, current1Based - delta);
+  const r = Math.min(totalPages - 1, current1Based + delta);
+  for (let i = l; i <= r; i++) {
+    range.add(i);
+  }
+  const sorted = [...range].sort((a, b) => a - b);
+  const out: (number | "ellipsis")[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev > 0 && p - prev > 1) {
+      out.push("ellipsis");
+    }
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+function invalidateObserveLists(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.traceList] });
+  void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.conversationList] });
+  void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.spanList] });
+  void queryClient.invalidateQueries({ queryKey: ["observe-facets"] });
 }
 
 export default function TracesPage() {
   const t = useTranslations("Traces");
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const listKind = useMemo((): ListKind => {
+    const raw = searchParams.get("kind");
+    if (raw === "threads" || raw === "traces" || raw === "spans") {
+      return raw;
+    }
+    return "threads";
+  }, [searchParams]);
+
+  const handleListKindChange = useCallback(
+    (next: ListKind) => {
+      const nextQuery: Record<string, string> = {};
+      searchParams.forEach((value, key) => {
+        nextQuery[key] = value;
+      });
+      if (next === "threads") {
+        delete nextQuery.kind;
+      } else {
+        nextQuery.kind = next;
+      }
+      if (Object.keys(nextQuery).length > 0) {
+        router.replace({ pathname, query: nextQuery });
+      } else {
+        router.replace(pathname);
+      }
+    },
+    [pathname, router, searchParams],
+  );
+
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [mounted, setMounted] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
-  const [tokenWarnAt, setTokenWarnAt] = useState(DEFAULT_TOKEN_WARN);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchApplied, setSearchApplied] = useState("");
-  const [minLoopsFilter, setMinLoopsFilter] = useState<number | undefined>(undefined);
-  const [minTokensFilter, setMinTokensFilter] = useState<number | undefined>(undefined);
-  const [minToolsFilter, setMinToolsFilter] = useState<number | undefined>(undefined);
-  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [jumpDraft, setJumpDraft] = useState("1");
+  const [pageSize, setPageSizeState] = useState(10);
+  const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
 
+  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
+    setDateRange(next);
+    writeStoredObserveDateRange(next);
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredObserveDateRange();
+    if (stored) {
+      setDateRange(stored);
+    }
+  }, []);
+  const [filterChannel, setFilterChannel] = useState("");
+  const [filterAgent, setFilterAgent] = useState("");
+  const [filterStatus, setFilterStatus] = useState<ObserveListStatusParam | "">("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [draftChannel, setDraftChannel] = useState("");
+  const [draftAgent, setDraftAgent] = useState("");
+  const [draftStatus, setDraftStatus] = useState<ObserveListStatusParam | "">("");
+  const [sortKey, setSortKey] = useState<ObserveListSortParam>("time");
+  const [listOrder, setListOrder] = useState<"asc" | "desc">("desc");
+  const [threadDrawerRow, setThreadDrawerRow] = useState<ThreadRecordRow | null>(null);
+  const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
+  const [inspectSpanRow, setInspectSpanRow] = useState<SpanRecordRow | null>(null);
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
     setApiKey(loadApiKey());
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setPageSizeState(readStoredPageSize());
+  }, []);
+
+  const setPageSize = useCallback((n: number) => {
+    setPageSizeState(n);
+    try {
+      window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(n));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -78,402 +205,692 @@ export default function TracesPage() {
     const onSettings = () => {
       setBaseUrl(loadCollectorUrl());
       setApiKey(loadApiKey());
-      void queryClient.invalidateQueries({ queryKey: ["trace-records"] });
+      invalidateObserveLists(queryClient);
     };
     window.addEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
   }, [queryClient]);
 
-  const order = liveMode ? "asc" : "desc";
+  const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
+  const listEnabled = mounted && baseUrl.trim().length > 0;
+  const refetchInterval = 12_000;
 
-  const queryKey = useMemo(
+  useEffect(() => {
+    setPageIndex(0);
+  }, [searchApplied, dateRange, listKind, filterChannel, filterAgent, filterStatus, sortKey, listOrder]);
+
+  useEffect(() => {
+    if (listKind !== "threads") {
+      setThreadDrawerRow(null);
+    }
+  }, [listKind]);
+
+  useEffect(() => {
+    if (listKind !== "spans") {
+      setInspectSpanRow(null);
+    }
+  }, [listKind]);
+
+  const dateRangeKey = useMemo(
     () =>
-      [
-        "trace-records",
-        baseUrl,
-        apiKey,
-        order,
-        searchApplied,
-        minLoopsFilter ?? null,
-        minTokensFilter ?? null,
-        minToolsFilter ?? null,
-      ] as const,
-    [baseUrl, apiKey, order, searchApplied, minLoopsFilter, minTokensFilter, minToolsFilter],
+      dateRange.kind === "custom"
+        ? (`custom:${dateRange.startMs}-${dateRange.endMs}` as const)
+        : (`preset:${dateRange.preset}` as const),
+    [dateRange],
   );
 
-  const q = useInfiniteQuery({
-    queryKey,
-    queryFn: ({ pageParam }) =>
-      loadTraceRecords(baseUrl, apiKey, {
-        limit: PAGE_LIMIT,
-        offset: pageParam,
-        order,
-        minLoopCount: minLoopsFilter,
-        minTotalTokens: minTokensFilter,
-        minToolCalls: minToolsFilter,
-        search: searchApplied.length > 0 ? searchApplied : undefined,
-      }),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      if (lastPage.items.length < PAGE_LIMIT) {
-        return undefined;
+  const traceQueryKey = useMemo(
+    () =>
+      [
+        COLLECTOR_QUERY_SCOPE.traceList,
+        baseUrl,
+        apiKey,
+        listOrder,
+        sortKey,
+        searchApplied,
+        pageIndex,
+        pageSize,
+        dateRangeKey,
+        sinceMs ?? 0,
+        untilMs ?? 0,
+        filterChannel,
+        filterAgent,
+        filterStatus,
+      ] as const,
+    [
+      baseUrl,
+      apiKey,
+      listOrder,
+      sortKey,
+      searchApplied,
+      pageIndex,
+      pageSize,
+      dateRangeKey,
+      sinceMs,
+      untilMs,
+      filterChannel,
+      filterAgent,
+      filterStatus,
+    ],
+  );
+
+  const threadQueryKey = useMemo(
+    () =>
+      [
+        COLLECTOR_QUERY_SCOPE.conversationList,
+        baseUrl,
+        apiKey,
+        listOrder,
+        sortKey,
+        searchApplied,
+        pageIndex,
+        pageSize,
+        dateRangeKey,
+        sinceMs ?? 0,
+        untilMs ?? 0,
+        filterChannel,
+        filterAgent,
+      ] as const,
+    [
+      baseUrl,
+      apiKey,
+      listOrder,
+      sortKey,
+      searchApplied,
+      pageIndex,
+      pageSize,
+      dateRangeKey,
+      sinceMs,
+      untilMs,
+      filterChannel,
+      filterAgent,
+    ],
+  );
+
+  const spanQueryKey = useMemo(
+    () =>
+      [
+        COLLECTOR_QUERY_SCOPE.spanList,
+        baseUrl,
+        apiKey,
+        listOrder,
+        sortKey,
+        searchApplied,
+        pageIndex,
+        pageSize,
+        dateRangeKey,
+        sinceMs ?? 0,
+        untilMs ?? 0,
+        filterChannel,
+        filterAgent,
+        filterStatus,
+      ] as const,
+    [
+      baseUrl,
+      apiKey,
+      listOrder,
+      sortKey,
+      searchApplied,
+      pageIndex,
+      pageSize,
+      dateRangeKey,
+      sinceMs,
+      untilMs,
+      filterChannel,
+      filterAgent,
+      filterStatus,
+    ],
+  );
+
+  const facetsQ = useQuery({
+    queryKey: ["observe-facets", baseUrl, apiKey] as const,
+    queryFn: () => loadObserveFacets(baseUrl, apiKey),
+    enabled: listEnabled,
+    staleTime: 60_000,
+  });
+
+  const channelOptions = useMemo(() => {
+    const raw = facetsQ.data?.channels ?? [];
+    const merged = new Set(raw);
+    const add = (s: string) => {
+      const x = s.trim();
+      if (x) merged.add(x);
+    };
+    add(filterChannel);
+    add(draftChannel);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [facetsQ.data?.channels, filterChannel, draftChannel]);
+
+  const agentOptions = useMemo(() => {
+    const raw = facetsQ.data?.agents ?? [];
+    const merged = new Set(raw);
+    const add = (s: string) => {
+      const x = s.trim();
+      if (x) merged.add(x);
+    };
+    add(filterAgent);
+    add(draftAgent);
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [facetsQ.data?.agents, filterAgent, draftAgent]);
+
+  const handleFilterPopoverOpenChange = useCallback(
+    (next: boolean) => {
+      if (next) {
+        setDraftChannel(filterChannel);
+        setDraftAgent(filterAgent);
+        setDraftStatus(filterStatus);
       }
-      return allPages.reduce((acc, p) => acc + p.items.length, 0);
+      setFiltersOpen(next);
     },
-    enabled: mounted && baseUrl.trim().length > 0,
-    refetchInterval: liveMode ? 2800 : 12_000,
+    [filterChannel, filterAgent, filterStatus],
+  );
+
+  const handleColumnSort = useCallback((sort: ObserveListSortParam, order: "asc" | "desc") => {
+    setSortKey(sort);
+    setListOrder(order);
+  }, []);
+
+  const applyFiltersFromDraft = useCallback(() => {
+    setFilterChannel(draftChannel.trim());
+    setFilterAgent(draftAgent.trim());
+    setFilterStatus(draftStatus);
+  }, [draftChannel, draftAgent, draftStatus]);
+
+  const tracesQ = useQuery({
+    queryKey: traceQueryKey,
+    queryFn: () =>
+      loadTraceRecords(baseUrl, apiKey, {
+        limit: pageSize,
+        offset: pageIndex * pageSize,
+        order: listOrder,
+        sort: sortKey === "tokens" ? "tokens" : undefined,
+        search: searchApplied.length > 0 ? searchApplied : undefined,
+        sinceMs,
+        untilMs,
+        channel: filterChannel.trim() || undefined,
+        agent: filterAgent.trim() || undefined,
+        status: filterStatus || undefined,
+      }),
+    enabled: listEnabled && listKind === "traces",
+    refetchInterval,
     staleTime: 0,
   });
 
-  const rows = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data?.pages]);
+  const threadsQ = useQuery({
+    queryKey: threadQueryKey,
+    queryFn: () =>
+      loadThreadRecords(baseUrl, apiKey, {
+        limit: pageSize,
+        offset: pageIndex * pageSize,
+        order: listOrder,
+        sort: sortKey === "tokens" ? "tokens" : undefined,
+        search: searchApplied.length > 0 ? searchApplied : undefined,
+        sinceMs,
+        untilMs,
+        channel: filterChannel.trim() || undefined,
+        agent: filterAgent.trim() || undefined,
+      }),
+    enabled: listEnabled && listKind === "threads",
+    refetchInterval,
+    staleTime: 0,
+  });
+
+  const spansQ = useQuery({
+    queryKey: spanQueryKey,
+    queryFn: () =>
+      loadSpanRecords(baseUrl, apiKey, {
+        limit: pageSize,
+        offset: pageIndex * pageSize,
+        order: listOrder,
+        sort: sortKey === "tokens" ? "tokens" : undefined,
+        search: searchApplied.length > 0 ? searchApplied : undefined,
+        sinceMs,
+        untilMs,
+        channel: filterChannel.trim() || undefined,
+        agent: filterAgent.trim() || undefined,
+        status: filterStatus || undefined,
+      }),
+    enabled: listEnabled && listKind === "spans",
+    refetchInterval,
+    staleTime: 0,
+  });
+
+  const q = listKind === "traces" ? tracesQ : listKind === "threads" ? threadsQ : spansQ;
+  const traceRows = useMemo(() => tracesQ.data?.items ?? [], [tracesQ.data?.items]);
+  const threadRows = useMemo(() => threadsQ.data?.items ?? [], [threadsQ.data?.items]);
+  const spanRows = useMemo(() => spansQ.data?.items ?? [], [spansQ.data?.items]);
+  const total = q.data?.total ?? 0;
 
   useEffect(() => {
-    if (!liveMode || !q.isSuccess || rows.length === 0) {
+    if (!q.isSuccess || total <= 0) {
       return;
     }
-    const el = scrollBoxRef.current;
-    if (!el) {
-      return;
+    const maxPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+    if (pageIndex > maxPage) {
+      setPageIndex(maxPage);
     }
-    el.scrollTop = el.scrollHeight;
-  }, [liveMode, q.dataUpdatedAt, q.isSuccess, rows.length]);
+  }, [q.isSuccess, total, pageIndex, pageSize]);
 
-  const rawCount = rows.length;
   const lastUpdated =
     q.dataUpdatedAt > 0 ? formatTraceDateTimeLocal(new Date(q.dataUpdatedAt).toISOString()) : null;
 
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
-  const clearFilters = useCallback(() => {
-    setMinLoopsFilter(undefined);
-    setMinTokensFilter(undefined);
-    setMinToolsFilter(undefined);
+  const clearSearch = useCallback(() => {
     setSearchDraft("");
     setSearchApplied("");
   }, []);
 
-  const filtersActive =
-    minLoopsFilter != null ||
-    minTokensFilter != null ||
-    minToolsFilter != null ||
-    searchApplied.length > 0;
+  const clearObserveFacetFilters = useCallback(() => {
+    setFilterChannel("");
+    setFilterAgent("");
+    setFilterStatus("");
+    setDraftChannel("");
+    setDraftAgent("");
+    setDraftStatus("");
+  }, []);
+
+  const searchActive = searchApplied.length > 0;
+  const observeFacetFilterCount =
+    (filterChannel.trim() ? 1 : 0) +
+    (filterAgent.trim() ? 1 : 0) +
+    ((listKind === "traces" || listKind === "spans") && filterStatus ? 1 : 0);
+  const filterCount =
+    (!isObserveDateRangeAll(dateRange) ? 1 : 0) +
+    (searchActive ? 1 : 0) +
+    observeFacetFilterCount;
+
+  const rangeFrom = total > 0 ? pageIndex * pageSize + 1 : 0;
+  const rangeTo = pageIndex * pageSize + (listKind === "traces" ? traceRows.length : listKind === "threads" ? threadRows.length : spanRows.length);
+  const hasNextPage = rangeTo < total;
+  const hasPrevPage = pageIndex > 0;
+  const maxPageIndex = Math.max(0, Math.ceil(total / pageSize) - 1);
+  const hasFirstPage = pageIndex > 0;
+  const hasLastPage = pageIndex < maxPageIndex;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+  const visiblePages = useMemo(
+    () => buildVisiblePages(pageIndex + 1, totalPages),
+    [pageIndex, totalPages],
+  );
+
+  useEffect(() => {
+    setJumpDraft(String(pageIndex + 1));
+  }, [pageIndex]);
+
+  const applyJumpPage = useCallback(() => {
+    const n = Number.parseInt(jumpDraft.trim(), 10);
+    if (!Number.isFinite(n) || totalPages < 1) {
+      return;
+    }
+    const clamped = Math.min(Math.max(1, Math.trunc(n)), totalPages);
+    setPageIndex(clamped - 1);
+  }, [jumpDraft, totalPages]);
+
+  const searchPlaceholder =
+    listKind === "threads"
+      ? t("searchThreadsPlaceholder")
+      : listKind === "spans"
+        ? t("searchSpansPlaceholder")
+        : t("searchTracesPlaceholder");
+
+  const sectionAria =
+    listKind === "threads" ? t("threadsTitle") : listKind === "spans" ? t("spansTitle") : t("title");
+
+  const hasRows =
+    listKind === "traces" ? traceRows.length > 0 : listKind === "threads" ? threadRows.length > 0 : spanRows.length > 0;
+
+  const emptyTitle = (() => {
+    if (searchActive || filterCount > 0) {
+      return t("listEmptyHeadingFiltered");
+    }
+    if (listKind === "threads") {
+      return t("threadsEmptyTitle");
+    }
+    if (listKind === "spans") {
+      return t("spansEmptyTitle");
+    }
+    return t("listEmptyHeadingTraces");
+  })();
+
+  const emptyDescription = (() => {
+    if (searchActive || filterCount > 0) {
+      if (listKind === "threads") {
+        return t("threadsEmptyFiltered");
+      }
+      if (listKind === "spans") {
+        return t("spansEmptyFiltered");
+      }
+      return t("listTraceRecordsEmptyFiltered");
+    }
+    if (listKind === "threads") {
+      return t("threadsEmptyBody");
+    }
+    if (listKind === "spans") {
+      return t("spansEmptyBody");
+    }
+    return t("listTraceRecordsEmpty");
+  })();
 
   if (!mounted) {
     return (
-      <main className="ca-page">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 w-56 rounded-lg bg-neutral-200" />
-          <div className="h-4 w-96 max-w-full rounded bg-neutral-200" />
-        </div>
-        <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
-      </main>
+      <AppPageShell variant="traces">
+        <main className="ca-page relative z-[1]">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 w-56 rounded-lg bg-neutral-200" />
+            <div className="h-4 w-96 max-w-full rounded bg-neutral-200" />
+          </div>
+          <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
+        </main>
+      </AppPageShell>
     );
   }
 
   return (
-    <main className="ca-page">
-      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-3xl font-semibold tracking-tight text-neutral-900">
-            <span>{t("title")}</span>
-            <TitleHintIcon tooltipText={t("subtitle")} />
-          </h1>
-        </div>
-        <LocalizedLink href="/settings" className="ca-btn-secondary shrink-0 no-underline">
-          {t("openSettings")}
-        </LocalizedLink>
+    <AppPageShell variant="traces">
+      <main className={cn("ca-page relative z-[1]", !missingUrl && "pb-[6rem]")}>
+      <header className="mb-6">
+        <h1 className="ca-page-title">
+          {listKind === "threads" ? t("threadsTitle") : listKind === "spans" ? t("spansTitle") : t("title")}
+        </h1>
       </header>
 
       {missingUrl && (
-        <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950">
-          <MessageHint
-            text={t("needCollectorUrl")}
-            textClassName="text-sm leading-relaxed text-amber-950"
-            clampClass="line-clamp-4"
-          />
-          <LocalizedLink href="/settings" className="mt-2 inline-block font-medium text-ca-accent no-underline hover:underline">
-            {t("openSettings")}
-          </LocalizedLink>
-        </div>
+        <Card className="mb-6 border-amber-200 bg-amber-50/90 text-amber-950 shadow-sm dark:border-amber-500/40 dark:bg-amber-950/20 dark:text-amber-50">
+          <CardContent className="p-5">
+            <MessageHint
+              text={t("needCollectorUrl")}
+              textClassName="text-sm leading-relaxed text-amber-950 dark:text-amber-50"
+              clampClass="line-clamp-4"
+            />
+          </CardContent>
+        </Card>
       )}
 
       {!missingUrl && (
-        <section className="mb-6 space-y-4 rounded-2xl border border-ca-border bg-white/90 px-5 py-4 shadow-ca-sm backdrop-blur-sm">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[min(100%,16rem)] flex-1">
-              <label htmlFor="trace-search" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ca-muted">
-                {t("searchLabel")}
-              </label>
-              <input
-                id="trace-search"
-                type="search"
-                value={searchDraft}
-                onChange={(e) => setSearchDraft(e.target.value)}
-                placeholder={t("searchPlaceholder")}
-                className="w-full rounded-xl border border-ca-border bg-white px-3 py-2 text-sm text-neutral-900 shadow-sm outline-none ring-ca-accent/30 placeholder:text-neutral-400 focus:ring-2"
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-ca-muted">{t("filterAnomalyTitle")}</span>
-              <button
-                type="button"
-                onClick={() => setMinLoopsFilter((v) => (v === ANOMALY_MIN_LOOPS ? undefined : ANOMALY_MIN_LOOPS))}
-                className={[
-                  "rounded-lg border px-3 py-2 text-xs font-semibold transition",
-                  minLoopsFilter === ANOMALY_MIN_LOOPS
-                    ? "border-ca-accent bg-ca-accent/10 text-ca-accent"
-                    : "border-ca-border bg-white text-neutral-700 hover:bg-neutral-50",
-                ].join(" ")}
-              >
-                {t("filterAnomalyLoops")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMinTokensFilter((v) => (v === ANOMALY_MIN_TOKENS ? undefined : ANOMALY_MIN_TOKENS))}
-                className={[
-                  "rounded-lg border px-3 py-2 text-xs font-semibold transition",
-                  minTokensFilter === ANOMALY_MIN_TOKENS
-                    ? "border-ca-accent bg-ca-accent/10 text-ca-accent"
-                    : "border-ca-border bg-white text-neutral-700 hover:bg-neutral-50",
-                ].join(" ")}
-              >
-                {t("filterAnomalyTokens")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMinToolsFilter((v) => (v === ANOMALY_MIN_TOOLS ? undefined : ANOMALY_MIN_TOOLS))}
-                className={[
-                  "rounded-lg border px-3 py-2 text-xs font-semibold transition",
-                  minToolsFilter === ANOMALY_MIN_TOOLS
-                    ? "border-ca-accent bg-ca-accent/10 text-ca-accent"
-                    : "border-ca-border bg-white text-neutral-700 hover:bg-neutral-50",
-                ].join(" ")}
-              >
-                {t("filterAnomalyTools")}
-              </button>
-              {filtersActive ? (
-                <button
-                  type="button"
-                  onClick={() => void clearFilters()}
-                  className="rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-100"
-                >
-                  {t("filterClear")}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 border-t border-ca-border/80 pt-4">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-800">
-              <input
-                type="checkbox"
-                checked={liveMode}
-                onChange={(e) => setLiveMode(e.target.checked)}
-                className="h-4 w-4 rounded border-ca-border text-ca-accent"
-              />
-              <span className="font-medium">{t("liveModeLabel")}</span>
-              <span className="text-xs text-ca-muted">{liveMode ? t("liveModeOnHint") : t("liveModeOffHint")}</span>
-            </label>
-            <div className="flex items-center gap-2">
-              <label htmlFor="token-warn" className="text-xs font-semibold text-ca-muted">
-                {t("tokenWarnLabel")}
-              </label>
-              <input
-                id="token-warn"
-                type="number"
-                min={0}
-                step={100}
-                value={Number.isFinite(tokenWarnAt) ? tokenWarnAt : DEFAULT_TOKEN_WARN}
-                onChange={(e) => setTokenWarnAt(Number(e.target.value) || 0)}
-                className="w-24 rounded-lg border border-ca-border px-2 py-1 font-mono text-xs"
-              />
-            </div>
-            {filtersActive ? (
-              <span className="text-xs font-medium text-amber-800">{t("filtersActive")}</span>
-            ) : null}
-          </div>
-        </section>
+        <ObserveListToolbar
+          toolbarTop={
+            <ObserveListKindSwitcher
+              aria-label={t("listKindAria")}
+              value={listKind}
+              onChange={handleListKindChange}
+              options={[
+                { id: "threads", label: t("subTabThreads") },
+                { id: "traces", label: t("subTabTraces") },
+                { id: "spans", label: t("subTabSpans") },
+              ]}
+            />
+          }
+          filtersSlot={
+            <ObserveListFiltersDialog
+              open={filtersOpen}
+              onOpenChange={handleFilterPopoverOpenChange}
+              facetFilterCount={observeFacetFilterCount}
+              listKind={listKind}
+              draftChannel={draftChannel}
+              setDraftChannel={setDraftChannel}
+              draftAgent={draftAgent}
+              setDraftAgent={setDraftAgent}
+              draftStatus={draftStatus}
+              setDraftStatus={setDraftStatus}
+              channelOptions={channelOptions}
+              agentOptions={agentOptions}
+              onApply={applyFiltersFromDraft}
+              onResetDraft={() => {
+                setDraftChannel("");
+                setDraftAgent("");
+                setDraftStatus("");
+              }}
+            />
+          }
+          searchDraft={searchDraft}
+          setSearchDraft={setSearchDraft}
+          searchPlaceholder={searchPlaceholder}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRangePersist}
+          onRefresh={() => {
+            void tracesQ.refetch();
+            void threadsQ.refetch();
+            void spansQ.refetch();
+          }}
+          isFetching={q.isFetching}
+          searchActive={searchActive}
+          onClearSearch={clearSearch}
+        />
       )}
 
       {q.isSuccess && lastUpdated && !missingUrl && (
-        <section className="mb-6 rounded-2xl border border-ca-border bg-white/80 px-5 py-3 shadow-ca-sm backdrop-blur-sm">
-          <p className="text-sm text-neutral-700">
-            <span className="font-semibold text-neutral-900">{t("lastUpdated")}:</span>{" "}
-            <span className="font-mono text-ca-muted">{lastUpdated}</span>
-            {liveMode ? (
-              <span className="ml-2 rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-900">
-                {t("liveModeBadge")}
-              </span>
-            ) : null}
-          </p>
-          {rawCount > 0 && (
-            <p className="mt-1 text-sm text-neutral-600">{t("showingLoaded", { count: rawCount })}</p>
-          )}
-          {rawCount === 0 && !q.isFetching && (
-            <MessageHint
-              text={t("probeHint")}
-              className="mt-2"
-              textClassName="text-sm text-ca-muted"
-              clampClass="line-clamp-3"
-            />
-          )}
-        </section>
+        <p className="mb-3 text-xs text-neutral-500">
+          <span className="font-medium text-neutral-700">{t("lastUpdated")}:</span>{" "}
+          <span className="font-mono">{lastUpdated}</span>
+        </p>
       )}
 
-      <section aria-label={t("title")}>
-        {q.isFetching && !q.data && !missingUrl && (
-          <div className="flex items-center gap-2 text-sm text-ca-muted">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-ca-border border-t-ca-accent" />
-            {t("fetching")}
-          </div>
-        )}
-        {q.isError && !missingUrl && (
-          <div className="rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4 text-sm text-red-800">
-            <p className="font-medium">{String(q.error)}</p>
-            <div className="mt-2">
-              <MessageHint text={t("probeHint")} textClassName="text-sm text-red-700/90" clampClass="line-clamp-4" />
+      <section aria-label={sectionAria} className="space-y-4">
+        <div className="space-y-4">
+          {q.isFetching && !q.data && !missingUrl && (
+            <div className="flex items-center gap-2 text-sm text-ca-muted">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
+              {t("fetching")}
             </div>
-            <LocalizedLink href="/settings" className="mt-3 inline-block font-medium text-ca-accent no-underline hover:underline">
-              {t("openSettings")}
-            </LocalizedLink>
-          </div>
-        )}
-        {q.isSuccess && rows.length === 0 && !missingUrl && !q.isFetching && (
-          <div className="ca-card-pad">
-            <div className="flex justify-center">
-              <MessageHint
-                text={filtersActive ? t("listTraceRecordsEmptyFiltered") : t("listTraceRecordsEmpty")}
-                textClassName="text-sm text-ca-muted text-center"
-                clampClass="line-clamp-5"
-              />
+          )}
+          {q.isError && !missingUrl && (
+            <Card className="border-destructive/25 bg-destructive/5 text-destructive shadow-sm dark:border-destructive/40 dark:bg-destructive/10">
+              <CardContent className="p-5">
+                <p className="text-sm font-medium text-destructive">{String(q.error)}</p>
+                <div className="mt-2">
+                  <MessageHint text={t("probeHint")} textClassName="text-sm text-destructive/90" clampClass="line-clamp-4" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {q.isSuccess && !hasRows && !missingUrl && !q.isFetching && (
+            <ListEmptyState
+              variant="card"
+              title={emptyTitle}
+              description={emptyDescription}
+              footer={
+                searchActive || filterCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void clearSearch();
+                      setDateRangePersist(defaultObserveDateRange());
+                      clearObserveFacetFilters();
+                    }}
+                    className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+                  >
+                    {t("filterClear")}
+                  </button>
+                ) : undefined
+              }
+            />
+          )}
+          {hasRows ? (
+            <div className="space-y-4 pb-1">
+              {listKind === "traces" ? (
+                <TracesOpikTable
+                  rows={traceRows}
+                  sortKey={sortKey}
+                  listOrder={listOrder}
+                  onColumnSort={handleColumnSort}
+                  onRowClick={(r) => setInspectTraceRow(r)}
+                />
+              ) : null}
+              {listKind === "threads" ? (
+                <ThreadsOpikTable
+                  rows={threadRows}
+                  sortKey={sortKey}
+                  listOrder={listOrder}
+                  onColumnSort={handleColumnSort}
+                  onRowClick={(row) => setThreadDrawerRow(row)}
+                />
+              ) : null}
+              {listKind === "spans" ? (
+                <SpansDataTable
+                  rows={spanRows}
+                  sortKey={sortKey}
+                  listOrder={listOrder}
+                  onColumnSort={handleColumnSort}
+                  onRowClick={(r) => setInspectSpanRow(r)}
+                />
+              ) : null}
             </div>
-          </div>
-        )}
-        {rows.length > 0 && (
-          <div className="ca-table-wrap">
-            <div className="border-b border-ca-border bg-neutral-50/90 px-5 py-4">
-              <h2 className="text-sm font-semibold text-neutral-900">{t("tableTitle")}</h2>
-              <MessageHint
-                text={t("tableSubtitle")}
-                className="mt-0.5"
-                textClassName="text-xs text-ca-muted"
-                clampClass="line-clamp-4"
-              />
-            </div>
-            <div
-              ref={scrollBoxRef}
-              className={[
-                "overflow-x-auto",
-                liveMode ? "max-h-[min(70vh,720px)] overflow-y-auto" : "",
-              ].join(" ")}
-            >
-              <table className="w-full min-w-[920px] text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-neutral-50/95 shadow-sm backdrop-blur-sm">
-                  <tr className="border-b border-ca-border text-xs uppercase tracking-wide text-ca-muted">
-                    <th className="px-5 py-3 font-semibold">{t("columnSessionSummary")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("time")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("statusColumn")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("tokensColumn")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("columnOptimization")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("durationColumn")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("columnLoopsTools")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("threadKeyColumn")}</th>
-                    <th className="px-5 py-3 font-semibold" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ca-border">
-                  {rows.map((row) => {
-                    const dur = traceRecordDurationMs(row);
-                    const agent = traceRecordAgentName(row);
-                    const channel = traceRecordChannel(row);
-                    const band = traceRecordStatusBand(row, tokenWarnAt);
-                    const rawStatus = String(row.status);
-                    return (
-                      <tr key={`${row.trace_id}-${row.start_time}`} className="bg-white transition-colors hover:bg-neutral-50/80">
-                        <td className="max-w-[min(24rem,40vw)] px-5 py-3.5 align-top">
-                          <p className="font-mono text-[11px] text-neutral-500" title={row.session_id ?? row.thread_key}>
-                            {sessionLine(row)}
-                          </p>
-                          <p className="mt-0.5 line-clamp-2 break-words text-neutral-900">{traceRecordTaskSummary(row)}</p>
-                          <p className="mt-1 text-[11px] text-neutral-400">
-                            {[agent, channel].filter(Boolean).join(" · ") || "—"}
-                          </p>
-                        </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-ca-muted align-top">
-                          {formatTraceDateTimeLocal(new Date(row.start_time).toISOString())}
-                        </td>
-                        <td className="px-5 py-3.5 align-top">
-                          <span
-                            className={[
-                              "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
-                              statusBandPillClass(band),
-                            ].join(" ")}
-                          >
-                            {statusBandLabel(band, rawStatus, t)}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs tabular-nums text-neutral-800 align-top">
-                          {typeof row.total_tokens === "number" ? row.total_tokens.toLocaleString() : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 align-top">
-                          <span className="font-mono text-xs tabular-nums text-emerald-800" title={t("columnOptimizationHint")}>
-                            {formatOptimizationRate(row.optimization_rate_pct)}
-                          </span>
-                          {row.saved_tokens_total > 0 ? (
-                            <span className="ml-1 text-[10px] text-ca-muted">
-                              (−{row.saved_tokens_total.toLocaleString()})
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-ca-muted align-top">
-                          {formatDurationMs(dur)}
-                        </td>
-                        <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs tabular-nums text-neutral-700 align-top">
-                          <span title={t("loopsHint")}>{row.loop_count}</span>
-                          <span className="text-neutral-300"> / </span>
-                          <span title={t("toolsHint")}>{row.tool_call_count}</span>
-                        </td>
-                        <td className="max-w-[180px] px-5 py-3.5 align-top">
-                          <IdLabeledCopy
-                            kind="thread_key"
-                            value={row.thread_key}
-                            displayText={
-                              row.thread_key.length > 32
-                                ? `${row.thread_key.slice(0, 14)}…${row.thread_key.slice(-8)}`
-                                : row.thread_key
-                            }
-                            variant="compact"
-                          />
-                        </td>
-                        <td className="px-5 py-3.5 text-right align-top">
-                          <LocalizedLink
-                            href={detailHref(row)}
-                            className="inline-flex rounded-lg bg-ca-accent px-3 py-1.5 text-xs font-medium text-white no-underline transition hover:bg-ca-accent-hover"
-                          >
-                            {t("open")}
-                          </LocalizedLink>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {q.hasNextPage ? (
-              <div className="border-t border-ca-border bg-neutral-50/80 px-5 py-3 text-center">
+          ) : null}
+        </div>
+      </section>
+
+      {!missingUrl ? (
+        <div
+          className="fixed bottom-0 right-0 z-30 border-t border-border/80 bg-background/90 py-3 shadow-[0_-8px_28px_-12px_rgba(15,23,42,0.12)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 dark:border-border/55 dark:shadow-black/25"
+          style={{ left: "var(--ca-content-offset-left)" }}
+        >
+          <div className="mx-auto flex w-full max-w-[min(100%,1600px)] flex-col gap-3 px-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <p className="text-sm text-muted-foreground">
+              {t("showingOfTotal", { from: String(rangeFrom), to: String(rangeTo), total: String(total) })}
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                {t("paginationTotalPages", { count: String(totalPages) })}
+              </span>
+              <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <span>{t("paginationPerPageLabel")}</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPageIndex(0);
+                  }}
+                  className="h-9 rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {t("paginationPageSizeOption", { n: String(n) })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Pagination className="mx-0 w-auto flex-initial justify-end">
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationFirst
+                      aria-label={t("paginationFirst")}
+                      disabled={!hasFirstPage || q.isFetching}
+                      onClick={() => setPageIndex(0)}
+                    />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      aria-label={t("paginationPrev")}
+                      disabled={!hasPrevPage || q.isFetching}
+                      onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                      text={t("paginationPrev")}
+                    />
+                  </PaginationItem>
+                  {visiblePages.map((item, idx) =>
+                    item === "ellipsis" ? (
+                      <PaginationItem key={`ellipsis-${idx}`}>
+                        <PaginationEllipsis />
+                      </PaginationItem>
+                    ) : (
+                      <PaginationItem key={item}>
+                        <PaginationLink
+                          isActive={item === pageIndex + 1}
+                          aria-label={t("paginationPage", { n: String(item) })}
+                          disabled={q.isFetching}
+                          onClick={() => setPageIndex(item - 1)}
+                        >
+                          {item}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ),
+                  )}
+                  <PaginationItem>
+                    <PaginationNext
+                      aria-label={t("paginationNext")}
+                      disabled={!hasNextPage || q.isFetching}
+                      onClick={() => setPageIndex((p) => p + 1)}
+                      text={t("paginationNext")}
+                    />
+                  </PaginationItem>
+                  <PaginationItem>
+                    <PaginationLast
+                      aria-label={t("paginationLast")}
+                      disabled={!hasLastPage || q.isFetching}
+                      onClick={() => setPageIndex(maxPageIndex)}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="whitespace-nowrap">{t("paginationJumpLabel")}</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  aria-label={t("paginationJumpLabel")}
+                  value={jumpDraft}
+                  onChange={(e) => setJumpDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      applyJumpPage();
+                    }
+                  }}
+                  className="h-9 w-11 rounded-lg border border-input bg-background px-2 text-center text-sm tabular-nums text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
                 <button
                   type="button"
-                  disabled={q.isFetchingNextPage}
-                  onClick={() => void q.fetchNextPage()}
-                  className="rounded-lg border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50"
+                  onClick={() => applyJumpPage()}
+                  className="h-9 shrink-0 rounded-lg border border-input bg-background px-2.5 text-xs font-semibold text-foreground shadow-sm hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {q.isFetchingNextPage ? t("loadingMore") : t("loadMore")}
+                  {t("paginationJumpGo")}
                 </button>
-              </div>
-            ) : null}
+              </span>
+            </div>
           </div>
-        )}
-      </section>
+        </div>
+      ) : null}
+
+      <ThreadConversationDrawer
+        open={threadDrawerRow != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setThreadDrawerRow(null);
+          }
+        }}
+        row={threadDrawerRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
+
+      <TraceRecordInspectDialog
+        open={inspectTraceRow != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInspectTraceRow(null);
+          }
+        }}
+        row={inspectTraceRow}
+        rows={traceRows}
+        onNavigate={setInspectTraceRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
+
+      <SpanRecordInspectDrawer
+        open={inspectSpanRow != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInspectSpanRow(null);
+          }
+        }}
+        row={inspectSpanRow}
+        rows={spanRows}
+        onNavigate={setInspectSpanRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
     </main>
+    </AppPageShell>
   );
 }

@@ -1,40 +1,30 @@
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import type { OpenClawPluginApi, PluginServiceContext } from "openclaw/plugin-sdk/core";
-import { defaultCacheTracePath, startCacheTraceTail } from "./cache-trace-tail.js";
-import { resolvePluginConfig, type CrabagentTracePluginConfig } from "./config.js";
-import { EventQueue } from "./event-queue.js";
-import { deriveChatTitleFromMessageMetadata } from "./chat-title.js";
-import { buildEvent, inferAgentIdFromSessionKey } from "./envelope.js";
-import { postIngest } from "./flush.js";
+import { resolvePluginConfig } from "./config.js";
+import { BatchQueue } from "./event-queue.js";
+import { mergeOpikBatches, postOpikBatch } from "./flush.js";
+import { OpikOpenClawRuntime, TRACE_PROMPT_PREVIEW_MAX_CHARS } from "./opik-runtime.js";
+import type { OpikBatchPayload } from "./opik-types.js";
+import { extractRoutedAgentIdFromMessageMetadata, mirrorInboundPendingForAgents } from "./inbound-mirror.js";
+import { pickLlmOutputUsage } from "./llm-output-usage.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
-import { buildContextPruneTracePayload } from "./context-prune-payload.js";
 import {
-  buildMemoryLayerFromHookContribution,
-  buildReasoningContextBeforePrompt,
-  buildReasoningContextPruneRef,
-  buildReasoningLayerFromLlmInput,
-  buildReasoningLayerFromLlmOutput,
-  buildStateLayerFromAgentEnd,
-  buildStateLayerFromToolError,
-  buildTaskLayerFromMessage,
-  buildTaskLayerFromSessionStart,
-  buildToolLayerAfter,
-  buildToolLayerBefore,
-  wrapCrabagentLayers,
-} from "./crabagent-layers.js";
-import { MessageReceivedDeduper } from "./message-received-dedupe.js";
-import { TraceState, conversationCorrelationKey } from "./trace-state.js";
+  agentScopedTraceKey,
+  extractAgentIdFromRoutingSessionKey,
+  traceSessionKeyCandidates,
+} from "./trace-session-key.js";
 import type {
   AgentCtx,
   AgentEndEvent,
   AfterToolEvent,
+  BeforeAgentStartEvent,
   BeforeModelResolveEvent,
   BeforePromptBuildEvent,
   BeforeToolEvent,
-  HookContributionEvent,
   CompactionAfterEvent,
   CompactionBeforeEvent,
+  HookContributionEvent,
   LlmInputEvent,
   LlmOutputEvent,
   MessageReceivedEvent,
@@ -44,710 +34,607 @@ import type {
   SubagentSpawnedEvent,
 } from "./types/hooks.js";
 
-/** Must match openclaw.plugin.json id (same as npm unscoped name idHint). Avoid `openclaw/plugin-sdk/core` import — jiti can break interop. */
 const PLUGIN_ID = "openclaw-trace-plugin";
 
-const MAX_MESSAGE_TRACE_CHARS = 16_384;
-
-function truncateTraceText(s: string, max: number): string {
-  if (s.length <= max) {
-    return s;
+function withEventSessionId(ctx: AgentCtx, eventSessionId: string | undefined): AgentCtx {
+  if (typeof eventSessionId === "string" && eventSessionId.trim().length > 0) {
+    return { ...ctx, sessionId: ctx.sessionId ?? eventSessionId };
   }
-  return `${s.slice(0, max)}\n…[truncated ${String(s.length - max)} chars]`;
+  return ctx;
 }
 
-/** OpenClaw hooks may use `runId` or `run_id` on the event object. */
-function trimRunIdFromHookPayload(ev: { runId?: unknown; run_id?: unknown }): string | undefined {
-  const a = ev.runId;
-  if (typeof a === "string" && a.trim().length > 0) {
-    return a.trim();
+function pickStr(a: string | undefined, b: unknown): string | undefined {
+  const t = a?.trim();
+  if (t) {
+    return t;
   }
-  const b = ev.run_id;
-  if (typeof b === "string" && b.trim().length > 0) {
+  if (typeof b === "string" && b.trim()) {
     return b.trim();
   }
   return undefined;
 }
 
-/** Role histogram for session messages (OpenClaw `before_prompt_build`). */
-function summarizeHistoryRoles(messages: unknown): Record<string, number> {
-  const roles: Record<string, number> = {};
-  if (!Array.isArray(messages)) {
-    return roles;
+/** 把 `agent_end` 等事件 payload 里的会话字段并入 ctx（与 CozeLoop 侧稀疏 hookCtx 对齐）。 */
+function mergeAgentEndCtx(event: AgentEndEvent, c: unknown): AgentCtx {
+  const base =
+    c != null && typeof c === "object" && !Array.isArray(c) ? (c as AgentCtx) : ({} as AgentCtx);
+  const e = event as Record<string, unknown>;
+  return {
+    ...base,
+    sessionId: pickStr(base.sessionId, e.sessionId),
+    sessionKey: pickStr(base.sessionKey, e.sessionKey),
+    conversationId: pickStr(base.conversationId, e.conversationId),
+    channelId: pickStr(base.channelId, e.channelId),
+    messageProvider: pickStr(base.messageProvider, e.messageProvider),
+    agentId: pickStr(base.agentId, e.agentId),
+    agentName: pickStr(base.agentName, e.agentName),
+  };
+}
+
+/** ActiveTurn / 工具 span 主键：含非 main agent 时在键上区分 thread，避免叠到 main。 */
+function effectiveSk(ctx: AgentCtx, eventFrom?: string): string {
+  return agentScopedTraceKey(ctx, eventFrom);
+}
+
+function batchNonEmpty(b: OpikBatchPayload): boolean {
+  return Boolean(
+    b.threads?.length ||
+      b.traces?.length ||
+      b.spans?.length ||
+      b.attachments?.length ||
+      b.feedback?.length,
+  );
+}
+
+/** 调试：上报体摘要（不含大段 JSON）。 */
+function summarizeOpikBatch(b: OpikBatchPayload): Record<string, unknown> {
+  const traces = b.traces ?? [];
+  const traceSample = traces.slice(0, 12).map((t) => ({
+    trace_id: t.trace_id,
+    thread_id: t.thread_id,
+    name: t.name,
+  }));
+  return {
+    threadRows: b.threads?.length ?? 0,
+    traceRows: traces.length,
+    spanRows: b.spans?.length ?? 0,
+    attachmentRows: b.attachments?.length ?? 0,
+    feedbackRows: b.feedback?.length ?? 0,
+    traces: traceSample,
+  };
+}
+
+function collectorHostLabel(baseUrl: string): string {
+  try {
+    const u = new URL(baseUrl.trim());
+    return u.host || baseUrl.slice(0, 64);
+  } catch {
+    return baseUrl.slice(0, 64);
   }
-  for (const m of messages) {
-    if (m && typeof m === "object" && "role" in m) {
-      const r = String((m as { role?: unknown }).role ?? "?");
-      roles[r] = (roles[r] ?? 0) + 1;
-    }
-  }
-  return roles;
 }
 
 export default {
   id: PLUGIN_ID,
-  name: "Crabagent Trace",
-  description: "Send agent lifecycle events to Crabagent Collector.",
+  name: "Crabagent Trace (Opik layout)",
+  description: "OpenClaw hooks → opik-openclaw-shaped batches → Collector POST /v1/opik/batch.",
   register(api: OpenClawPluginApi) {
-    const getCfg = (): CrabagentTracePluginConfig =>
-      resolvePluginConfig(api.pluginConfig as Record<string, unknown> | undefined);
-
-    const traceState = new TraceState();
-    const messageReceivedDeduper = new MessageReceivedDeduper();
-    let queue: EventQueue | null = null;
+    const getCfg = () => resolvePluginConfig(api.pluginConfig as Record<string, unknown> | undefined);
+    let queue: BatchQueue | null = null;
+    let runtime: OpikOpenClawRuntime | null = null;
+    let cachedWs = "";
+    let cachedProj = "";
+    /** 插件 stateDir 下的 `crabagent`，在服务 start 时赋值，用于 pending 落盘。 */
+    let persistPendingRoot: string | undefined;
+    let cachedPersistKey = "";
+    let cachedTraceBare = true;
     let warnedNoBaseUrl = false;
 
-    const getQueue = (): EventQueue => {
+    const getQueue = (): BatchQueue => {
       if (!queue) {
-        queue = new EventQueue(getCfg().memoryQueueMax);
+        queue = new BatchQueue(getCfg().memoryQueueMax);
       }
       return queue;
     };
 
-    const hookRecordingCtx = (ctx: AgentCtx) => ({
+    const getRuntime = (): OpikOpenClawRuntime => {
+      const c = getCfg();
+      const diskRoot =
+        c.persistPendingToDisk !== false && persistPendingRoot?.trim() ? persistPendingRoot.trim() : undefined;
+      const pkey = diskRoot ?? "";
+      const traceBare = c.traceBareAgentEnds !== false;
+      if (
+        !runtime ||
+        cachedWs !== c.opikWorkspaceName ||
+        cachedProj !== c.opikProjectName ||
+        cachedPersistKey !== pkey ||
+        cachedTraceBare !== traceBare
+      ) {
+        cachedWs = c.opikWorkspaceName;
+        cachedProj = c.opikProjectName;
+        cachedPersistKey = pkey;
+        cachedTraceBare = traceBare;
+        runtime = new OpikOpenClawRuntime(
+          cachedWs,
+          cachedProj,
+          {
+            ...(diskRoot ? { persistPendingDir: diskRoot } : {}),
+            traceBareAgentEnds: traceBare,
+          },
+        );
+      }
+      return runtime;
+    };
+
+    const mergePendingForCtx = (ctx: AgentCtx, payload: Record<string, unknown>, eventFrom?: string) => {
+      const rt = getRuntime();
+      for (const k of traceSessionKeyCandidates(ctx, eventFrom)) {
+        rt.mergePendingContext(k, payload);
+      }
+    };
+
+    /** 入站往往无 agentId；子 agent LLM 走 `\\x1fagent:` 或 agent: 路由键，需镜像 pending 并靠 trace 别名对齐 feishu id。 */
+    const mergePendingWithInboundMirror = (
+      ctx: AgentCtx,
+      payload: Record<string, unknown>,
+      eventFrom?: string,
+      metadata?: Record<string, unknown>,
+    ) => {
+      mergePendingForCtx(ctx, payload, eventFrom);
+      const cfg = getCfg();
+      const ids = new Set<string>(cfg.mirrorInboundPendingAgentIds);
+      const inferred =
+        extractAgentIdFromRoutingSessionKey(ctx.sessionKey) ??
+        extractAgentIdFromRoutingSessionKey(ctx.channelId);
+      if (inferred) {
+        ids.add(inferred);
+      }
+      if (metadata) {
+        const routed = extractRoutedAgentIdFromMessageMetadata(metadata);
+        if (routed) {
+          ids.add(routed);
+        }
+      }
+      if (ids.size > 0) {
+        mirrorInboundPendingForAgents(mergePendingForCtx, ctx, payload, eventFrom, [...ids]);
+      }
+    };
+
+    const traceDbg = (phase: string, data: Record<string, unknown>) => {
+      if (!getCfg().debugLogHooks) {
+        return;
+      }
+      console.warn(`[${PLUGIN_ID}] ${phase}`, JSON.stringify(data));
+    };
+
+    /** NDJSON 诊断：`CRABAGENT_TRACE_DIAG_FILE=/abs/path/trace.ndjson`（勿提交含隐私的日志）。 */
+    const appendDiag = (payload: Record<string, unknown>) => {
+      const fp = process.env.CRABAGENT_TRACE_DIAG_FILE?.trim();
+      if (!fp) {
+        return;
+      }
+      try {
+        mkdirSync(path.dirname(fp), { recursive: true });
+        appendFileSync(fp, `${JSON.stringify({ ts: Date.now(), plugin: PLUGIN_ID, ...payload })}\n`);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const pushIfAny = (b: OpikBatchPayload | null | undefined, source: string) => {
+      if (b && batchNonEmpty(b)) {
+        getQueue().push(b);
+        traceDbg("queue_push", {
+          node: "memory_queue",
+          source,
+          ...summarizeOpikBatch(b),
+        });
+      }
+    };
+
+    const hookCtx = (ctx: AgentCtx) => ({
       sessionId: ctx.sessionId,
       sessionKey: ctx.sessionKey,
       channelId: ctx.channelId,
       conversationId: ctx.conversationId,
       messageProvider: ctx.messageProvider,
       agentId: ctx.agentId,
+      agentName: ctx.agentName,
     });
 
-    /** OpenClaw always puts sessionId on llm_* events; hook ctx sometimes omits it — merge for trace_root_id. */
-    const withEventSessionId = (ctx: AgentCtx, eventSessionId: string | undefined): AgentCtx => {
-      if (typeof eventSessionId === "string" && eventSessionId.trim().length > 0) {
-        return { ...ctx, sessionId: ctx.sessionId ?? eventSessionId };
-      }
-      return ctx;
-    };
-
-    const enqueue = (
-      type: string,
-      ctx: {
-        sessionId?: string;
-        sessionKey?: string;
-        channelId?: string;
-        conversationId?: string;
-        messageProvider?: string;
-        agentId?: string;
-      },
-      runId: string | undefined,
-      payload: Record<string, unknown>,
-      opts?: {
-        chatTitle?: string;
-        agentName?: string;
-        msgId?: string;
-        /** When true with `msgId`, register that id for the conversation (from `message_received`). */
-        pinMsgIdToConversation?: boolean;
-      },
-    ) => {
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
-      traceState.rememberSessionKeyMapping(ctx.sessionId, ctx.sessionKey);
-      const sessionKeyForTrace = traceState.effectiveSessionKey(ctx.sessionId, ctx.sessionKey);
-      const traceRootId = traceState.resolveTraceRoot({
-        sessionKey: sessionKeyForTrace,
-        sessionId: ctx.sessionId,
-        runId,
-        channelId: ctx.channelId,
-        conversationId: ctx.conversationId,
-      });
-      traceState.bindRunToTraceRoot(runId, traceRootId);
-      if (sessionKeyForTrace?.trim()) {
-        traceState.bindSessionKey(sessionKeyForTrace, traceRootId);
-      }
-      const convKey = conversationCorrelationKey({
-        channelId: ctx.channelId,
-        conversationId: ctx.conversationId,
-        sessionKey: sessionKeyForTrace,
-      });
-      let msgId: string | undefined;
-      if (opts?.pinMsgIdToConversation && opts.msgId?.trim()) {
-        msgId = opts.msgId.trim();
-        traceState.registerInboundMsgId(convKey, msgId);
-      } else {
-        msgId = opts?.msgId?.trim() || traceState.resolveMsgIdForEvent(type, runId, convKey);
-      }
-      getQueue().push(
-        buildEvent({
-          type,
-          traceRootId,
-          sessionId: ctx.sessionId,
-          sessionKey: sessionKeyForTrace,
-          agentId: ctx.agentId,
-          channelId: ctx.channelId,
-          messageProvider: ctx.messageProvider,
-          runId,
-          chatTitle: opts?.chatTitle,
-          agentName: opts?.agentName,
-          msgId,
-          payload,
-        }),
-      );
-    };
-
-    api.on("session_start", (ev: unknown, c: unknown) => {
+    api.on("session_start", (ev: unknown) => {
       const event = ev as SessionStartEvent;
-      const sessCtx = c as { agentId?: string } | undefined;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(event.sessionId, event.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
-      // Do not allocate trace_root here: `message_received` may have run first with only
-      // sessionKey; `enqueue` uses resolveTraceRoot so sessionKey + sessionId share one root.
-      enqueue(
-        "session_start",
+      mergePendingForCtx(
+        { sessionId: event.sessionId, sessionKey: event.sessionKey },
         {
-          sessionId: event.sessionId,
-          sessionKey: event.sessionKey,
-          agentId: sessCtx?.agentId,
-        },
-        undefined,
-        {
-          resumedFrom: event.resumedFrom,
-          ...wrapCrabagentLayers({
-            task: buildTaskLayerFromSessionStart({ resumedFrom: event.resumedFrom }),
-          }),
+          session_start: { resumedFrom: event.resumedFrom },
         },
       );
     });
 
     api.on("message_received", (ev: unknown, c: unknown) => {
       const event = ev as MessageReceivedEvent;
-      const ctx = c as {
-        sessionId?: string;
-        sessionKey?: string;
-        channelId?: string;
-        accountId?: string;
-        conversationId?: string;
-        agentId?: string;
-        agentName?: string;
-        messageProvider?: string;
-      };
-      const accountIdStr =
-        typeof ctx.accountId === "string" && ctx.accountId.trim() ? ctx.accountId.trim() : undefined;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
+      const ctx = c as AgentCtx;
       const md =
         event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
           ? (event.metadata as Record<string, unknown>)
           : {};
-      const messageId = typeof md.messageId === "string" ? md.messageId : undefined;
-      const chatTitle = deriveChatTitleFromMessageMetadata(md);
-      const channelIdForTrace =
-        ctx.channelId?.trim().toLowerCase() ||
-        (typeof md.channelId === "string" ? md.channelId.trim().toLowerCase() : undefined);
-      const fromPeer = String(event.from ?? "").trim();
-      const conversationIdForTrace =
-        ctx.conversationId?.trim() ||
-        (typeof md.conversationId === "string" ? md.conversationId.trim() : undefined) ||
-        (fromPeer.length > 0 ? fromPeer : undefined);
-      const contentStr = String(event.content ?? "");
-      const now = Date.now();
-      if (
-        messageReceivedDeduper.isDuplicate({
-          now,
-          sessionKey: ctx.sessionKey,
-          sessionId: ctx.sessionId,
-          from: String(event.from ?? ""),
-          content: contentStr,
-          timestamp: event.timestamp,
-          messageId,
-        })
-      ) {
-        return;
-      }
-      const traceOpts: {
-        chatTitle?: string;
-        agentName?: string;
-        msgId: string;
-        pinMsgIdToConversation: boolean;
-      } = {
-        msgId: randomUUID(),
-        pinMsgIdToConversation: true,
-      };
-      if (chatTitle) {
-        traceOpts.chatTitle = chatTitle;
-      }
-      const agentNameRaw = typeof ctx.agentName === "string" ? ctx.agentName.trim() : "";
-      if (agentNameRaw) {
-        traceOpts.agentName = agentNameRaw;
-      }
-      enqueue(
-        "message_received",
+      mergePendingWithInboundMirror(
+        ctx,
         {
-          sessionId: ctx.sessionId,
-          sessionKey: ctx.sessionKey,
-          channelId: channelIdForTrace ?? ctx.channelId,
-          conversationId: conversationIdForTrace,
-          messageProvider: ctx.messageProvider,
-          agentId: ctx.agentId,
+          message_received: {
+            from: event.from,
+            content: String(event.content ?? "").slice(0, 16_384),
+            timestamp: event.timestamp,
+            metadata: md,
+          },
         },
-        undefined,
-        {
-          from: event.from,
-          content: truncateTraceText(contentStr, MAX_MESSAGE_TRACE_CHARS),
-          timestamp: event.timestamp,
-          messageId,
-          threadId: md.threadId,
-          ...wrapCrabagentLayers({
-            task: buildTaskLayerFromMessage({
-              content: contentStr,
-              contentMaxChars: MAX_MESSAGE_TRACE_CHARS,
-              metadata: md,
-              channelLabel: channelIdForTrace ?? ctx.channelId,
-              messageProvider: ctx.messageProvider,
-              conversationId: conversationIdForTrace ?? (fromPeer.length > 0 ? fromPeer : undefined),
-              accountId: accountIdStr,
-              timestamp: event.timestamp,
-            }),
-            state:
-              md.error || md.hallucinationFlag || md.hallucination_flag
-                ? {
-                    kind: "message_metadata_signal",
-                    errorLog:
-                      typeof md.error === "string" && md.error.trim()
-                        ? { message: md.error.trim() }
-                        : undefined,
-                    flags: {
-                      hallucination: Boolean(md.hallucinationFlag ?? md.hallucination_flag),
-                    },
-                  }
-                : undefined,
-          }),
-        },
-        traceOpts,
+        event.from,
+        md,
       );
+      traceDbg("message_received", {
+        node: "hook_message_received",
+        agentId: ctx.agentId,
+        sessionKey: effectiveSk(ctx, event.from),
+        keys: traceSessionKeyCandidates(ctx, event.from),
+        contentLen: String(event.content ?? "").length,
+        preview: String(event.content ?? "").slice(0, 160),
+      });
     });
 
-    /**
-     * Pipeline: model/provider pick happens before session messages are attached.
-     * Correlates with the same trace via sessionId/sessionKey (often no run_id yet).
-     */
     api.on("before_model_resolve", (ev: unknown, c: unknown) => {
       const event = ev as BeforeModelResolveEvent;
       const ctx = c as AgentCtx;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
       const p = typeof event.prompt === "string" ? event.prompt : "";
-      enqueue(
-        "before_model_resolve",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
+      mergePendingWithInboundMirror(ctx, {
+        before_model_resolve: {
           promptCharCount: p.length,
-          promptPreview: truncateTraceText(p, MAX_MESSAGE_TRACE_CHARS),
+          promptPreview: p.slice(0, TRACE_PROMPT_PREVIEW_MAX_CHARS),
         },
-      );
+      });
     });
 
-    /**
-     * Pipeline: transcript + user prompt immediately before plugins inject prependContext /
-     * systemPrompt fragments (memory, personal context, etc.).
-     */
     api.on("before_prompt_build", (ev: unknown, c: unknown) => {
       const event = ev as BeforePromptBuildEvent;
       const ctx = c as AgentCtx;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
       const p = typeof event.prompt === "string" ? event.prompt : "";
-      const messages = event.messages;
-      const historyCount = Array.isArray(messages) ? messages.length : 0;
-      enqueue(
-        "before_prompt_build",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
+      mergePendingWithInboundMirror(ctx, {
+        before_prompt_build: {
           promptCharCount: p.length,
-          promptPreview: truncateTraceText(p, MAX_MESSAGE_TRACE_CHARS),
-          historyMessageCount: historyCount,
-          historyRoleCounts: summarizeHistoryRoles(messages),
-          ...wrapCrabagentLayers({
-            reasoning: buildReasoningContextBeforePrompt({
-              messages,
-              promptPreview: truncateTraceText(p, MAX_MESSAGE_TRACE_CHARS),
-              promptCharCount: p.length,
-            }),
-          }),
+          promptPreview: p.slice(0, TRACE_PROMPT_PREVIEW_MAX_CHARS),
+          historyMessageCount: Array.isArray(event.messages) ? event.messages.length : 0,
         },
-      );
+      });
     });
 
-    /**
-     * One event per plugin (or tool intercept) return from modifying hooks — prepend/model/params mutations.
-     * Skills packaged as plugins appear under their `pluginId`.
-     */
+    api.on("before_agent_start", (ev: unknown, c: unknown) => {
+      const event = ev as BeforeAgentStartEvent;
+      const ctx = c as AgentCtx;
+      const p = typeof event.prompt === "string" ? event.prompt : "";
+      mergePendingWithInboundMirror(ctx, {
+        before_agent_start: {
+          promptCharCount: p.length,
+          promptPreview: p.slice(0, TRACE_PROMPT_PREVIEW_MAX_CHARS),
+          historyMessageCount: Array.isArray(event.messages) ? event.messages.length : 0,
+        },
+      });
+    });
+
     api.on("context_prune_applied", (ev: unknown, c: unknown) => {
       const ctx = c as AgentCtx;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
-      const prunePayload = buildContextPruneTracePayload(ev);
-      enqueue(
-        "context_prune_applied",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
-          ...prunePayload,
-          ...wrapCrabagentLayers({
-            reasoning: buildReasoningContextPruneRef(prunePayload),
-          }),
-        },
-      );
+      getRuntime().addGeneralSpan(effectiveSk(ctx), "context_prune_applied", {
+        event: ev,
+      });
     });
 
     api.on("hook_contribution", (ev: unknown, c: unknown) => {
       const event = ev as HookContributionEvent;
-      const ctx = c as AgentCtx & { runId?: string; toolName?: string };
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(ctx.sessionId, ctx.sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
-      const runId =
-        trimRunIdFromHookPayload(ctx) ??
-        trimRunIdFromHookPayload(event as { runId?: unknown; run_id?: unknown });
-      enqueue(
-        "hook_contribution",
-        hookRecordingCtx(ctx),
-        runId,
-        {
-          sourceHook: event.sourceHook,
-          contributingPluginId: event.pluginId,
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          contribution: event.contribution,
-          ...wrapCrabagentLayers({
-            memory: buildMemoryLayerFromHookContribution({
-              sourceHook: event.sourceHook,
-              pluginId: event.pluginId,
-              contribution: event.contribution,
-              toolName: event.toolName,
-            }),
-          }),
-        },
-      );
+      const ctx = c as AgentCtx;
+      getRuntime().addGeneralSpan(effectiveSk(ctx), `hook_contribution:${event.sourceHook ?? "?"}` , {
+        pluginId: event.pluginId,
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+      });
     });
 
     api.on("llm_input", (ev: unknown, c: unknown) => {
       const event = ev as LlmInputEvent;
-      const eventRec = ev as Record<string, unknown>;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
-      const beforeHook =
-        typeof event.promptBeforeHookPrepend === "string" ? event.promptBeforeHookPrepend : undefined;
-      const pluginPrependDeltaChars =
-        beforeHook !== undefined ? Math.max(0, event.prompt.length - beforeHook.length) : 0;
-      const histCount = Array.isArray(event.historyMessages) ? event.historyMessages.length : 0;
-      const histRoles = summarizeHistoryRoles(event.historyMessages);
-      enqueue(
-        "llm_input",
-        hookRecordingCtx(ctx),
-        trimRunIdFromHookPayload(event),
+      const cfg = getCfg();
+      const sk = effectiveSk(ctx);
+      const prev = getRuntime().onLlmInput(
+        sk,
         {
           provider: event.provider,
           model: event.model,
-          prompt: truncateTraceText(event.prompt, MAX_MESSAGE_TRACE_CHARS),
-          systemPrompt: event.systemPrompt
-            ? truncateTraceText(event.systemPrompt, MAX_MESSAGE_TRACE_CHARS)
-            : undefined,
-          promptBeforeHookPrepend: beforeHook
-            ? truncateTraceText(beforeHook, MAX_MESSAGE_TRACE_CHARS)
-            : undefined,
-          promptCharCount: event.prompt.length,
-          promptBeforeHookCharCount: beforeHook?.length ?? event.prompt.length,
-          pluginPrependDeltaChars,
+          prompt: event.prompt,
+          systemPrompt: event.systemPrompt,
           imagesCount: event.imagesCount,
-          historyMessageCount: histCount,
-          historyRoleCounts: histRoles,
-          ...wrapCrabagentLayers({
-            reasoning: buildReasoningLayerFromLlmInput({
-              event: eventRec,
-              promptTruncated: truncateTraceText(event.prompt, MAX_MESSAGE_TRACE_CHARS),
-              systemPromptTruncated: event.systemPrompt
-                ? truncateTraceText(event.systemPrompt, MAX_MESSAGE_TRACE_CHARS)
-                : undefined,
-              promptBeforeHookTruncated: beforeHook
-                ? truncateTraceText(beforeHook, MAX_MESSAGE_TRACE_CHARS)
-                : undefined,
-              historyMessageCount: histCount,
-              historyRoleCounts: histRoles,
-            }),
-          }),
+          sessionId: event.sessionId,
         },
+        hookCtx(ctx),
+        cfg.sampleRateBps,
+        traceSessionKeyCandidates(ctx),
       );
+      traceDbg("llm_input", {
+        node: "hook_llm_input",
+        sessionKey: sk,
+        pendingAliasKeys: traceSessionKeyCandidates(ctx),
+        provider: event.provider,
+        model: event.model,
+        promptChars: typeof event.prompt === "string" ? event.prompt.length : 0,
+        closedPriorTurnBatch: Boolean(prev && batchNonEmpty(prev)),
+      });
+      pushIfAny(prev, "llm_input_close_prior_turn");
     });
 
     api.on("llm_output", (ev: unknown, c: unknown) => {
       const event = ev as LlmOutputEvent;
-      const eventRec = ev as Record<string, unknown>;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
-      enqueue(
-        "llm_output",
-        hookRecordingCtx(ctx),
-        trimRunIdFromHookPayload(event),
-        {
-          provider: event.provider,
-          model: event.model,
-          assistantTexts: event.assistantTexts,
-          usage: event.usage,
-          ...wrapCrabagentLayers({
-            reasoning: buildReasoningLayerFromLlmOutput({
-              event: eventRec,
-              assistantTexts: Array.isArray(event.assistantTexts) ? event.assistantTexts : [],
+      const sk = effectiveSk(ctx);
+      let usage: Record<string, unknown> | undefined;
+      try {
+        usage = pickLlmOutputUsage(event);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[${PLUGIN_ID}] pickLlmOutputUsage failed: ${msg}`);
+        usage = undefined;
+      }
+      const payload = {
+        provider: event.provider,
+        model: event.model,
+        assistantTexts: event.assistantTexts,
+        usage,
+      };
+      /** 延后到微任务，避免部分通道在同步 hook 链里被阻塞；逻辑仍在单线程内顺序执行。 */
+      const skAliasList = traceSessionKeyCandidates(ctx);
+      queueMicrotask(() => {
+        try {
+          traceDbg("llm_output", {
+            node: "hook_llm_output",
+            sessionKey: sk,
+            skAliasCount: skAliasList.length,
+            provider: payload.provider,
+            model: payload.model,
+            assistantChunks: Array.isArray(payload.assistantTexts) ? payload.assistantTexts.length : 0,
+          });
+          const latePatch = getRuntime().onLlmOutput(sk, payload, skAliasList);
+          pushIfAny(latePatch, "llm_output_late_patch");
+          // #region agent log
+          fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
+            body: JSON.stringify({
+              sessionId: "24bc8e",
+              runId: "llm-output-alias-lookup",
+              hypothesisId: "H6",
+              location: "openclaw-trace-plugin/index.ts:llm_output",
+              message: "llm_output after onLlmOutput",
+              data: {
+                primarySkHead: sk.slice(0, 48),
+                aliasCount: skAliasList.length,
+                latePatchQueued: Boolean(latePatch && batchNonEmpty(latePatch)),
+                hasUsage: payload.usage != null,
+                assistantN: Array.isArray(payload.assistantTexts) ? payload.assistantTexts.length : -1,
+              },
+              timestamp: Date.now(),
             }),
-          }),
-        },
-      );
-    });
-
-    api.on("agent_end", (ev: unknown, c: unknown) => {
-      const event = ev as AgentEndEvent;
-      const ctx = c as AgentCtx;
-      enqueue(
-        "agent_end",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
-          success: event.success,
-          error: event.error,
-          durationMs: event.durationMs,
-          messageCount: Array.isArray(event.messages) ? event.messages.length : 0,
-          ...wrapCrabagentLayers({
-            state: buildStateLayerFromAgentEnd({
-              success: event.success,
-              error: typeof event.error === "string" ? event.error : undefined,
-              durationMs: event.durationMs,
-              messageCount: Array.isArray(event.messages) ? event.messages.length : 0,
-            }),
-          }),
-        },
-      );
+          }).catch(() => {});
+          // #endregion
+        } catch (err) {
+          const msg = err instanceof Error ? err.stack ?? err.message : String(err);
+          console.error(`[${PLUGIN_ID}] llm_output handler error: ${msg}`);
+        }
+      });
     });
 
     api.on("before_tool_call", (ev: unknown, c: unknown) => {
       const event = ev as BeforeToolEvent;
       const ctx = c as AgentCtx;
-      enqueue(
-        "before_tool_call",
-        hookRecordingCtx(ctx),
-        trimRunIdFromHookPayload(event),
-        {
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          params: event.params,
-          ...wrapCrabagentLayers({
-            tools: buildToolLayerBefore({
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-              params: event.params,
-            }),
-          }),
-        },
-      );
+      getRuntime().onBeforeTool(effectiveSk(ctx), {
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        params: event.params,
+      });
     });
 
     api.on("after_tool_call", (ev: unknown, c: unknown) => {
       const event = ev as AfterToolEvent;
-      const eventRec = ev as Record<string, unknown>;
       const ctx = c as AgentCtx;
-      const errStr = typeof event.error === "string" ? event.error : undefined;
-      const retryRaw = eventRec.retryCount ?? eventRec.retry_count ?? eventRec.attempt;
-      const retryCount = typeof retryRaw === "number" && Number.isFinite(retryRaw) ? retryRaw : undefined;
-      enqueue(
-        "after_tool_call",
-        hookRecordingCtx(ctx),
-        trimRunIdFromHookPayload(event),
+      getRuntime().onAfterTool(effectiveSk(ctx), {
+        toolCallId: event.toolCallId,
+        error: event.error,
+        durationMs: event.durationMs,
+        result: (event as Record<string, unknown>).result,
+      });
+    });
+
+    api.on("agent_end", (ev: unknown, c: unknown) => {
+      const event = ev as AgentEndEvent;
+      const ctx = mergeAgentEndCtx(event, c);
+      const pendingKeys = traceSessionKeyCandidates(ctx);
+      const batch = getRuntime().onAgentEnd(
+        effectiveSk(ctx),
         {
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          hasError: Boolean(event.error),
+          success: event.success,
+          error: event.error,
           durationMs: event.durationMs,
-          ...wrapCrabagentLayers({
-            tools: buildToolLayerAfter({
-              event: eventRec,
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-            }),
-            ...(errStr
-              ? {
-                  state: buildStateLayerFromToolError({
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    error: errStr,
-                    durationMs: event.durationMs,
-                    retryCount,
-                  }),
-                }
-              : {}),
-          }),
+          messages: event.messages,
         },
+        hookCtx(ctx),
+        pendingKeys,
       );
+      traceDbg("agent_end", {
+        node: "hook_agent_end",
+        agentId: ctx.agentId,
+        sessionKey: effectiveSk(ctx),
+        keys: pendingKeys,
+        messagesLen: Array.isArray(event.messages) ? event.messages.length : -1,
+        message0Keys:
+          Array.isArray(event.messages) &&
+          event.messages[0] != null &&
+          typeof event.messages[0] === "object" &&
+          !Array.isArray(event.messages[0])
+            ? Object.keys(event.messages[0] as object).slice(0, 16)
+            : [],
+        queuedNonEmptyBatch: Boolean(batch && batchNonEmpty(batch)),
+      });
+      pushIfAny(batch, "agent_end");
     });
 
     api.on("before_compaction", (ev: unknown, c: unknown) => {
       const event = ev as CompactionBeforeEvent;
       const ctx = c as AgentCtx;
-      enqueue(
-        "before_compaction",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
-          messageCount: event.messageCount,
-          compactingCount: event.compactingCount,
-          sessionFile: event.sessionFile,
-        },
-      );
+      getRuntime().addGeneralSpan(effectiveSk(ctx), "before_compaction", {
+        messageCount: event.messageCount,
+        compactingCount: event.compactingCount,
+      });
     });
 
     api.on("after_compaction", (ev: unknown, c: unknown) => {
       const event = ev as CompactionAfterEvent;
       const ctx = c as AgentCtx;
-      enqueue(
-        "after_compaction",
-        hookRecordingCtx(ctx),
-        undefined,
-        {
-          messageCount: event.messageCount,
-          compactedCount: event.compactedCount,
-          sessionFile: event.sessionFile,
-        },
-      );
+      getRuntime().addGeneralSpan(effectiveSk(ctx), "after_compaction", {
+        messageCount: event.messageCount,
+        compactedCount: event.compactedCount,
+      });
     });
 
     api.on("subagent_spawned", (ev: unknown, c: unknown) => {
       const event = ev as SubagentSpawnedEvent;
       const ctx = c as SubagentCtx;
-      const parentRoot = traceState.parentTraceRootForSubagent(ctx.requesterSessionKey, ctx.runId);
-      traceState.linkChildSessionKey(event.childSessionKey, parentRoot);
-      const childAgent =
-        event.agentId?.trim() || inferAgentIdFromSessionKey(event.childSessionKey);
-      enqueue(
-        "subagent_spawned",
-        { ...hookRecordingCtx(ctx), agentId: childAgent },
-        trimRunIdFromHookPayload(event),
-        {
-          childSessionKey: event.childSessionKey,
-          parentTraceRootId: parentRoot,
-          label: event.label,
-          mode: event.mode,
-        },
-      );
+      const childSk = event.childSessionKey?.trim();
+      const childCtx: AgentCtx = {
+        ...ctx,
+        sessionKey: childSk || ctx.sessionKey,
+        agentId: event.agentId ?? ctx.agentId,
+      };
+      getRuntime().addGeneralSpan(effectiveSk(childCtx), "subagent_spawned", {
+        childSessionKey: event.childSessionKey,
+        label: event.label,
+        mode: event.mode,
+      });
     });
 
     api.on("subagent_ended", (ev: unknown, c: unknown) => {
       const event = ev as SubagentEndedEvent;
       const ctx = c as AgentCtx;
-      enqueue(
-        "subagent_ended",
-        hookRecordingCtx(ctx),
-        trimRunIdFromHookPayload(event),
-        {
-          targetSessionKey: event.targetSessionKey,
-          targetKind: event.targetKind,
-          reason: event.reason,
-          outcome: event.outcome,
-        },
-      );
+      const targetSk = event.targetSessionKey?.trim();
+      const targetCtx: AgentCtx = {
+        ...ctx,
+        sessionKey: targetSk || ctx.sessionKey,
+      };
+      getRuntime().addGeneralSpan(effectiveSk(targetCtx), "subagent_ended", {
+        targetSessionKey: event.targetSessionKey,
+        targetKind: event.targetKind,
+        reason: event.reason,
+        outcome: event.outcome,
+      });
     });
 
     let flushTimer: ReturnType<typeof setInterval> | undefined;
-    let stopCacheTail: (() => void) | undefined;
     let serviceStopped = false;
-
-    const handleCacheTraceLine = (obj: Record<string, unknown>) => {
-      if (obj.stage !== "stream:context") {
-        return;
-      }
-      const sessionId = typeof obj.sessionId === "string" ? obj.sessionId : undefined;
-      const sessionKey = typeof obj.sessionKey === "string" ? obj.sessionKey : undefined;
-      const runId = typeof obj.runId === "string" ? obj.runId : undefined;
-      const cfg = getCfg();
-      if (!traceState.shouldRecord(sessionId, sessionKey, cfg.sampleRateBps)) {
-        return;
-      }
-      const model =
-        obj.model && typeof obj.model === "object"
-          ? (obj.model as Record<string, unknown>)
-          : {};
-      enqueue(
-        "model_stream_context",
-        { sessionId, sessionKey },
-        runId,
-        {
-          seq: obj.seq,
-          provider: obj.provider ?? model.provider,
-          modelId: obj.modelId ?? model.id,
-          messageCount: obj.messageCount,
-          messagesDigest: obj.messagesDigest,
-          systemDigest: obj.systemDigest,
-          note: obj.note,
-          ...wrapCrabagentLayers({
-            reasoning: {
-              phase: "model_stream_context",
-              seq: obj.seq,
-              provider: obj.provider ?? model.provider,
-              modelId: obj.modelId ?? model.id,
-              messageCount: obj.messageCount,
-              messagesDigest: obj.messagesDigest,
-              systemDigest: obj.systemDigest,
-              note: obj.note,
-            },
-          }),
-        },
-      );
-    };
 
     api.registerService({
       id: `${PLUGIN_ID}-flush`,
       start(serviceCtx: PluginServiceContext) {
         serviceStopped = false;
-        const outboxPath = path.join(serviceCtx.stateDir, "crabagent", "outbox.jsonl");
+        persistPendingRoot = path.join(serviceCtx.stateDir, "crabagent");
+        runtime = null;
+        void getRuntime();
+        const outboxPath = path.join(serviceCtx.stateDir, "crabagent", "opik-outbox.jsonl");
         ensureDirForFile(outboxPath);
 
-        const cfg0 = getCfg();
-        if (cfg0.enableCacheTraceTail) {
-          const tracePath = cfg0.cacheTracePath ?? defaultCacheTracePath(serviceCtx.stateDir);
-          stopCacheTail = startCacheTraceTail({
-            filePath: tracePath,
-            intervalMs: cfg0.cacheTracePollMs,
-            onLine: handleCacheTraceLine,
-            shouldStop: () => serviceStopped,
-          });
-          serviceCtx.logger.info(`${PLUGIN_ID}: cache-trace tail on ${tracePath}`);
-        }
+        const cfgAtStart = getCfg();
+        serviceCtx.logger.info(
+          `${PLUGIN_ID}: flush service started; collectorHost=${cfgAtStart.collectorBaseUrl ? collectorHostLabel(cfgAtStart.collectorBaseUrl) : "(empty — set plugins.entries config or env CRABAGENT_COLLECTOR_URL)"}; apiKey=${cfgAtStart.collectorApiKey ? "set" : "empty"}; debugHooks=${cfgAtStart.debugLogHooks}`,
+        );
+        appendDiag({
+          event: "service_start",
+          collectorConfigured: Boolean(cfgAtStart.collectorBaseUrl),
+          hasCollectorApiKey: Boolean(cfgAtStart.collectorApiKey),
+        });
 
         const tick = async () => {
-          const cfg = getCfg();
-          if (!cfg.collectorBaseUrl) {
-            if (!warnedNoBaseUrl) {
-              warnedNoBaseUrl = true;
-              serviceCtx.logger.warn(
-                `${PLUGIN_ID}: collectorBaseUrl empty; trace events are queued until configured.`,
+          try {
+            const cfg = getCfg();
+            if (!cfg.collectorBaseUrl) {
+              if (!warnedNoBaseUrl) {
+                warnedNoBaseUrl = true;
+                serviceCtx.logger.warn(
+                  `${PLUGIN_ID}: collectorBaseUrl empty; set openclaw.json plugins.entries.${PLUGIN_ID}.config.collectorBaseUrl or env CRABAGENT_COLLECTOR_URL. Batches stay in memory until set.`,
+                );
+              }
+              return;
+            }
+            const fromOutbox = drainOutboxFile(outboxPath);
+            const room = Math.max(0, 50 - fromOutbox.length);
+            const fromQueue = getQueue().drainBatch(room);
+            const merged = mergeOpikBatches([...fromOutbox, ...fromQueue]);
+            if (!batchNonEmpty(merged)) {
+              return;
+            }
+            traceDbg("flush_merge", {
+              node: "pre_post_collector",
+              collectorHost: collectorHostLabel(cfg.collectorBaseUrl),
+              outboxBatches: fromOutbox.length,
+              memQueueBatches: fromQueue.length,
+              ...summarizeOpikBatch(merged),
+            });
+            let result: { ok: boolean; status: number; body: string };
+            try {
+              result = await postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, merged);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              serviceCtx.logger.error(
+                `${PLUGIN_ID}: POST /v1/opik/batch failed (network): ${msg} — writing merged batch to outbox`,
+              );
+              appendOutboxFile(outboxPath, [merged]);
+              traceDbg("outbox_append", {
+                node: "disk_outbox_network_error",
+                path: outboxPath,
+                error: msg,
+                ...summarizeOpikBatch(merged),
+              });
+              return;
+            }
+            traceDbg(result.ok ? "flush_ok" : "flush_fail", {
+              node: result.ok ? "collector_ingest_ok" : "collector_ingest_fail",
+              httpStatus: result.status,
+              collectorHost: collectorHostLabel(cfg.collectorBaseUrl),
+              ...summarizeOpikBatch(merged),
+              responsePreview: result.body.slice(0, 500),
+            });
+            appendDiag({
+              event: "flush_post",
+              ok: result.ok,
+              httpStatus: result.status,
+              traceRows: merged.traces?.length ?? 0,
+              spanRows: merged.spans?.length ?? 0,
+            });
+            if (result.ok && process.env.CRABAGENT_TRACE_FLUSH_SUMMARY?.trim() === "1") {
+              serviceCtx.logger.info(
+                `${PLUGIN_ID}: opik/batch ok traces=${merged.traces?.length ?? 0} spans=${merged.spans?.length ?? 0}`,
               );
             }
-            return;
-          }
-          const fromOutbox = drainOutboxFile(outboxPath);
-          const room = Math.max(0, 200 - fromOutbox.length);
-          const fromQueue = getQueue().drainBatch(room);
-          const batch = [...fromOutbox, ...fromQueue] as Record<string, unknown>[];
-          if (batch.length === 0) {
-            return;
-          }
-          const result = await postIngest(cfg.collectorBaseUrl, cfg.collectorApiKey, batch);
-          if (!result.ok) {
-            serviceCtx.logger.warn(
-              `${PLUGIN_ID}: ingest failed status=${result.status} body=${result.body.slice(0, 200)}`,
-            );
-            appendOutboxFile(outboxPath, batch);
+            if (!result.ok) {
+              if (result.status === 401) {
+                serviceCtx.logger.warn(
+                  `${PLUGIN_ID}: HTTP 401 — 核对 Collector 环境变量 CRABAGENT_API_KEY 与网关 CRABAGENT_COLLECTOR_API_KEY 是否一致（Bearer）`,
+                );
+              }
+              serviceCtx.logger.warn(
+                `${PLUGIN_ID}: opik/batch failed status=${result.status} body=${result.body.slice(0, 200)}`,
+              );
+              appendOutboxFile(outboxPath, [merged]);
+              traceDbg("outbox_append", {
+                node: "disk_outbox_retry",
+                path: outboxPath,
+                ...summarizeOpikBatch(merged),
+              });
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.stack ?? err.message : String(err);
+            serviceCtx.logger.error(`${PLUGIN_ID}: flush tick error: ${msg}`);
           }
         };
 
@@ -759,8 +646,7 @@ export default {
       },
       stop() {
         serviceStopped = true;
-        stopCacheTail?.();
-        stopCacheTail = undefined;
+        void serviceStopped;
         if (flushTimer) {
           clearInterval(flushTimer);
           flushTimer = undefined;

@@ -158,7 +158,7 @@ export function CollectorSettingsForm() {
             {t("saveSettings")}
           </button>
           {saveBanner === "ok" && (
-            <span className="text-sm font-medium text-ca-accent" role="status">
+            <span className="text-sm font-medium text-primary" role="status">
               {t("saveOk")}
             </span>
           )}

@@ -4,14 +4,17 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm --filter @crabagent/collector build && pnpm --filter @crabagent/openclaw-trace-plugin run typecheck && pnpm --filter @crabagent/web build",
-    "dev": "concurrently -n collector,web -c blue,green \"pnpm dev:collector\" \"pnpm dev:web\"",
+    "dev": "pnpm exec concurrently -n collector,web -c blue,green \"pnpm dev:collector\" \"pnpm dev:web\"",
+    "test": "pnpm run test:openclaw-plugin",
     "dev:collector": "pnpm --filter @crabagent/collector dev",
     "dev:web": "pnpm --filter @crabagent/web dev",
     "smoke": "pnpm --filter @crabagent/collector build && node scripts/run-stack-smoke.mjs",
     "verify:detail-chain": "cd apps/web && pnpm dlx tsx@4.19.0 --tsconfig tsconfig.json src/lib/detail-chain.verify.ts",
     "test:trace": "pnpm verify:detail-chain && pnpm smoke",
+    "test:openclaw-plugin": "pnpm --filter @crabagent/openclaw-trace-plugin test",
     "collector:clear-db": "node scripts/clear-collector-db.mjs",
     "openclaw:merge-config": "node scripts/merge-openclaw-config.mjs",
+    "sync:trace-plugin": "node scripts/sync-openclaw-trace-plugin.mjs",
     "lint": "pnpm -r --if-present run lint"
   },
   "devDependencies": {

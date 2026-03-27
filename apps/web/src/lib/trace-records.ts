@@ -1,4 +1,7 @@
 import { collectorAuthHeaders } from "@/lib/collector";
+import { COLLECTOR_API } from "@/lib/collector-api-paths";
+import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
+import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 
 export type TraceRecordRow = {
   trace_id: string;
@@ -10,12 +13,17 @@ export type TraceRecordRow = {
   total_tokens: number;
   updated_at?: string | null;
   last_message_preview?: string | null;
+  output_preview?: string | null;
   thread_key: string;
   metadata: Record<string, unknown>;
   loop_count: number;
   tool_call_count: number;
   saved_tokens_total: number;
   optimization_rate_pct: number | null;
+  tags?: string[];
+  total_cost?: number | null;
+  /** From `opik_traces.duration_ms` when present. */
+  duration_ms?: number | null;
 };
 
 export type LoadTraceRecordsParams = {
@@ -26,13 +34,23 @@ export type LoadTraceRecordsParams = {
   minLoopCount?: number;
   minToolCalls?: number;
   search?: string;
+  /** Lower bound on trace `created_at_ms` (server-side filter). */
+  sinceMs?: number;
+  /** Upper bound on trace `created_at_ms` (server-side filter). */
+  untilMs?: number;
+  channel?: string;
+  agent?: string;
+  /** Sent as query `status`; trace list status bucket. */
+  status?: ObserveListStatusParam;
+  /** Primary sort: `time` (default) or `tokens`. */
+  sort?: ObserveListSortParam;
 };
 
 export async function loadTraceRecords(
   baseUrl: string,
   apiKey: string,
   params: LoadTraceRecordsParams = {},
-): Promise<{ items: TraceRecordRow[] }> {
+): Promise<{ items: TraceRecordRow[]; total: number }> {
   const b = baseUrl.replace(/\/+$/, "");
   const sp = new URLSearchParams();
   const limit = params.limit ?? 200;
@@ -55,15 +73,34 @@ export async function loadTraceRecords(
   if (params.search != null && params.search.trim().length > 0) {
     sp.set("search", params.search.trim().slice(0, 200));
   }
-  const res = await fetch(`${b}/v1/trace-records?${sp.toString()}`, {
+  if (params.sinceMs != null && params.sinceMs > 0) {
+    sp.set("since_ms", String(Math.floor(params.sinceMs)));
+  }
+  if (params.untilMs != null && params.untilMs > 0) {
+    sp.set("until_ms", String(Math.floor(params.untilMs)));
+  }
+  if (params.channel != null && params.channel.trim().length > 0) {
+    sp.set("channel", params.channel.trim().slice(0, 200));
+  }
+  if (params.agent != null && params.agent.trim().length > 0) {
+    sp.set("agent", params.agent.trim().slice(0, 200));
+  }
+  if (params.status != null && params.status.length > 0) {
+    sp.set("status", params.status);
+  }
+  if (params.sort === "tokens") {
+    sp.set("sort", "tokens");
+  }
+  const res = await fetch(`${b}${COLLECTOR_API.traceList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
-  const j = (await res.json()) as { items?: TraceRecordRow[] };
+  const j = (await res.json()) as { items?: TraceRecordRow[]; total?: number };
   const items = (j.items ?? []).map(normalizeTraceRecord);
-  return { items };
+  const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;
+  return { items, total };
 }
 
 function normalizeTraceRecord(r: TraceRecordRow): TraceRecordRow {
@@ -76,6 +113,14 @@ function normalizeTraceRecord(r: TraceRecordRow): TraceRecordRow {
       : denom > 0
         ? Math.round((savedRaw / denom) * 1000) / 10
         : null;
+  const tags = Array.isArray(r.tags) ? r.tags.filter((x): x is string => typeof x === "string") : [];
+  const tc = r.total_cost;
+  const total_cost =
+    typeof tc === "number" && Number.isFinite(tc) ? tc : tc === null ? null : Number(tc) || null;
+  const duration_ms =
+    typeof r.duration_ms === "number" && Number.isFinite(r.duration_ms) && r.duration_ms >= 0
+      ? r.duration_ms
+      : null;
   return {
     ...r,
     total_tokens: spent,
@@ -84,6 +129,10 @@ function normalizeTraceRecord(r: TraceRecordRow): TraceRecordRow {
     saved_tokens_total: savedRaw,
     optimization_rate_pct: pct,
     metadata: r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata) ? r.metadata : {},
+    tags,
+    total_cost: total_cost != null && Number.isFinite(total_cost) ? total_cost : null,
+    duration_ms: duration_ms != null ? duration_ms : null,
+    output_preview: typeof r.output_preview === "string" ? r.output_preview : null,
   };
 }
 
@@ -111,11 +160,17 @@ export function formatDurationMs(ms: number | null | undefined): string {
 export function traceRecordDurationMs(row: TraceRecordRow): number | null {
   const a = row.start_time;
   const b = row.end_time;
-  if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b)) {
-    return null;
+  if (typeof a === "number" && typeof b === "number" && Number.isFinite(a) && Number.isFinite(b)) {
+    const d = b - a;
+    if (d > 0) {
+      return d;
+    }
   }
-  const d = b - a;
-  return d >= 0 ? d : null;
+  const col = row.duration_ms;
+  if (typeof col === "number" && Number.isFinite(col) && col > 0) {
+    return col;
+  }
+  return null;
 }
 
 function strMeta(m: Record<string, unknown>, key: string): string | null {
@@ -125,6 +180,19 @@ function strMeta(m: Record<string, unknown>, key: string): string | null {
   }
   const t = v.trim();
   return t.length > 0 ? t : null;
+}
+
+/** Short line for session / thread identity in list cards (avoids over-wide monospace in tables). */
+export function formatTraceRecordSessionLine(row: TraceRecordRow): string {
+  const sid = row.session_id?.trim();
+  if (sid) {
+    return sid.length > 40 ? `${sid.slice(0, 18)}…${sid.slice(-10)}` : sid;
+  }
+  const tk = row.thread_key?.trim();
+  if (tk) {
+    return tk.length > 44 ? `${tk.slice(0, 20)}…${tk.slice(-12)}` : tk;
+  }
+  return "—";
 }
 
 export function traceRecordChatTitle(row: TraceRecordRow): string | null {
@@ -143,7 +211,7 @@ export function traceRecordChannel(row: TraceRecordRow): string | null {
 export function traceRecordTaskSummary(row: TraceRecordRow, maxChars = 96): string {
   const raw = row.last_message_preview;
   if (typeof raw === "string") {
-    const t = raw.trim();
+    const t = extractInboundDisplayPreview(raw).trim();
     if (t.length > 0) {
       return t.length <= maxChars ? t : `${t.slice(0, maxChars - 1)}…`;
     }
@@ -162,14 +230,35 @@ export function formatOptimizationRate(pct: number | null | undefined): string {
   return `${pct}%`;
 }
 
-export type TraceStatusBand = "ERROR" | "WARNING" | "SUCCESS" | "RUNNING" | "OTHER";
+export type TraceStatusBand = "ERROR" | "TIMEOUT" | "WARNING" | "SUCCESS" | "RUNNING" | "OTHER";
+
+/** API `status` on list rows: running | success | error | timeout */
+export function traceListStatusBandFromApiStatus(raw: string | null | undefined): TraceStatusBand {
+  const u = String(raw ?? "").trim().toLowerCase();
+  if (u === "running") {
+    return "RUNNING";
+  }
+  if (u === "success") {
+    return "SUCCESS";
+  }
+  if (u === "timeout") {
+    return "TIMEOUT";
+  }
+  if (u === "error") {
+    return "ERROR";
+  }
+  return "OTHER";
+}
 
 /**
- * Display band: ERROR > token warning > SUCCESS > RUNNING.
- * `warnAtTokens`: rows with total_tokens >= this show WARNING (unless ERROR).
+ * Display band: TIMEOUT/ERROR > token warning > SUCCESS > RUNNING.
+ * `warnAtTokens`: rows with total_tokens >= this show WARNING (unless ERROR/TIMEOUT).
  */
 export function traceRecordStatusBand(row: TraceRecordRow, warnAtTokens: number): TraceStatusBand {
   const u = String(row.status).trim().toUpperCase();
+  if (u === "TIMEOUT") {
+    return "TIMEOUT";
+  }
   if (u === "ERROR") {
     return "ERROR";
   }
@@ -190,6 +279,8 @@ export function statusBandPillClass(band: TraceStatusBand): string {
   switch (band) {
     case "ERROR":
       return "bg-red-500/15 text-red-800 ring-1 ring-red-500/25";
+    case "TIMEOUT":
+      return "bg-violet-500/15 text-violet-950 ring-1 ring-violet-500/30";
     case "WARNING":
       return "bg-amber-400/25 text-amber-950 ring-1 ring-amber-500/35";
     case "SUCCESS":
@@ -211,6 +302,9 @@ export function statusBandLabel(
   }
   if (band === "ERROR") {
     return t("statusError");
+  }
+  if (band === "TIMEOUT") {
+    return t("statusTimeout");
   }
   if (band === "SUCCESS") {
     return t("statusSuccess");

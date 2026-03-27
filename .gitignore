@@ -1,4 +1,6 @@
 node_modules
+# 本地 pnpm 内容寻址缓存，勿提交（可含 >100MB 包，会导致 GitHub 拒绝）
+.pnpm-store/
 dist
 .next
 .turbo

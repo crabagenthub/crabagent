@@ -60,6 +60,12 @@ export type BeforePromptBuildEvent = {
   messages: unknown[];
 };
 
+/** OpenClaw 旧版 `before_agent_start`（与 before_prompt_build 同相位）；部分路径只触发其一。 */
+export type BeforeAgentStartEvent = {
+  prompt: string;
+  messages?: unknown[];
+};
+
 /** OpenClaw `hook_contribution` — one row per modifying-hook handler return (plugin / tool intercept). */
 export type HookContributionEvent = {
   sourceHook: string;
@@ -99,6 +105,8 @@ export type LlmOutputEvent = {
   model: string;
   assistantTexts: string[];
   usage?: Record<string, unknown>;
+  /** Gemini / 部分 provider 将计数放在顶层 `usageMetadata`。 */
+  usageMetadata?: Record<string, unknown>;
 };
 
 export type AgentEndEvent = {
@@ -106,6 +114,14 @@ export type AgentEndEvent = {
   success: boolean;
   error?: string;
   durationMs?: number;
+  /** OpenClaw 有时把会话标识放在 payload 上而非 hook ctx；与 ctx 合并后才能对齐 pending。 */
+  sessionId?: string;
+  sessionKey?: string;
+  conversationId?: string;
+  channelId?: string;
+  messageProvider?: string;
+  agentId?: string;
+  agentName?: string;
 };
 
 export type BeforeToolEvent = {

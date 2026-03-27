@@ -62,7 +62,7 @@ type HintTooltipButtonProps = {
 /**
  * Icon button with hover/focus tooltip portaled to `document.body` (avoids overflow clipping).
  */
-function HintTooltipButton({
+export function HintTooltipButton({
   text,
   ariaLabel,
   children,
@@ -181,7 +181,7 @@ export function TitleHintIcon({
       tooltipStyle={tooltipStyle}
       buttonClassName={[
         "group relative inline-flex shrink-0 items-center justify-center rounded-full p-0.5 outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ca-accent/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         className,
       ].join(" ")}
     >
@@ -220,7 +220,7 @@ export function MessageHint({
       <HintTooltipButton
         text={text}
         ariaLabel={text}
-        buttonClassName="relative mt-0.5 shrink-0 rounded-md p-0.5 text-ca-muted outline-none transition hover:bg-neutral-200/80 hover:text-neutral-800 focus-visible:ring-2 focus-visible:ring-ca-accent/50"
+        buttonClassName="relative mt-0.5 shrink-0 rounded-md p-0.5 text-muted-foreground outline-none transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ChatBubbleIcon className="h-4 w-4" />
       </HintTooltipButton>

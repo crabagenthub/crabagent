@@ -19,15 +19,74 @@ function payloadOf(e: TraceTimelineEvent): Record<string, unknown> {
   return p && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
 }
 
+function normType(e: TraceTimelineEvent): string {
+  return String(e.type ?? "").toLowerCase();
+}
+
 function isUserTurnMessage(e: TraceTimelineEvent, turn: UserTurnListItem): boolean {
-  return e.type === "message_received" && e.event_id === turn.listKey;
+  return normType(e) === "message_received" && e.event_id === turn.listKey;
+}
+
+/** OpenClaw agent_end often carries the final `messages` transcript when no separate llm_output row exists. */
+function assistantTextFromAgentEnd(e: TraceTimelineEvent): string | null {
+  const p = payloadOf(e);
+  const messages = p.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (!m || typeof m !== "object" || Array.isArray(m)) {
+      continue;
+    }
+    const o = m as Record<string, unknown>;
+    const role = String(o.role ?? "").toLowerCase();
+    const typ = String(o.type ?? "").toLowerCase();
+    const isAssistant =
+      role === "assistant" ||
+      role === "ai" ||
+      role === "model" ||
+      role === "bot" ||
+      typ === "ai" ||
+      typ === "aimessage" ||
+      typ === "assistant";
+    if (!isAssistant) {
+      continue;
+    }
+    const content = o.content;
+    if (typeof content === "string" && content.trim()) {
+      return content.trim();
+    }
+    if (Array.isArray(content)) {
+      const parts = content
+        .map((x) => {
+          if (typeof x === "string") {
+            return x;
+          }
+          if (x && typeof x === "object" && !Array.isArray(x)) {
+            const t = (x as Record<string, unknown>).text;
+            return typeof t === "string" ? t : "";
+          }
+          return "";
+        })
+        .filter(Boolean);
+      const joined = parts.join("\n").trim();
+      if (joined) {
+        return joined;
+      }
+    }
+  }
+  return null;
 }
 
 export function assistantTextFromLlmOutput(e: TraceTimelineEvent): string {
   const p = payloadOf(e);
   const texts = p.assistantTexts;
   if (Array.isArray(texts)) {
-    return texts.filter((x): x is string => typeof x === "string").join("\n").trim();
+    const joined = texts.filter((x): x is string => typeof x === "string").join("\n").trim();
+    if (joined) {
+      return joined;
+    }
   }
   for (const k of ["text", "content", "message"] as const) {
     const v = p[k];
@@ -35,11 +94,28 @@ export function assistantTextFromLlmOutput(e: TraceTimelineEvent): string {
       return v.trim();
     }
   }
+  const nested = p.output;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const o = nested as Record<string, unknown>;
+    const at2 = o.assistantTexts;
+    if (Array.isArray(at2)) {
+      const joined = at2.filter((x): x is string => typeof x === "string").join("\n").trim();
+      if (joined) {
+        return joined;
+      }
+    }
+    for (const k of ["text", "content", "message"] as const) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) {
+        return v.trim();
+      }
+    }
+  }
   return "";
 }
 
 function thinkingSummaryFromLlmInput(e: TraceTimelineEvent): string {
-  if (e.type !== "llm_input") {
+  if (normType(e) !== "llm_input") {
     return "";
   }
   const p = payloadOf(e);
@@ -117,11 +193,18 @@ function eventKey(e: TraceTimelineEvent, i: number): string {
   return `idx:${i}`;
 }
 
+export type BuildConversationTimelineOptions = {
+  /** 仅保留用户气泡与助手回复，不插入折叠链路、不附带 thinking / memoryRefs。 */
+  messagesOnly?: boolean;
+};
+
 /** Build chat-style timeline: user message, collapsed pipeline steps, assistant turns. */
 export function buildConversationTimeline(
   events: TraceTimelineEvent[],
   turn: UserTurnListItem | null,
+  opts?: BuildConversationTimelineOptions,
 ): ConversationTimelineItem[] {
+  const messagesOnly = opts?.messagesOnly === true;
   const items: ConversationTimelineItem[] = [];
   if (turn) {
     items.push({ kind: "user", text: turn.fullText, key: `user:${turn.listKey}` });
@@ -133,6 +216,10 @@ export function buildConversationTimeline(
 
   const flushBuffer = () => {
     if (buffer.length === 0) {
+      return;
+    }
+    if (messagesOnly) {
+      buffer.length = 0;
       return;
     }
     seq += 1;
@@ -148,12 +235,15 @@ export function buildConversationTimeline(
     if (turn && isUserTurnMessage(e, turn)) {
       return;
     }
-    const ty = typeof e.type === "string" ? e.type : "";
+    const ty = normType(e);
 
     if (ty === "llm_output") {
-      const memRefs = memoryRefsFromEvents(buffer);
+      const memRefs = messagesOnly ? [] : memoryRefsFromEvents(buffer);
       flushBuffer();
-      const thinking = pendingLlmInput && pendingLlmInput.type === "llm_input" ? thinkingSummaryFromLlmInput(pendingLlmInput) : null;
+      const thinking =
+        !messagesOnly && pendingLlmInput && normType(pendingLlmInput) === "llm_input"
+          ? thinkingSummaryFromLlmInput(pendingLlmInput)
+          : null;
       pendingLlmInput = null;
       const text = assistantTextFromLlmOutput(e) || "—";
       items.push({
@@ -166,6 +256,25 @@ export function buildConversationTimeline(
       return;
     }
 
+    if (ty === "agent_end") {
+      const fromTranscript = assistantTextFromAgentEnd(e);
+      if (fromTranscript) {
+        const memRefs = messagesOnly ? [] : memoryRefsFromEvents(buffer);
+        flushBuffer();
+        pendingLlmInput = null;
+        items.push({
+          kind: "assistant",
+          text: fromTranscript,
+          thinking: null,
+          memoryRefs: memRefs,
+          key: eventKey(e, i),
+        });
+        return;
+      }
+      buffer.push(e);
+      return;
+    }
+
     if (ty === "llm_input") {
       pendingLlmInput = e;
       return;
@@ -175,7 +284,9 @@ export function buildConversationTimeline(
   });
 
   if (pendingLlmInput) {
-    buffer.push(pendingLlmInput);
+    if (!messagesOnly) {
+      buffer.push(pendingLlmInput);
+    }
     pendingLlmInput = null;
   }
   flushBuffer();

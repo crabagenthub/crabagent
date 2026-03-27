@@ -1,0 +1,45 @@
+%% OpenClaw 多轮 Trace：会话 / 轮次 / 根节点 / Span 树（与 Collector 镜像模型对照）
+%% 渲染：npx @mermaid-js/mermaid-cli -i external-trace-architecture.mmd -o external-trace-architecture.svg
+
+flowchart TB
+  subgraph Thread["① 会话维度 · Thread"]
+    TK["threadId = OpenClaw sessionKey<br/>同一会话下多轮各自一条 Trace，按线程聚合查看"]
+  end
+
+  subgraph Turns["② 轮次维度 · 多条 Trace（每轮 llm_input 新建一条，同 key 会先 close 上一轮）"]
+    direction LR
+    TR1["Trace 轮次 1"]
+    TR2["Trace 轮次 2"]
+    TRn["Trace 轮次 n …"]
+  end
+
+  TK --> TR1
+  TK --> TR2
+  TK --> TRn
+
+  subgraph TraceRoot["③ 单条 Trace 根节点"]
+    R["name ≈ model · channel<br/>input: prompt / systemPrompt / imagesCount<br/>metadata: provider, model, sessionId, runId, agentId, channel, trigger, created_from …<br/>agent_end: trace.update 合并 output · usage · cost · error 后 trace.end"]
+  end
+
+  TR1 -.->|每轮 llm_input| R
+
+  subgraph SpanTree["④ Span 树（挂在这条 Trace 下；parent 可能是 Trace 或 subagent Span）"]
+    direction TB
+    LLM["Span · type = llm · name = model<br/>llm_input 创建 → llm_output update/end"]
+    T_A["Span · type = tool · name = toolName<br/>before_tool_call → after_tool_call"]
+    SA["Span · name = subagent:…<br/>spawning / spawned / delivery_target / ended"]
+    T_B["Span · type = tool<br/>子 agent session 上的 tool，parent = subagent Span"]
+
+    R --> LLM
+    R --> T_A
+    R --> SA
+    SA --> T_B
+  end
+
+  subgraph Side["并行机制（内存 ActiveTrace）"]
+    direction TB
+    M["activeTraces: Map sessionKey → ActiveTrace<br/>llmSpan · toolSpans(Map) · subagentSpans(Map)<br/>usage / costMeta / output / agentEnd"]
+    D["onDiagnosticEvent model.usage → 写入 costMeta<br/>Stale 超时或 stop → 强制 end 子 Span 与 Trace"]
+  end
+
+  SpanTree -.-> M

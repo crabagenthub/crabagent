@@ -4,10 +4,11 @@ import { useTranslations } from "next-intl";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
-import { MessageHint, TitleHintIcon } from "@/components/message-hint";
+import { MessageHint } from "@/components/message-hint";
 import { TraceConversationView } from "@/components/trace-conversation-view";
 import { TraceSpanAttributesPanel } from "@/components/trace-span-attributes-panel";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
@@ -21,7 +22,9 @@ import {
 } from "@/lib/collector";
 import { pipelineCoverageFromEvents } from "@/lib/trace-detail-pipeline";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
+import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
+import { loadTraceEvents } from "@/lib/trace-events";
 import {
   buildDetailEventList,
   buildUserTurnList,
@@ -46,21 +49,6 @@ function mergeByEventId(base: TraceEvent[], extra: TraceEvent[]): TraceEvent[] {
     out.push(row);
   }
   return out;
-}
-
-async function loadTraceEvents(
-  baseUrl: string,
-  apiKey: string,
-  threadKey: string,
-): Promise<{ items: TraceEvent[] }> {
-  const b = baseUrl.replace(/\/+$/, "");
-  const res = await fetch(`${b}/v1/traces/${encodeURIComponent(threadKey)}/events`, {
-    headers: collectorAuthHeaders(apiKey),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return res.json() as Promise<{ items: TraceEvent[] }>;
 }
 
 function firstSessionIdInEvents(events: TraceEvent[]): string | null {
@@ -136,7 +124,7 @@ function TraceDetailContent() {
       setBaseUrl(loadCollectorUrl());
       setApiKey(loadApiKey());
       void queryClient.invalidateQueries({ queryKey: ["trace-events"] });
-      void queryClient.invalidateQueries({ queryKey: ["semantic-spans"] });
+      void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans] });
     };
     window.addEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
@@ -302,7 +290,7 @@ function TraceDetailContent() {
   }, [selectedListKey, effectiveTraceRootId]);
 
   const spansQuery = useQuery({
-    queryKey: ["semantic-spans", baseUrl, apiKey, detailHeader.traceRootId ?? ""],
+    queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, detailHeader.traceRootId ?? ""],
     queryFn: () => loadSemanticSpans(baseUrl, apiKey, detailHeader.traceRootId!),
     enabled: mounted && baseUrl.trim().length > 0 && Boolean(detailHeader.traceRootId),
   });
@@ -374,20 +362,23 @@ function TraceDetailContent() {
 
   if (!mounted) {
     return (
-      <main className="ca-page">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 w-48 rounded-lg bg-neutral-200" />
-          <div className="h-4 w-full max-w-md rounded bg-neutral-200" />
-        </div>
-        <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
-      </main>
+      <AppPageShell variant="traces">
+        <main className="ca-page relative z-[1]">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 w-48 rounded-lg bg-neutral-200" />
+            <div className="h-4 w-full max-w-md rounded bg-neutral-200" />
+          </div>
+          <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
+        </main>
+      </AppPageShell>
     );
   }
 
   return (
-    <main className="ca-page">
+    <AppPageShell variant="traces">
+      <main className="ca-page relative z-[1]">
       <nav className="mb-6 flex flex-wrap items-center gap-2 text-sm text-ca-muted" aria-label="Breadcrumb">
-        <LocalizedLink href="/traces" className="font-medium text-ca-accent no-underline hover:underline">
+        <LocalizedLink href="/traces" className="font-medium text-primary no-underline hover:underline">
           {t("backToList")}
         </LocalizedLink>
         <span aria-hidden className="text-neutral-400">
@@ -402,18 +393,13 @@ function TraceDetailContent() {
         />
       </nav>
 
-      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
-            <div className="min-w-0 flex-1">
-              <IdLabeledCopy
-                kind="thread_key"
-                value={threadKey}
-                valueClassName="text-xl font-semibold tracking-tight md:text-2xl"
-              />
-            </div>
-            <TitleHintIcon tooltipText={t("detailPageHint")} className="mt-0.5 shrink-0" />
-          </div>
+          <IdLabeledCopy
+            kind="thread_key"
+            value={threadKey}
+            valueClassName="text-lg font-semibold tracking-tight md:text-xl"
+          />
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className={sseOpen ? "ca-pill-success" : "ca-pill-muted"}>
               <span className="font-medium">{t("live")}:</span>{" "}
@@ -483,13 +469,13 @@ function TraceDetailContent() {
       )}
 
       {missingUrl && (
-        <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950">
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950">
           <MessageHint
             text={t("needCollectorUrl")}
             textClassName="text-sm leading-relaxed text-amber-950"
             clampClass="line-clamp-4"
           />
-          <LocalizedLink href="/settings" className="mt-2 inline-block font-medium text-ca-accent no-underline hover:underline">
+          <LocalizedLink href="/settings" className="mt-2 inline-block font-medium text-primary no-underline hover:underline">
             {t("openSettings")}
           </LocalizedLink>
         </div>
@@ -498,7 +484,7 @@ function TraceDetailContent() {
       <section aria-label={t("events")} className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-col gap-4 lg:flex-row lg:items-stretch">
         {eventsQuery.isLoading && !eventsQuery.data && !missingUrl && (
           <div className="flex items-center gap-2 text-sm text-ca-muted">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-ca-border border-t-ca-accent" />
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
             {t("loading")}
           </div>
         )}
@@ -506,7 +492,7 @@ function TraceDetailContent() {
         {eventsQuery.isError && !missingUrl && (
           <div className="rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4 text-sm text-red-800">
             {t("loadEventsFailed", { error: String(eventsQuery.error) })}
-            <LocalizedLink href="/settings" className="mt-3 block font-medium text-ca-accent no-underline hover:underline">
+            <LocalizedLink href="/settings" className="mt-3 block font-medium text-primary no-underline hover:underline">
               {t("openSettings")}
             </LocalizedLink>
           </div>
@@ -515,10 +501,10 @@ function TraceDetailContent() {
         {merged.length > 0 && userTurns.length > 0 && (
           <>
             <aside
-              className="flex max-h-52 min-h-0 shrink-0 flex-col rounded-2xl border border-ca-border bg-neutral-50/60 lg:max-h-none lg:w-72 lg:min-h-0 lg:shrink-0 xl:w-80"
+              className="flex max-h-52 min-h-0 shrink-0 flex-col rounded-2xl border border-border bg-neutral-50/60 lg:max-h-none lg:w-72 lg:min-h-0 lg:shrink-0 xl:w-80"
               aria-label={t("userMessagesTitle")}
             >
-              <div className="border-b border-ca-border px-3 py-2.5">
+              <div className="border-b border-border px-3 py-2.5">
                 <h2 className="text-sm font-semibold text-neutral-900">{t("userMessagesTitle")}</h2>
                 <MessageHint
                   text={t("userMessagesHint")}
@@ -539,8 +525,8 @@ function TraceDetailContent() {
                         onClick={() => setSelectedListKey(u.listKey)}
                         className={`flex w-full flex-col rounded-xl border px-2.5 py-2 text-left text-sm transition sm:px-3 sm:py-2.5 ${
                           active
-                            ? "border-ca-accent bg-white shadow-sm ring-1 ring-ca-accent/25"
-                            : "border-transparent bg-white/70 hover:border-ca-border hover:bg-white"
+                            ? "border-primary bg-white shadow-sm ring-1 ring-primary/25"
+                            : "border-transparent bg-white/70 hover:border-border hover:bg-white"
                         }`}
                       >
                         <span className="line-clamp-3 break-words text-neutral-900">{u.preview}</span>
@@ -587,7 +573,7 @@ function TraceDetailContent() {
                           })()}
                         </span>
                         {rowTrace ? (
-                          <div className="mt-2 border-t border-ca-border/70 pt-2 text-left">
+                          <div className="mt-2 border-t border-border/70 pt-2 text-left">
                             <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800/90">
                               {t("sidebarTraceForMessage")}
                             </p>
@@ -639,15 +625,15 @@ function TraceDetailContent() {
             </aside>
 
             <div
-              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-ca-border bg-white shadow-ca-sm"
+              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
               aria-label={t("detailRightPanelTitle")}
             >
-              <div className="space-y-2 border-b border-ca-border bg-neutral-50/80 px-4 py-3">
+              <div className="space-y-2 border-b border-border bg-neutral-50/80 px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <h2 className="text-sm font-semibold text-neutral-900">{t("detailRightPanelTitle")}</h2>
                   <div className="flex flex-wrap items-center gap-2">
                     <div
-                      className="inline-flex rounded-lg border border-ca-border bg-white p-0.5 text-[11px] shadow-sm"
+                      className="inline-flex rounded-lg border border-border bg-white p-0.5 text-[11px] shadow-sm"
                       role="group"
                       aria-label={t("detailViewToggleGroupAria")}
                     >
@@ -655,7 +641,7 @@ function TraceDetailContent() {
                         type="button"
                         className={`rounded-md px-2.5 py-1 font-medium transition ${
                           detailViewMode === "conversation"
-                            ? "bg-ca-accent/15 font-semibold text-ca-accent"
+                            ? "bg-primary/15 font-semibold text-primary"
                             : "text-neutral-600 hover:bg-neutral-100"
                         }`}
                         aria-pressed={detailViewMode === "conversation"}
@@ -667,7 +653,7 @@ function TraceDetailContent() {
                         type="button"
                         className={`rounded-md px-2.5 py-1 font-medium transition ${
                           detailViewMode === "flow"
-                            ? "bg-ca-accent/15 font-semibold text-ca-accent"
+                            ? "bg-primary/15 font-semibold text-primary"
                             : "text-neutral-600 hover:bg-neutral-100"
                         }`}
                         aria-pressed={detailViewMode === "flow"}
@@ -756,14 +742,18 @@ function TraceDetailContent() {
 
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:min-h-[min(560px,65vh)]">
                 {detailViewMode === "conversation" ? (
-                  <TraceConversationView events={detailEvents} turn={selectedTurn ?? null} />
+                  <TraceConversationView
+                    events={detailEvents}
+                    turn={selectedTurn ?? null}
+                    threadKey={threadKey}
+                  />
                 ) : (
                   <>
-                    <div className="max-h-[min(40vh,320px)] shrink-0 space-y-4 overflow-y-auto border-b border-ca-border p-4">
+                    <div className="max-h-[min(40vh,320px)] shrink-0 space-y-4 overflow-y-auto border-b border-border p-4">
                       {selectedTurn ? (
                         <div
                           id={`ca-trace-inbound-${selectedTurn.listKey}`}
-                          className="scroll-mt-4 rounded-xl border border-ca-border/80 bg-neutral-50/50 px-3 py-2.5 sm:px-4 sm:py-3"
+                          className="scroll-mt-4 rounded-xl border border-border/80 bg-neutral-50/50 px-3 py-2.5 sm:px-4 sm:py-3"
                         >
                           <p className="text-xs font-semibold text-neutral-600">{t("inboundTextLabel")}</p>
                           <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-neutral-900">
@@ -797,8 +787,8 @@ function TraceDetailContent() {
                     </div>
 
                     <div className="flex min-h-[min(480px,60vh)] min-h-0 flex-1 flex-col overflow-hidden bg-neutral-50/20 lg:min-h-0 lg:flex-row">
-                      <div className="flex min-h-[200px] min-w-0 flex-1 flex-col overflow-hidden border-ca-border lg:w-72 lg:max-w-[min(100%,320px)] lg:flex-none lg:border-r lg:bg-white">
-                        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-ca-border bg-violet-50/50 px-3 py-2">
+                      <div className="flex min-h-[200px] min-w-0 flex-1 flex-col overflow-hidden border-border lg:w-72 lg:max-w-[min(100%,320px)] lg:flex-none lg:border-r lg:bg-white">
+                        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-violet-50/50 px-3 py-2">
                           <h3 className="text-[11px] font-bold uppercase tracking-wide text-violet-950">
                             {t("detailSemanticTitle")}
                           </h3>
@@ -806,13 +796,13 @@ function TraceDetailContent() {
                             <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-700" />
                           ) : null}
                         </div>
-                        <div className="shrink-0 border-b border-ca-border bg-white px-2 py-2">
+                        <div className="shrink-0 border-b border-border bg-white px-2 py-2">
                           <input
                             type="search"
                             value={treeFilter}
                             onChange={(e) => setTreeFilter(e.target.value)}
                             placeholder={t("detailTreeSearchPlaceholder")}
-                            className="w-full rounded-lg border border-ca-border bg-neutral-50/80 px-2.5 py-1.5 text-xs outline-none ring-ca-accent/20 focus:border-ca-accent focus:ring-2"
+                            className="w-full rounded-lg border border-input bg-muted/50 px-2.5 py-1.5 text-xs text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                             aria-label={t("detailTreeSearchPlaceholder")}
                           />
                         </div>
@@ -850,11 +840,11 @@ function TraceDetailContent() {
                               clampClass="line-clamp-4"
                             />
                           )}
-                          <details className="border-t border-ca-border bg-neutral-50/40" open>
+                          <details className="border-t border-border bg-neutral-50/40" open>
                             <summary className="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-neutral-800 hover:bg-neutral-100/80">
                               {t("detailRawEventsToggle")}
                             </summary>
-                            <div className="border-t border-ca-border p-3">
+                            <div className="border-t border-border p-3">
                               {detailEvents.length > 0 ? (
                                 <TraceTimelineTree events={detailEvents} />
                               ) : selectedTurn && detailEvents.length === 0 ? (
@@ -864,7 +854,7 @@ function TraceDetailContent() {
                           </details>
                         </div>
                       </div>
-                      <div className="flex min-h-[280px] min-w-0 flex-[1.2] flex-col overflow-hidden border-ca-border bg-white lg:border-r">
+                      <div className="flex min-h-[280px] min-w-0 flex-[1.2] flex-col overflow-hidden border-border bg-white lg:border-r">
                         <TraceSpanRunPanel span={selectedSpan} />
                       </div>
                       <div className="flex min-h-[200px] w-full shrink-0 flex-col lg:w-56 lg:max-w-[260px] 2xl:w-64 2xl:max-w-none">
@@ -903,6 +893,7 @@ function TraceDetailContent() {
         )}
       </section>
     </main>
+    </AppPageShell>
   );
 }
 
@@ -911,9 +902,11 @@ export default function TraceDetailPage() {
   return (
     <Suspense
       fallback={
-        <main className="ca-page">
-          <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
-        </main>
+        <AppPageShell variant="traces">
+          <main className="ca-page relative z-[1]">
+            <p className="mt-8 text-sm text-ca-muted">{t("loading")}</p>
+          </main>
+        </AppPageShell>
       }
     >
       <TraceDetailContent />

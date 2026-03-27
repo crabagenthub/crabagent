@@ -1,18 +1,24 @@
-export type QueuedEvent = Record<string, unknown>;
+import type { OpikBatchPayload } from "./opik-types.js";
 
-export class EventQueue {
-  private readonly items: QueuedEvent[] = [];
+export class BatchQueue {
+  private readonly items: OpikBatchPayload[] = [];
 
-  constructor(private readonly maxSize: number) {}
+  constructor(
+    private readonly maxSize: number,
+    private readonly onEvictOldest?: (dropped: OpikBatchPayload) => void,
+  ) {}
 
-  push(event: QueuedEvent): void {
-    this.items.push(event);
+  push(batch: OpikBatchPayload): void {
+    this.items.push(batch);
     while (this.items.length > this.maxSize) {
-      this.items.shift();
+      const dropped = this.items.shift();
+      if (dropped && this.onEvictOldest) {
+        this.onEvictOldest(dropped);
+      }
     }
   }
 
-  drainBatch(max: number): QueuedEvent[] {
+  drainBatch(max: number): OpikBatchPayload[] {
     const n = Math.min(max, this.items.length);
     if (n <= 0) {
       return [];

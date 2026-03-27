@@ -5,6 +5,7 @@
 export type PluginLogger = {
   info: (msg: string) => void;
   warn: (msg: string) => void;
+  error: (msg: string) => void;
 };
 
 export type PluginServiceContext = {
@@ -15,6 +16,8 @@ export type PluginServiceContext = {
 
 export type OpenClawPluginApi = {
   pluginConfig?: Record<string, unknown>;
+  /** 部分宿主可能未注入；插件内会降级为 noop logger。 */
+  logger?: PluginLogger;
   on: (hook: string, handler: (...args: unknown[]) => void | Promise<void>) => void;
   registerService: (svc: {
     id: string;

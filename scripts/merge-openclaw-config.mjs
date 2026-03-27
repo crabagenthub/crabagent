@@ -89,7 +89,8 @@ function main() {
     }
   }
 
-  const entryConfig = { collectorBaseUrl };
+  /** 10000 = 100%（万分比）；低于 10000 会随机跳过 llm_input 的完整 trace，但 agent_end 仍可用 pending 合成非 LLM 条。 */
+  const entryConfig = { collectorBaseUrl, sampleRateBps: 10_000 };
   if (collectorApiKey) {
     entryConfig.collectorApiKey = collectorApiKey;
   }
@@ -102,6 +103,9 @@ function main() {
   const after = cfg;
 
   console.log("Plugin path:", resolvedPlugin);
+  console.log(
+    "若 Cursor worktree 与 `plugins.load.paths` 目录不一致：在本仓库根目录执行 `pnpm run sync:trace-plugin`（或 `CRABAGENT_TRACE_PLUGIN_SYNC_TARGET`、`--to`）。",
+  );
   console.log("Collector:", collectorBaseUrl, collectorApiKey ? "(API key set)" : "(no API key)");
 
   if (JSON.stringify(before) === JSON.stringify(after)) {

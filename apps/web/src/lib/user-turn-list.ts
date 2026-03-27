@@ -1,7 +1,8 @@
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import { eventRunId } from "@/lib/trace-event-run-id";
-import { stripInboundMetadata } from "@/lib/strip-inbound-meta";
+import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { usageFromTracePayload } from "@/lib/trace-payload-usage";
 
 const PREVIEW_LEN = 120;
 
@@ -29,11 +30,56 @@ export type UserTurnListItem = {
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {
-  const n = e.id;
+  const n = e.id as unknown;
   if (typeof n === "number" && Number.isFinite(n)) {
     return n;
   }
+  if (typeof n === "string" && n.trim() !== "") {
+    const p = Number(n);
+    if (Number.isFinite(p)) {
+      return p;
+    }
+  }
   return Number.MAX_SAFE_INTEGER;
+}
+
+/** Order llm_input before llm_output when ids/timestamps tie (same OpenClaw trace triplet). */
+function conversationTypePhase(type: string | undefined): number {
+  const t = (type ?? "").toLowerCase();
+  if (t === "message_received") {
+    return 0;
+  }
+  if (t === "llm_input") {
+    return 1;
+  }
+  if (t === "llm_output") {
+    return 2;
+  }
+  if (t === "agent_end") {
+    return 3;
+  }
+  return 4;
+}
+
+function compareTimelineChrono(a: TraceTimelineEvent, b: TraceTimelineEvent): number {
+  const da = rowNumericId(a);
+  const db = rowNumericId(b);
+  if (da !== db) {
+    return da - db;
+  }
+  const ta = Date.parse(String(a.client_ts ?? a.created_at ?? ""));
+  const tb = Date.parse(String(b.client_ts ?? b.created_at ?? ""));
+  if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) {
+    return ta - tb;
+  }
+  const pa = conversationTypePhase(a.type);
+  const pb = conversationTypePhase(b.type);
+  if (pa !== pb) {
+    return pa - pb;
+  }
+  const ea = typeof a.event_id === "string" ? a.event_id : "";
+  const eb = typeof b.event_id === "string" ? b.event_id : "";
+  return ea.localeCompare(eb);
 }
 
 function dedupeKeyForEvent(e: TraceTimelineEvent): string {
@@ -202,9 +248,9 @@ function plainTextFromMessagePayload(payload: Record<string, unknown>): string {
   return "—";
 }
 
-/** Strip OpenClaw AI-facing metadata prefixes/suffixes, then normalize empty → em dash. */
+/** Strip metadata blocks; if body empty, use text/title/sender from Conversation info JSON. */
 function displayInboundText(raw: string): string {
-  const stripped = stripInboundMetadata(raw).trim();
+  const stripped = extractInboundDisplayPreview(raw).trim();
   return stripped.length > 0 ? stripped : "—";
 }
 
@@ -470,7 +516,52 @@ export function buildDetailEventList(
     slice = mergeTraceEventsDedupe(slice, sameMsg);
   }
 
-  return [...slice].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+  return [...slice].sort(compareTimelineChrono);
+}
+
+/**
+ * Events for one chat turn by **time window**: from this turn's list anchor through the instant before
+ * the next turn's anchor. Captures `llm_output` even when `trace_root_id` on model rows does not
+ * match `buildDetailEventList`'s root (common with multi-ingest / alias session keys).
+ *
+ * Uses **slice by sorted indices**, not numeric `id` ranges — when `id` is missing on all rows,
+ * `rowNumericId` collapses to `MAX_SAFE_INTEGER` and id-based windows would drop every event.
+ */
+export function buildConversationTurnWindowEvents(
+  events: TraceTimelineEvent[],
+  turn: UserTurnListItem,
+  orderedTurns: UserTurnListItem[],
+): TraceTimelineEvent[] {
+  if (orderedTurns.length === 0) {
+    return buildDetailEventList(events, turn);
+  }
+  const sorted = [...events].sort(compareTimelineChrono);
+
+  const turnMatchesAnchor = (e: TraceTimelineEvent, t: UserTurnListItem): boolean => {
+    const ty = (e.type ?? "").toLowerCase();
+    if (t.source === "message_received") {
+      return ty === "message_received" && e.event_id === t.listKey;
+    }
+    return ty === "llm_input" && e.event_id === t.listKey;
+  };
+
+  const anchorIdx = sorted.findIndex((e) => turnMatchesAnchor(e, turn));
+  if (anchorIdx < 0) {
+    return buildDetailEventList(events, turn);
+  }
+
+  const turnIdx = orderedTurns.findIndex((t) => t.listKey === turn.listKey);
+  let endIdx = sorted.length;
+  if (turnIdx >= 0 && turnIdx < orderedTurns.length - 1) {
+    const next = orderedTurns[turnIdx + 1]!;
+    const nextIdx = sorted.findIndex((e) => turnMatchesAnchor(e, next));
+    if (nextIdx >= 0) {
+      endIdx = nextIdx;
+    }
+  }
+
+  const slice = sorted.slice(anchorIdx, endIdx);
+  return slice.length > 0 ? slice : buildDetailEventList(events, turn);
 }
 
 /** Sidebar / header: prefer precomputed linkedRunId, else first llm run in the same trace_root slice. */
@@ -499,4 +590,201 @@ export function filterEventsForRun(
   }
   const r = runId.trim();
   return events.filter((e) => eventRunId(e) === r);
+}
+
+function parseEventTimeMs(e: TraceTimelineEvent): number | null {
+  const s = e.client_ts ?? e.created_at;
+  if (typeof s === "string" && s.trim()) {
+    const t = Date.parse(s);
+    if (Number.isFinite(t)) {
+      return t;
+    }
+  }
+  return null;
+}
+
+/** 单轮对话窗口（与 `buildConversationTurnWindowEvents` 切片一致）内的耗时与 Token 汇总。 */
+export type TurnWindowMetrics = {
+  durationMs: number | null;
+  promptTokens: number;
+  completionTokens: number;
+  /** 优先 prompt+completion；仅有 API `total_tokens` 时为各轮之和。 */
+  displayTotal: number | null;
+};
+
+/**
+ * 从已切好的回合事件窗口汇总：执行耗时（首条锚点事件 → 最后一条 `llm_output` / `agent_end`）与所有 `llm_output` 的 usage。
+ */
+export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): TurnWindowMetrics {
+  if (windowEvents.length === 0) {
+    return { durationMs: null, promptTokens: 0, completionTokens: 0, displayTotal: null };
+  }
+  const sorted = [...windowEvents].sort(compareTimelineChrono);
+  let promptSum = 0;
+  let completionSum = 0;
+  let explicitTotalSum = 0;
+  let explicitTotalRows = 0;
+
+  for (const e of sorted) {
+    if ((e.type ?? "") !== "llm_output") {
+      continue;
+    }
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+    const u = usageFromTracePayload(payload);
+    promptSum += u.prompt;
+    completionSum += u.completion;
+    if (u.total != null && u.total > 0) {
+      explicitTotalSum += u.total;
+      explicitTotalRows += 1;
+    }
+  }
+
+  const sumParts = promptSum + completionSum;
+  const displayTotal: number | null =
+    sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
+
+  const firstMs = parseEventTimeMs(sorted[0]!);
+  let endMs: number | null = null;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const ty = (sorted[i]!.type ?? "").toLowerCase();
+    if (ty === "llm_output" || ty === "agent_end") {
+      const t = parseEventTimeMs(sorted[i]!);
+      if (t != null) {
+        endMs = t;
+        break;
+      }
+    }
+  }
+  if (endMs == null) {
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const t = parseEventTimeMs(sorted[i]!);
+      if (t != null) {
+        endMs = t;
+        break;
+      }
+    }
+  }
+
+  let durationMs: number | null = null;
+  if (firstMs != null && endMs != null && endMs >= firstMs) {
+    durationMs = endMs - firstMs;
+  }
+
+  return {
+    durationMs,
+    promptTokens: promptSum,
+    completionTokens: completionSum,
+    displayTotal,
+  };
+}
+
+/** 与会话列表 / Collector API 对齐的回合状态（用于左侧时间轴节点）。 */
+export type TurnListStatus = "running" | "success" | "error" | "timeout" | "unknown";
+
+function textLooksTimeout(s: string): boolean {
+  const t = s.toLowerCase();
+  return t.includes("timeout") || t.includes("timed out") || t.includes("超时");
+}
+
+function appendErrorBits(target: string, p: Record<string, unknown>): string {
+  let out = target;
+  const err = p.error;
+  if (err != null) {
+    out += ` ${typeof err === "string" ? err : JSON.stringify(err)}`;
+  }
+  const msg = p.message;
+  if (typeof msg === "string" && msg.trim()) {
+    out += ` ${msg}`;
+  }
+  return out;
+}
+
+function llmOutputHasAssistantText(p: Record<string, unknown>): boolean {
+  const at = p.assistantTexts;
+  if (Array.isArray(at)) {
+    return at.some((x) => String(x ?? "").trim().length > 0);
+  }
+  const text = p.text;
+  if (typeof text === "string" && text.trim()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 根据当前回合详情内的事件链推断状态（不访问 DB，仅事件形态）。
+ */
+export function inferTurnListStatus(events: TraceTimelineEvent[]): TurnListStatus {
+  if (events.length === 0) {
+    return "unknown";
+  }
+  const sorted = [...events].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+  let hasLlmInput = false;
+  let hasLlmOutput = false;
+  let assistantOk = false;
+  let agentEndSuccess: boolean | null = null;
+  let errorBits = "";
+
+  for (const e of sorted) {
+    const ty = typeof e.type === "string" ? e.type : "";
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+
+    if (ty === "llm_input") {
+      hasLlmInput = true;
+    }
+    if (ty === "llm_output") {
+      hasLlmOutput = true;
+      if (llmOutputHasAssistantText(payload)) {
+        assistantOk = true;
+      }
+      errorBits = appendErrorBits(errorBits, payload);
+    }
+    if (ty === "agent_end") {
+      if (typeof payload.success === "boolean") {
+        agentEndSuccess = payload.success;
+      }
+      errorBits = appendErrorBits(errorBits, payload);
+    }
+    if (ty === "after_tool_call" || ty === "after_tool") {
+      if (payload.error != null) {
+        errorBits = appendErrorBits(errorBits, payload);
+      }
+    }
+    if (ty === "error" || ty.endsWith("_error")) {
+      try {
+        errorBits += ` ${JSON.stringify(payload)}`;
+      } catch {
+        errorBits += ` ${String(e.payload)}`;
+      }
+    }
+  }
+
+  if (textLooksTimeout(errorBits)) {
+    return "timeout";
+  }
+  if (agentEndSuccess === false) {
+    return "error";
+  }
+  if (agentEndSuccess === true) {
+    return "success";
+  }
+  if (hasLlmOutput && assistantOk) {
+    return "success";
+  }
+  if (hasLlmInput && !hasLlmOutput) {
+    return "running";
+  }
+  if (hasLlmOutput && !assistantOk && errorBits.trim()) {
+    return "error";
+  }
+  if (hasLlmOutput || hasLlmInput) {
+    return "success";
+  }
+  return "unknown";
 }

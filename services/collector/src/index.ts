@@ -2,51 +2,28 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { openDatabase } from "./db.js";
-import { runIngestBatch } from "./ingest.js";
 import { sseSubscribe } from "./sse-hub.js";
-import {
-  decodeOtlpId,
-  queryOtelTraceByTraceId,
-  resolveTraceIdByTraceRootId,
-  runOtlpTracesIngest,
-} from "./otlp-traces.js";
-import { THREAD_KEY_SQL, threadKeySqlForAlias } from "./thread-key.js";
 import { querySemanticSpansByTraceId } from "./semantic-spans-query.js";
-import { queryTraceRecords } from "./trace-records-query.js";
+import { queryTraceMessages } from "./trace-messages-query.js";
+import { parseObserveListStatus } from "./observe-list-filters.js";
+import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
+import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
+import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
+import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
+import { queryObserveFacets } from "./observe-facets-query.js";
+import { applyOpikBatch } from "./opik-batch-ingest.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
-/** Always under `services/collector/data/` so clearing data does not depend on shell cwd. */
 const collectorPackageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDbPath = path.join(collectorPackageRoot, "data", "crabagent.db");
 const DB_PATH = process.env.CRABAGENT_DB_PATH?.trim() || defaultDbPath;
 const DB_PATH_LOG = path.resolve(DB_PATH);
 
 const db = openDatabase(DB_PATH);
-const spanInsertStmt = db.prepare(
-  `INSERT OR IGNORE INTO otel_spans (
-     trace_id, span_id, parent_span_id, name, kind,
-     start_time_unix_nano, end_time_unix_nano,
-     status_code, status_message, attributes_json, resource_json,
-     service_name, scope_name, trace_root_id, msg_id, event_id
-   ) VALUES (
-     @trace_id, @span_id, @parent_span_id, @name, @kind,
-     @start_time_unix_nano, @end_time_unix_nano,
-     @status_code, @status_message, @attributes_json, @resource_json,
-     @service_name, @scope_name, @trace_root_id, @msg_id, @event_id
-   )`,
-);
-const insertStmt = db.prepare(
-  `INSERT OR IGNORE INTO events (
-     event_id, trace_root_id, session_id, session_key, agent_id, agent_name, chat_title, run_id, msg_id, channel,
-     type, payload_json, schema_version, client_ts
-   ) VALUES (
-     @event_id, @trace_root_id, @session_id, @session_key, @agent_id, @agent_name, @chat_title, @run_id, @msg_id, @channel,
-     @type, @payload_json, @schema_version, @client_ts
-   )`,
-);
 
 const app = new Hono();
 
@@ -66,6 +43,16 @@ type KeyCtx = {
   };
 };
 
+function optionalQueryString(c: KeyCtx, key: string): string | undefined {
+  const v = c.req.query(key);
+  return typeof v === "string" ? v : undefined;
+}
+
+function parseObserveListSort(raw: string | undefined): "time" | "tokens" {
+  const s = String(raw ?? "time").trim().toLowerCase();
+  return s === "tokens" ? "tokens" : "time";
+}
+
 function checkApiKey(c: KeyCtx): boolean {
   if (!API_KEY) {
     return true;
@@ -81,72 +68,10 @@ function checkApiKey(c: KeyCtx): boolean {
   return q === API_KEY;
 }
 
-function normalizeTraceIdParam(raw: string): string | null {
-  const t = raw.trim();
-  const decoded = decodeOtlpId(t) ?? decodeOtlpId(t.replace(/-/g, ""));
-  if (decoded && /^[0-9a-f]{32}$/i.test(decoded)) {
-    return decoded.toLowerCase();
-  }
-  return null;
-}
-
 app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
 
-/**
- * OTLP/HTTP JSON `ExportTraceServiceRequest` (same path as OTLP spec for JSON).
- * Body: `{ "resourceSpans": [ ... ] }`.
- */
-app.post("/v1/traces", async (c) => {
-  if (!checkApiKey(c)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  const ct = c.req.header("content-type") ?? "";
-  if (!ct.includes("json")) {
-    return c.json({ error: "expected_json_body", hint: "Use Content-Type: application/json" }, 415);
-  }
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "invalid_json" }, 400);
-  }
-  if (!body || typeof body !== "object" || !Array.isArray((body as { resourceSpans?: unknown }).resourceSpans)) {
-    return c.json({ error: "expected_export_trace_service_request" }, 400);
-  }
-  const { accepted, skipped } = runOtlpTracesIngest({ db, insertStmt: spanInsertStmt, body });
-  return c.json({ ok: true, accepted, skipped });
-});
-
-/** Crabagent native trace JSON (flat spans). */
-app.get("/v1/traces/otel/:traceId", (c) => {
-  if (!checkApiKey(c)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  const tid = normalizeTraceIdParam(c.req.param("traceId") ?? "");
-  if (!tid) {
-    return c.json({ error: "invalid_trace_id" }, 400);
-  }
-  const { trace_id, spans } = queryOtelTraceByTraceId(db, tid);
-  return c.json({ ok: true, trace_id, spans, schema_version: 1 });
-});
-
-app.get("/v1/traces/otel/by-trace-root", (c) => {
-  if (!checkApiKey(c)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  const tr = c.req.query("trace_root_id")?.trim() ?? "";
-  if (!tr) {
-    return c.json({ error: "trace_root_id_required" }, 400);
-  }
-  const traceId = resolveTraceIdByTraceRootId(db, tr);
-  if (!traceId) {
-    return c.json({ error: "not_found" }, 404);
-  }
-  const { spans } = queryOtelTraceByTraceId(db, traceId);
-  return c.json({ ok: true, trace_id: traceId, spans, schema_version: 1 });
-});
-
-app.post("/v1/ingest", async (c) => {
+/** opik-openclaw 插件落库（与 `opik-batch-ingest` 一致）。 */
+app.post("/v1/opik/batch", async (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
@@ -156,164 +81,70 @@ app.post("/v1/ingest", async (c) => {
   } catch {
     return c.json({ error: "invalid_json" }, 400);
   }
-  if (!body || typeof body !== "object") {
-    return c.json({ error: "expected_object" }, 400);
+  const result = applyOpikBatch(db, body);
+  if (process.env.CRABAGENT_INGEST_LOG?.trim() === "1") {
+    console.info(
+      `[crabagent-collector] POST /v1/opik/batch accepted threads=${result.accepted.threads} traces=${result.accepted.traces} spans=${result.accepted.spans} skipped=${result.skipped.length}`,
+    );
   }
-  const events = (body as { events?: unknown }).events;
-  if (!Array.isArray(events) || events.length === 0) {
-    return c.json({ error: "expected_non_empty_events_array" }, 400);
-  }
-
-  const { accepted, skipped } = runIngestBatch({ db, insertStmt, events });
-  return c.json({ ok: true, accepted, skipped, total: events.length });
+  return c.json({ ok: true, ...result });
 });
 
+/** @deprecated 旧 `/v1/ingest` 已移除；请使用 `POST /v1/opik/batch`。 */
+app.post("/v1/ingest", (c) =>
+  c.json(
+    {
+      error: "gone",
+      hint: "Use POST /v1/opik/batch with opik-openclaw shaped JSON (threads, traces, spans, …).",
+    },
+    410,
+  ),
+);
+
+/** 按 thread 聚合的最近活动（来自 `opik_traces`）。 */
 app.get("/v1/traces", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
   const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
-  /**
-   * One row per **conversation thread** (session_key → session_id → trace_root_id), not per internal
-   * trace_root UUID — matches personal-user mental model ("one chat") and dev view of a session.
-   */
   const rows = db
     .prepare(
-      `WITH per_event AS (
-         SELECT id, event_id, trace_root_id, session_id, session_key, agent_id, agent_name, chat_title, msg_id, type, created_at, channel, payload_json,
-                (${THREAD_KEY_SQL}) AS thread_key
-         FROM events
-         WHERE (${THREAD_KEY_SQL}) IS NOT NULL
-       ),
-       agg AS (
-         SELECT thread_key, MAX(id) AS max_id, COUNT(*) AS event_count
-         FROM per_event
-         GROUP BY thread_key
-       ),
-       ranked AS (
-         SELECT thread_key, max_id, event_count
-         FROM agg
-         ORDER BY max_id DESC
-         LIMIT ?
-       )
-       SELECT e.thread_key,
-              e.event_id,
-              e.trace_root_id,
-              e.session_id,
-              e.session_key,
-              (
-                SELECT e2.agent_id
-                FROM events e2
-                WHERE (${threadKeySqlForAlias("e2")}) = e.thread_key
-                  AND e2.agent_id IS NOT NULL
-                  AND TRIM(e2.agent_id) != ''
-                ORDER BY e2.id DESC
-                LIMIT 1
-              ) AS agent_id,
-              (
-                SELECT e2.agent_name
-                FROM events e2
-                WHERE (${threadKeySqlForAlias("e2")}) = e.thread_key
-                  AND e2.agent_name IS NOT NULL
-                  AND TRIM(e2.agent_name) != ''
-                ORDER BY e2.id DESC
-                LIMIT 1
-              ) AS agent_name,
-              e.type,
-              e.created_at,
-              r.event_count,
-              NULLIF(
-                TRIM(COALESCE(e.channel, json_extract(e.payload_json, '$.channel'))),
-                ''
-              ) AS channel,
-              (
-                SELECT e3.chat_title
-                FROM events e3
-                WHERE (${threadKeySqlForAlias("e3")}) = e.thread_key
-                  AND e3.chat_title IS NOT NULL
-                  AND TRIM(e3.chat_title) != ''
-                ORDER BY e3.id DESC
-                LIMIT 1
-              ) AS chat_title
-       FROM ranked r
-       JOIN per_event e ON e.id = r.max_id
-       ORDER BY e.id DESC`,
-    )
-    .all(limit) as Record<string, unknown>[];
-  return c.json({ items: rows });
-});
-
-/**
- * One row per inbound user message (`message_received`). Threads without that hook do not appear here.
- */
-app.get("/v1/trace-messages", (c) => {
-  if (!checkApiKey(c)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
-  const rows = db
-    .prepare(
-      `SELECT e.id,
-              e.event_id,
-              e.msg_id,
-              (${THREAD_KEY_SQL}) AS thread_key,
-              e.trace_root_id,
-              e.session_id,
-              e.session_key,
-              NULLIF(
-                TRIM(COALESCE(e.channel, json_extract(e.payload_json, '$.channel'))),
-                ''
-              ) AS channel,
-              COALESCE(
-                NULLIF(TRIM(e.chat_title), ''),
-                (
-                  SELECT e3.chat_title
-                  FROM events e3
-                  WHERE (${threadKeySqlForAlias("e3")}) = (${threadKeySqlForAlias("e")})
-                    AND e3.chat_title IS NOT NULL
-                    AND TRIM(e3.chat_title) != ''
-                  ORDER BY e3.id DESC
-                  LIMIT 1
-                )
-              ) AS chat_title,
-              (
-                SELECT e2.agent_id
-                FROM events e2
-                WHERE (${threadKeySqlForAlias("e2")}) = (${threadKeySqlForAlias("e")})
-                  AND e2.id <= e.id
-                  AND e2.agent_id IS NOT NULL
-                  AND TRIM(e2.agent_id) != ''
-                ORDER BY e2.id DESC
-                LIMIT 1
-              ) AS agent_id,
-              (
-                SELECT e2.agent_name
-                FROM events e2
-                WHERE (${threadKeySqlForAlias("e2")}) = (${threadKeySqlForAlias("e")})
-                  AND e2.id <= e.id
-                  AND e2.agent_name IS NOT NULL
-                  AND TRIM(e2.agent_name) != ''
-                ORDER BY e2.id DESC
-                LIMIT 1
-              ) AS agent_name,
-              e.created_at,
-              e.client_ts,
-              SUBSTR(TRIM(COALESCE(json_extract(e.payload_json, '$.content'), '')), 1, 280) AS message_preview
-       FROM events e
-       WHERE e.type = 'message_received'
-         AND (${THREAD_KEY_SQL}) IS NOT NULL
-       ORDER BY e.id DESC
+      `SELECT COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) AS thread_key,
+              trace_id AS trace_root_id,
+              NULL AS event_id,
+              NULL AS session_id,
+              NULL AS session_key,
+              NULL AS agent_id,
+              NULL AS agent_name,
+              'opik_trace' AS type,
+              datetime(created_at_ms / 1000, 'unixepoch') AS created_at,
+              1 AS event_count,
+              NULL AS channel,
+              name AS chat_title
+       FROM opik_traces
+       ORDER BY created_at_ms DESC
        LIMIT ?`,
     )
     .all(limit) as Record<string, unknown>[];
   return c.json({ items: rows });
 });
 
-/**
- * Semantic execution tree for one business trace (`trace_id` = ingest `trace_root_id`):
- * spans + optional generations (tokens, context_full / context_sent for diff).
- */
-app.get("/v1/semantic-spans", (c) => {
+app.get("/v1/trace-messages", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order = orderRaw === "asc" ? "asc" : "desc";
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const items = queryTraceMessages(db, { limit, offset, order, search });
+  return c.json({ items });
+});
+
+/** `GET /v1/trace/spans?trace_id=` — semantic spans for one trace. */
+const handleTraceSpans = (c: Context) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
@@ -324,88 +155,154 @@ app.get("/v1/semantic-spans", (c) => {
   }
   const items = querySemanticSpansByTraceId(db, tid);
   return c.json({ trace_id: tid, items });
-});
+};
 
-/**
- * Time-machine list: one row per business `traces` record (trace_id = ingest `trace_root_id`).
- * Joins last user message preview when present; `thread_key` for console deep links.
- */
-app.get("/v1/trace-records", (c) => {
+app.get("/v1/trace/spans", handleTraceSpans);
+/** @deprecated Use `GET /v1/trace/spans` */
+app.get("/v1/semantic-spans", handleTraceSpans);
+
+/** Observe list: one row per trace / conversation turn (opik_traces aggregate). */
+const handleConversationTraces = (c: Context) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
   const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
   const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
   const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
-  const order = orderRaw === "asc" ? "asc" : "desc";
+  const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
+  const sort = parseObserveListSort(c.req.query("sort"));
   const minTotalTokens = Number(c.req.query("min_total_tokens") ?? "");
   const minLoopCount = Number(c.req.query("min_loop_count") ?? "");
   const minToolCalls = Number(c.req.query("min_tool_calls") ?? "");
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
 
-  const items = queryTraceRecords(db, {
+  const channel = optionalQueryString(c, "channel");
+  const agent = optionalQueryString(c, "agent");
+  const listStatus = parseObserveListStatus(optionalQueryString(c, "status"));
+
+  const listQuery = {
     limit,
     offset,
     order,
+    sort,
     minTotalTokens: Number.isFinite(minTotalTokens) && minTotalTokens > 0 ? minTotalTokens : undefined,
     minLoopCount: Number.isFinite(minLoopCount) && minLoopCount > 0 ? minLoopCount : undefined,
     minToolCalls: Number.isFinite(minToolCalls) && minToolCalls > 0 ? minToolCalls : undefined,
     search,
-  });
+    sinceMs,
+    untilMs,
+    channel,
+    agent,
+    listStatus,
+  };
 
-  return c.json({ items });
+  const items = queryTraceRecords(db, listQuery);
+  const total = countTraceRecords(db, listQuery);
+
+  return c.json({ items, total });
+};
+
+/** Observe trace list（每 trace 一行）。主路径：`GET /v1/trace/list`。 */
+app.get("/v1/trace/list", handleConversationTraces);
+/** 与 `/v1/trace/list` 同一处理逻辑（兼容自 `GET /v1/traces/agent` 迁移）。 */
+app.get("/v1/conversation/traces", handleConversationTraces);
+/** @deprecated Use `GET /v1/trace/list` */
+app.get("/v1/trace-records", handleConversationTraces);
+
+const handleThreadRecords = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
+  const sort = parseObserveListSort(c.req.query("sort"));
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+
+  const channel = optionalQueryString(c, "channel");
+  const agent = optionalQueryString(c, "agent");
+
+  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent };
+  const items = queryThreadRecords(db, listQuery);
+  const total = countThreadRecords(db, listQuery);
+  return c.json({ items, total });
+};
+
+app.get("/v1/conversation/list", handleThreadRecords);
+/** @deprecated Use `GET /v1/conversation/list` */
+app.get("/v1/thread-records", handleThreadRecords);
+
+const handleSpanRecords = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
+  const sort = parseObserveListSort(c.req.query("sort"));
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+
+  const channel = optionalQueryString(c, "channel");
+  const agent = optionalQueryString(c, "agent");
+  const listStatus = parseObserveListStatus(optionalQueryString(c, "status"));
+
+  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, listStatus };
+  const items = querySpanRecords(db, listQuery);
+  const total = countSpanRecords(db, listQuery);
+  return c.json({ items, total });
+};
+
+app.get("/v1/span/list", handleSpanRecords);
+/** @deprecated Use `GET /v1/span/list` */
+app.get("/v1/span-records", handleSpanRecords);
+
+app.get("/v1/observe-facets", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const facets = queryObserveFacets(db);
+  return c.json(facets);
 });
 
-/**
- * Path param is **thread_key** (URL-encoded). Includes every row whose computed thread key matches,
- * plus any row that shares a `session_id` or `session_key` seen on those rows — fixes split buckets
- * when `message_received` has `session_key` but later hooks only had `session_id` (different COALESCE).
- */
+/** @deprecated Use `GET /v1/trace/list` or `GET /v1/conversation/traces`。须注册在 `/v1/traces/:traceRootId/events` 之前，否则 `agent` 会被当成 thread key。 */
+app.get("/v1/traces/agent", handleConversationTraces);
+
+/** 由 `opik_traces` 合成该 thread 下的时间线（兼容无 legacy events 表）。 */
 app.get("/v1/traces/:traceRootId/events", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const threadKey = c.req.param("traceRootId");
-  const limit = Math.min(Number(c.req.query("limit") ?? "500") || 500, 2000);
-  const rows = db
-    .prepare(
-      `SELECT e.id, e.event_id, e.trace_root_id, e.session_id, e.session_key, e.agent_id, e.agent_name, e.chat_title, e.run_id, e.msg_id, e.channel,
-              e.type, e.payload_json, e.client_ts, e.schema_version, e.created_at
-       FROM events e
-       WHERE (${threadKeySqlForAlias("e")}) = ?
-          OR (
-            NULLIF(TRIM(e.session_id), '') IS NOT NULL
-            AND NULLIF(TRIM(e.session_id), '') IN (
-              SELECT NULLIF(TRIM(e2.session_id), '')
-              FROM events e2
-              WHERE (${threadKeySqlForAlias("e2")}) = ?
-                AND NULLIF(TRIM(e2.session_id), '') IS NOT NULL
-            )
-          )
-          OR (
-            NULLIF(TRIM(e.session_key), '') IS NOT NULL
-            AND NULLIF(TRIM(e.session_key), '') IN (
-              SELECT NULLIF(TRIM(e2.session_key), '')
-              FROM events e2
-              WHERE (${threadKeySqlForAlias("e2")}) = ?
-                AND NULLIF(TRIM(e2.session_key), '') IS NOT NULL
-            )
-          )
-       ORDER BY e.id ASC
-       LIMIT ?`,
-    )
-    .all(threadKey, threadKey, threadKey, limit) as Array<Record<string, unknown>>;
-  const items = rows.map((row) => ({
-    ...row,
-    payload: (() => {
-      try {
-        return JSON.parse(String(row.payload_json ?? "{}"));
-      } catch {
-        return {};
-      }
-    })(),
-  }));
+  const raw = c.req.param("traceRootId") ?? "";
+  let threadKey = raw;
+  try {
+    threadKey = decodeURIComponent(raw);
+  } catch {
+    threadKey = raw;
+  }
+  const items = queryThreadTraceEvents(db, threadKey);
   return c.json({ thread_key: threadKey, items });
 });
 
@@ -413,28 +310,16 @@ app.get("/v1/sessions/:sessionId/trace-root", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const sessionId = c.req.param("sessionId");
-  const row = db
-    .prepare(
-      `SELECT trace_root_id FROM events WHERE session_id = ? ORDER BY id DESC LIMIT 1`,
-    )
-    .get(sessionId) as { trace_root_id: string } | undefined;
-  if (!row?.trace_root_id) {
-    return c.json({ error: "not_found" }, 404);
-  }
-  return c.json({ session_id: sessionId, trace_root_id: row.trace_root_id });
+  return c.json({ error: "not_found" }, 404);
 });
 
 app.delete("/v1/sessions/:sessionId", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const sessionId = c.req.param("sessionId");
-  const r = db.prepare(`DELETE FROM events WHERE session_id = ?`).run(sessionId);
-  return c.json({ ok: true, deleted: r.changes });
+  return c.json({ ok: true, deleted: 0 });
 });
 
-/** SSE channel = **thread_key** (same as list/detail aggregate). */
 app.get("/v1/traces/:traceRootId/stream", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);

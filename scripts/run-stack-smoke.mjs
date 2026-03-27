@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Starts a temporary Collector (separate port + temp DB), POSTs a sample ingest,
- * verifies GET /v1/traces, /v1/trace-messages, /v1/trace-records, and /v1/semantic-spans. No manual services required.
+ * Starts a temporary Collector, POSTs /v1/opik/batch, verifies traces list, trace/list, trace/spans.
  */
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -14,9 +14,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const collectorEntry = path.join(repoRoot, "services/collector/dist/index.js");
 
-/** Isolated key for this process only (do not inherit empty CRABAGENT_API_KEY from the shell). */
 const API_KEY =
   process.env.CRABAGENT_SMOKE_API_KEY?.trim() || "crabagent-smoke-key";
+
 function reserveFreePort() {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
@@ -34,6 +34,7 @@ function reserveFreePort() {
     });
   });
 }
+
 const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "crabagent-smoke-")), "smoke.db");
 
 function sleep(ms) {
@@ -72,18 +73,12 @@ async function main() {
   const child = spawn(process.execPath, [collectorEntry], {
     env,
     cwd: path.join(repoRoot, "services/collector"),
-    // Do not pipe stdout: server startup logs can fill the buffer and deadlock the process.
     stdio: ["ignore", "ignore", "pipe"],
   });
 
   let stderr = "";
   child.stderr?.on("data", (c) => {
     stderr += String(c);
-  });
-  child.on("exit", (code, signal) => {
-    if (code && code !== 0) {
-      console.error("Collector exited early", { code, signal, stderr: stderr.slice(-2000) });
-    }
   });
 
   const kill = () => {
@@ -94,10 +89,6 @@ async function main() {
     }
   };
   process.on("exit", kill);
-  process.on("SIGINT", () => {
-    kill();
-    process.exit(130);
-  });
 
   try {
     for (let i = 0; i < 50; i++) {
@@ -112,40 +103,77 @@ async function main() {
       await sleep(100);
     }
 
-    const traceRoot = `smoke-trace-${Date.now()}`;
-    const eventId = `smoke-event-${Date.now()}`;
-    const msgEventId = `smoke-msg-${Date.now()}`;
-    const ingestRes = await fetch(`${base}/v1/ingest`, {
+    const traceId = randomUUID();
+    const threadKey = `smoke-thread-${Date.now()}`;
+    const spanLlm = randomUUID();
+    const t = Date.now();
+    const batch = {
+      threads: [
+        {
+          thread_id: threadKey,
+          workspace_name: "default",
+          project_name: "openclaw",
+          first_seen_ms: t,
+          last_seen_ms: t,
+          metadata: { smoke: true },
+        },
+      ],
+      traces: [
+        {
+          trace_id: traceId,
+          thread_id: threadKey,
+          workspace_name: "default",
+          project_name: "openclaw",
+          name: "smoke-model",
+          input: { prompt: "smoke hello world" },
+          metadata: { total_tokens: 42, usage: { total_tokens: 42 } },
+          created_at_ms: t,
+          is_complete: 1,
+          success: 1,
+          ended_at_ms: t,
+          created_from: "smoke",
+        },
+      ],
+      spans: [
+        {
+          span_id: spanLlm,
+          trace_id: traceId,
+          parent_span_id: null,
+          name: "smoke-model",
+          type: "llm",
+          start_time_ms: t,
+          end_time_ms: t,
+          is_complete: 1,
+          sort_index: 1,
+          usage: { prompt_tokens: 10, completion_tokens: 32, total_tokens: 42 },
+        },
+      ],
+    };
+
+    const batchRes = await fetch(`${base}/v1/opik/batch`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${API_KEY}`,
       },
-      body: JSON.stringify({
-        events: [
-          {
-            event_id: eventId,
-            trace_root_id: traceRoot,
-            session_id: "smoke-session",
-            type: "smoke_test",
-            payload: { hello: true },
-            schema_version: 1,
-          },
-          {
-            event_id: msgEventId,
-            trace_root_id: traceRoot,
-            session_id: "smoke-session",
-            session_key: "agent:main:smoke:channel:user-1",
-            type: "message_received",
-            payload: { content: "smoke hello", channel: "smoke" },
-            schema_version: 1,
-          },
-        ],
-      }),
+      body: JSON.stringify(batch),
     });
-    const ingestBody = await ingestRes.text();
-    if (!ingestRes.ok) {
-      console.error("ingest failed", ingestRes.status, ingestBody);
+    const batchBody = await batchRes.text();
+    if (!batchRes.ok) {
+      console.error("opik/batch failed", batchRes.status, batchBody);
+      process.exit(1);
+    }
+
+    const gone = await fetch(`${base}/v1/ingest`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({ events: [] }),
+    });
+    if (gone.status !== 410) {
+      console.error("expected /v1/ingest 410 Gone, got", gone.status);
       process.exit(1);
     }
 
@@ -158,10 +186,9 @@ async function main() {
       process.exit(1);
     }
     const items = tracesJson.items ?? [];
-    const threadKey = "smoke-session";
-    const found = items.some((r) => r.thread_key === threadKey);
-    if (!found) {
-      console.error("Expected thread_key in list:", threadKey, "got", items);
+    const foundThread = items.some((r) => r.thread_key === threadKey || r.trace_root_id === traceId);
+    if (!foundThread) {
+      console.error("Expected thread or trace in list:", threadKey, traceId, "got", items);
       process.exit(1);
     }
 
@@ -169,204 +196,54 @@ async function main() {
       headers: { "X-API-Key": API_KEY },
     });
     const msgJson = await msgRes.json();
-    if (!msgRes.ok) {
+    if (!msgRes.ok || !Array.isArray(msgJson.items)) {
       console.error("trace-messages failed", msgRes.status, msgJson);
       process.exit(1);
     }
-    const msgItems = msgJson.items ?? [];
-    const msgFound = msgItems.some((r) => r.event_id === msgEventId);
-    if (!msgFound) {
-      console.error("Expected message row in trace-messages:", msgEventId, "got", msgItems);
-      process.exit(1);
-    }
 
-    const recRes = await fetch(`${base}/v1/trace-records?limit=50`, {
+    const recRes = await fetch(`${base}/v1/trace/list?limit=50`, {
       headers: { "X-API-Key": API_KEY },
     });
     const recJson = await recRes.json();
     if (!recRes.ok) {
-      console.error("trace-records failed", recRes.status, recJson);
+      console.error("trace/list failed", recRes.status, recJson);
       process.exit(1);
     }
     const recItems = recJson.items ?? [];
-    const recRow = recItems.find(
-      (r) => r.trace_id === traceRoot && typeof r.thread_key === "string" && r.thread_key.length > 0,
-    );
+    const recRow = recItems.find((r) => r.trace_id === traceId);
     if (!recRow) {
-      console.error("Expected trace-records row for trace_id", traceRoot, "got", recItems);
+      console.error("Expected trace/list row for trace_id", traceId, "got", recItems);
       process.exit(1);
-    }
-    for (const k of ["loop_count", "tool_call_count", "saved_tokens_total", "optimization_rate_pct"]) {
-      if (!(k in recRow)) {
-        console.error("trace-records row missing field", k, recRow);
-        process.exit(1);
-      }
     }
 
     const searchRes = await fetch(
-      `${base}/v1/trace-records?limit=10&search=${encodeURIComponent("smoke hello")}`,
+      `${base}/v1/trace/list?limit=10&search=${encodeURIComponent("smoke hello")}`,
       { headers: { "X-API-Key": API_KEY } },
     );
     const searchJson = await searchRes.json();
-    if (!searchRes.ok || !(searchJson.items ?? []).some((r) => r.trace_id === traceRoot)) {
-      console.error("trace-records search filter failed", searchRes.status, searchJson);
+    if (!searchRes.ok || !(searchJson.items ?? []).some((r) => r.trace_id === traceId)) {
+      console.error("trace/list search failed", searchRes.status, searchJson);
       process.exit(1);
     }
 
     const semRes = await fetch(
-      `${base}/v1/semantic-spans?trace_id=${encodeURIComponent(traceRoot)}`,
+      `${base}/v1/trace/spans?trace_id=${encodeURIComponent(traceId)}`,
       { headers: { "X-API-Key": API_KEY } },
     );
     const semJson = await semRes.json();
     if (!semRes.ok || !Array.isArray(semJson.items)) {
-      console.error("semantic-spans failed", semRes.status, semJson);
+      console.error("trace/spans failed", semRes.status, semJson);
+      process.exit(1);
+    }
+    if (!semJson.items.some((s) => s.span_id === spanLlm)) {
+      console.error("trace/spans missing llm span", semJson.items);
       process.exit(1);
     }
 
-    /** Full pipeline slice: message without trace_root, later rows share root (matches plugin ordering). */
-    const chainTk = `agent:smoke-chain-${Date.now()}`;
-    const trChain = `tr-chain-${Date.now()}`;
-    const runChain = `run-chain-${Date.now()}`;
-    const msgChainId = `msg-chain-${Date.now()}`;
-    const chainIngest = await fetch(`${base}/v1/ingest`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        events: [
-          {
-            event_id: msgChainId,
-            session_id: "smoke-chain-sess",
-            session_key: chainTk,
-            type: "message_received",
-            payload: { content: "chain smoke", channel: "smoke" },
-            schema_version: 1,
-          },
-          {
-            event_id: `ev-bmr-${Date.now()}`,
-            trace_root_id: trChain,
-            session_id: "smoke-chain-sess",
-            session_key: chainTk,
-            type: "before_model_resolve",
-            payload: { promptCharCount: 3 },
-            schema_version: 1,
-          },
-          {
-            event_id: `ev-bpb-${Date.now()}`,
-            trace_root_id: trChain,
-            session_id: "smoke-chain-sess",
-            session_key: chainTk,
-            type: "before_prompt_build",
-            payload: { historyMessageCount: 0 },
-            schema_version: 1,
-          },
-          {
-            event_id: `ev-li-${Date.now()}`,
-            trace_root_id: trChain,
-            session_id: "smoke-chain-sess",
-            session_key: chainTk,
-            run_id: runChain,
-            type: "llm_input",
-            payload: { provider: "x", model: "y", prompt: "p" },
-            schema_version: 1,
-          },
-          {
-            event_id: `ev-lo-${Date.now()}`,
-            trace_root_id: trChain,
-            session_id: "smoke-chain-sess",
-            session_key: chainTk,
-            run_id: runChain,
-            type: "llm_output",
-            payload: { assistantTexts: ["ok"] },
-            schema_version: 1,
-          },
-        ],
-      }),
-    });
-    if (!chainIngest.ok) {
-      console.error("chain ingest failed", chainIngest.status, await chainIngest.text());
-      process.exit(1);
-    }
-
-    const evRes = await fetch(
-      `${base}/v1/traces/${encodeURIComponent(chainTk)}/events?limit=100`,
-      { headers: { "X-API-Key": API_KEY } },
-    );
-    const evJson = await evRes.json();
-    if (!evRes.ok) {
-      console.error("chain events failed", evRes.status, evJson);
-      process.exit(1);
-    }
-    const evItems = evJson.items ?? [];
-    const types = new Set(evItems.map((r) => r.type));
-    for (const need of ["message_received", "before_model_resolve", "before_prompt_build", "llm_input", "llm_output"]) {
-      if (!types.has(need)) {
-        console.error("Chain slice missing type", need, "got", [...types]);
-        process.exit(1);
-      }
-    }
-
-    /** session_key thread vs session_id-only rows must merge (same session_id). */
-    const mergeSk = `agent:smoke-merge-${Date.now()}`;
-    const mergeSid = `smoke-sid-merge-${Date.now()}`;
-    const mergeTr = `tr-merge-${Date.now()}`;
-    const mergeRun = `run-merge-${Date.now()}`;
-    const mergeIngest = await fetch(`${base}/v1/ingest`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        events: [
-          {
-            event_id: `mrg-msg-${Date.now()}`,
-            session_key: mergeSk,
-            session_id: mergeSid,
-            type: "message_received",
-            payload: { content: "merge test", channel: "smoke" },
-            schema_version: 1,
-          },
-          {
-            event_id: `mrg-llm-${Date.now()}`,
-            session_id: mergeSid,
-            trace_root_id: mergeTr,
-            run_id: mergeRun,
-            type: "llm_input",
-            payload: { provider: "x", model: "y", prompt: "p" },
-            schema_version: 1,
-          },
-        ],
-      }),
-    });
-    if (!mergeIngest.ok) {
-      console.error("merge ingest failed", mergeIngest.status, await mergeIngest.text());
-      process.exit(1);
-    }
-    const mergeEvRes = await fetch(
-      `${base}/v1/traces/${encodeURIComponent(mergeSk)}/events?limit=50`,
-      { headers: { "X-API-Key": API_KEY } },
-    );
-    const mergeEvJson = await mergeEvRes.json();
-    if (!mergeEvRes.ok) {
-      console.error("merge events failed", mergeEvRes.status, mergeEvJson);
-      process.exit(1);
-    }
-    const mergeTypes = new Set((mergeEvJson.items ?? []).map((r) => r.type));
-    if (!mergeTypes.has("message_received") || !mergeTypes.has("llm_input")) {
-      console.error("session merge expected message_received + llm_input, got", [...mergeTypes]);
-      process.exit(1);
-    }
-
-    console.log("OK — Collector ingest + list smoke passed.");
+    console.log("OK — Collector opik/batch smoke passed.");
     console.log("  thread_key:", threadKey);
-    console.log("  trace_root_id (event):", traceRoot);
-    console.log("  event_id:", eventId);
-    console.log("  message_received event_id:", msgEventId);
-    console.log("  pipeline chain thread_key:", chainTk, "types:", [...types].join(", "));
-    console.log("  session merge thread_key:", mergeSk, "types:", [...mergeTypes].join(", "));
+    console.log("  trace_id:", traceId);
+    console.log("  trace-messages count (opik mode):", msgJson.items.length);
   } finally {
     kill();
     await sleep(200);

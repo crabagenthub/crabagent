@@ -1,21 +1,22 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { TitleHintIcon } from "@/components/message-hint";
+import { AppPageShell, type AppPageShellVariant } from "@/components/app-page-shell";
+import { ListEmptyState } from "@/components/list-empty-state";
 
 type PlaceholderNs = "Overview" | "Logs" | "Analytics" | "Machines" | "Alerts";
 
-export function SectionPlaceholderPage({ ns }: { ns: PlaceholderNs }) {
+export function SectionPlaceholderPage({ ns, variant }: { ns: PlaceholderNs; variant: AppPageShellVariant }) {
   const t = useTranslations(ns);
 
   return (
-    <main className="ca-page max-w-2xl">
-      <header className="mb-10">
-        <h1 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-3xl font-semibold tracking-tight text-neutral-900">
-          <span>{t("title")}</span>
-          <TitleHintIcon tooltipText={t("subtitle")} />
-        </h1>
-      </header>
-    </main>
+    <AppPageShell variant={variant}>
+      <main className="ca-page relative z-[1]">
+        <header className="mb-6">
+          <h1 className="ca-page-title">{t("title")}</h1>
+        </header>
+        <ListEmptyState variant="card" title={t("listEmptyTitle")} description={t("subtitle")} />
+      </main>
+    </AppPageShell>
   );
 }
