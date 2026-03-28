@@ -9,7 +9,6 @@ import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { ListEmptyState } from "@/components/list-empty-state";
 import { MessageHint } from "@/components/message-hint";
-import { ObserveListFiltersDialog } from "@/components/observe-list-filters-dialog";
 import { ObserveListKindSwitcher } from "@/components/observe-list-kind-switcher";
 import { ObserveListToolbar } from "@/components/observe-list-toolbar";
 import {
@@ -168,10 +167,6 @@ export default function TracesPage() {
   const [filterChannel, setFilterChannel] = useState("");
   const [filterAgent, setFilterAgent] = useState("");
   const [filterStatus, setFilterStatus] = useState<ObserveListStatusParam | "">("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [draftChannel, setDraftChannel] = useState("");
-  const [draftAgent, setDraftAgent] = useState("");
-  const [draftStatus, setDraftStatus] = useState<ObserveListStatusParam | "">("");
   const [sortKey, setSortKey] = useState<ObserveListSortParam>("time");
   const [listOrder, setListOrder] = useState<"asc" | "desc">("desc");
   const [threadDrawerRow, setThreadDrawerRow] = useState<ThreadRecordRow | null>(null);
@@ -357,9 +352,8 @@ export default function TracesPage() {
       if (x) merged.add(x);
     };
     add(filterChannel);
-    add(draftChannel);
     return Array.from(merged).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [facetsQ.data?.channels, filterChannel, draftChannel]);
+  }, [facetsQ.data?.channels, filterChannel]);
 
   const agentOptions = useMemo(() => {
     const raw = facetsQ.data?.agents ?? [];
@@ -369,32 +363,13 @@ export default function TracesPage() {
       if (x) merged.add(x);
     };
     add(filterAgent);
-    add(draftAgent);
     return Array.from(merged).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [facetsQ.data?.agents, filterAgent, draftAgent]);
-
-  const handleFilterPopoverOpenChange = useCallback(
-    (next: boolean) => {
-      if (next) {
-        setDraftChannel(filterChannel);
-        setDraftAgent(filterAgent);
-        setDraftStatus(filterStatus);
-      }
-      setFiltersOpen(next);
-    },
-    [filterChannel, filterAgent, filterStatus],
-  );
+  }, [facetsQ.data?.agents, filterAgent]);
 
   const handleColumnSort = useCallback((sort: ObserveListSortParam, order: "asc" | "desc") => {
     setSortKey(sort);
     setListOrder(order);
   }, []);
-
-  const applyFiltersFromDraft = useCallback(() => {
-    setFilterChannel(draftChannel.trim());
-    setFilterAgent(draftAgent.trim());
-    setFilterStatus(draftStatus);
-  }, [draftChannel, draftAgent, draftStatus]);
 
   const tracesQ = useQuery({
     queryKey: traceQueryKey,
@@ -485,9 +460,6 @@ export default function TracesPage() {
     setFilterChannel("");
     setFilterAgent("");
     setFilterStatus("");
-    setDraftChannel("");
-    setDraftAgent("");
-    setDraftStatus("");
   }, []);
 
   const searchActive = searchApplied.length > 0;
@@ -535,9 +507,6 @@ export default function TracesPage() {
 
   const sectionAria =
     listKind === "threads" ? t("threadsTitle") : listKind === "spans" ? t("spansTitle") : t("title");
-
-  const hasRows =
-    listKind === "traces" ? traceRows.length > 0 : listKind === "threads" ? threadRows.length > 0 : spanRows.length > 0;
 
   const emptyTitle = (() => {
     if (searchActive || filterCount > 0) {
@@ -620,28 +589,6 @@ export default function TracesPage() {
               ]}
             />
           }
-          filtersSlot={
-            <ObserveListFiltersDialog
-              open={filtersOpen}
-              onOpenChange={handleFilterPopoverOpenChange}
-              facetFilterCount={observeFacetFilterCount}
-              listKind={listKind}
-              draftChannel={draftChannel}
-              setDraftChannel={setDraftChannel}
-              draftAgent={draftAgent}
-              setDraftAgent={setDraftAgent}
-              draftStatus={draftStatus}
-              setDraftStatus={setDraftStatus}
-              channelOptions={channelOptions}
-              agentOptions={agentOptions}
-              onApply={applyFiltersFromDraft}
-              onResetDraft={() => {
-                setDraftChannel("");
-                setDraftAgent("");
-                setDraftStatus("");
-              }}
-            />
-          }
           searchDraft={searchDraft}
           setSearchDraft={setSearchDraft}
           searchPlaceholder={searchPlaceholder}
@@ -652,7 +599,7 @@ export default function TracesPage() {
             void threadsQ.refetch();
             void spansQ.refetch();
           }}
-          isFetching={q.isFetching}
+          isFetching={q.isFetching || q.isPending}
           searchActive={searchActive}
           onClearSearch={clearSearch}
         />
@@ -683,29 +630,7 @@ export default function TracesPage() {
               </CardContent>
             </Card>
           )}
-          {q.isSuccess && !hasRows && !missingUrl && !q.isFetching && (
-            <ListEmptyState
-              variant="card"
-              title={emptyTitle}
-              description={emptyDescription}
-              footer={
-                searchActive || filterCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void clearSearch();
-                      setDateRangePersist(defaultObserveDateRange());
-                      clearObserveFacetFilters();
-                    }}
-                    className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
-                  >
-                    {t("filterClear")}
-                  </button>
-                ) : undefined
-              }
-            />
-          )}
-          {hasRows ? (
+          {q.isSuccess && !missingUrl && !q.isError ? (
             <div className="space-y-4 pb-1">
               {listKind === "traces" ? (
                 <TracesOpikTable
@@ -714,6 +639,39 @@ export default function TracesPage() {
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
                   onRowClick={(r) => setInspectTraceRow(r)}
+                  channelFilter={filterChannel}
+                  channelOptions={channelOptions}
+                  onChannelFilterChange={setFilterChannel}
+                  agentFilter={filterAgent}
+                  agentOptions={agentOptions}
+                  onAgentFilterChange={setFilterAgent}
+                  statusFilter={filterStatus}
+                  onStatusFilterChange={setFilterStatus}
+                  emptyBody={
+                    traceRows.length === 0 ? (
+                      <ListEmptyState
+                        variant="plain"
+                        className="min-h-0 py-2"
+                        title={emptyTitle}
+                        description={emptyDescription}
+                        footer={
+                          searchActive || filterCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void clearSearch();
+                                setDateRangePersist(defaultObserveDateRange());
+                                clearObserveFacetFilters();
+                              }}
+                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+                            >
+                              {t("filterClear")}
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    ) : undefined
+                  }
                 />
               ) : null}
               {listKind === "threads" ? (
@@ -723,6 +681,37 @@ export default function TracesPage() {
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
                   onRowClick={(row) => setThreadDrawerRow(row)}
+                  channelFilter={filterChannel}
+                  channelOptions={channelOptions}
+                  onChannelFilterChange={setFilterChannel}
+                  agentFilter={filterAgent}
+                  agentOptions={agentOptions}
+                  onAgentFilterChange={setFilterAgent}
+                  emptyBody={
+                    threadRows.length === 0 ? (
+                      <ListEmptyState
+                        variant="plain"
+                        className="min-h-0 py-2"
+                        title={emptyTitle}
+                        description={emptyDescription}
+                        footer={
+                          searchActive || filterCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void clearSearch();
+                                setDateRangePersist(defaultObserveDateRange());
+                                clearObserveFacetFilters();
+                              }}
+                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+                            >
+                              {t("filterClear")}
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    ) : undefined
+                  }
                 />
               ) : null}
               {listKind === "spans" ? (
@@ -732,6 +721,39 @@ export default function TracesPage() {
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
                   onRowClick={(r) => setInspectSpanRow(r)}
+                  channelFilter={filterChannel}
+                  channelOptions={channelOptions}
+                  onChannelFilterChange={setFilterChannel}
+                  agentFilter={filterAgent}
+                  agentOptions={agentOptions}
+                  onAgentFilterChange={setFilterAgent}
+                  statusFilter={filterStatus}
+                  onStatusFilterChange={setFilterStatus}
+                  emptyBody={
+                    spanRows.length === 0 ? (
+                      <ListEmptyState
+                        variant="plain"
+                        className="min-h-0 py-2"
+                        title={emptyTitle}
+                        description={emptyDescription}
+                        footer={
+                          searchActive || filterCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void clearSearch();
+                                setDateRangePersist(defaultObserveDateRange());
+                                clearObserveFacetFilters();
+                              }}
+                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+                            >
+                              {t("filterClear")}
+                            </button>
+                          ) : undefined
+                        }
+                      />
+                    ) : undefined
+                  }
                 />
               ) : null}
             </div>

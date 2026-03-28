@@ -13,6 +13,11 @@ import {
 import { extractRunChatBlocks, type ChatRole } from "@/lib/span-messages";
 import { spanTokenTotals } from "@/lib/span-token-display";
 import { cn } from "@/lib/utils";
+import {
+  extractPromptStagesFromMetadata,
+  PromptStagesMultiCompare,
+} from "@/components/prompt-context-compare";
+import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 
 type MainTab = "run" | "metadata" | "feedback";
 
@@ -65,54 +70,6 @@ function HighlightedBlock({ text, query }: { text: string; query: string }) {
         ),
       )}
     </pre>
-  );
-}
-
-function ContextLineDiff({ full, sent }: { full: string; sent: string }) {
-  const t = useTranslations("Traces");
-  const lines = useMemo(() => {
-    const f = full.split("\n");
-    const sset = new Set(sent.split("\n"));
-    return f.map((line, i) => ({
-      i,
-      line,
-      removed: line.length > 0 && !sset.has(line),
-    }));
-  }, [full, sent]);
-
-  return (
-    <div className="space-y-2">
-      <MessageHint
-        text={t("inspectorContextDiffHint")}
-        textClassName="text-[11px] text-ca-muted"
-        clampClass="line-clamp-4"
-      />
-      <div className="grid max-h-[min(40vh,24rem)] grid-cols-1 gap-2 overflow-hidden md:grid-cols-2">
-        <div className="flex min-h-0 flex-col rounded-lg border border-border bg-white">
-          <div className="border-b border-border bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase text-ca-muted">
-            {t("inspectorContextBefore")}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto p-2">
-            {lines.map(({ i, line, removed }) => (
-              <div
-                key={i}
-                className={`font-mono text-[10px] leading-snug ${removed ? "bg-rose-100/80 text-rose-950 line-through decoration-rose-700/50" : "text-neutral-800"}`}
-              >
-                {line || " "}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-col rounded-lg border border-border bg-white">
-          <div className="border-b border-border bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase text-emerald-900">
-            {t("inspectorContextAfter")}
-          </div>
-          <pre className="m-0 min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[10px] text-neutral-800">
-            {sent}
-          </pre>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -249,9 +206,23 @@ export function TraceSpanRunPanel({
   const outputJson = useMemo(() => formatJson(span?.output), [span?.output]);
   const metadataJson = useMemo(() => formatJson(span?.metadata), [span?.metadata]);
 
-  const hasContextDiff = Boolean(
-    span?.context_full && span.context_sent && span.context_full !== span.context_sent,
+  const metaForPromptStages = useMemo(() => {
+    if (!span) {
+      return {};
+    }
+    return {
+      ...span.metadata,
+      ...(span.context_full != null ? { context_full: span.context_full } : {}),
+      ...(span.context_sent != null ? { context_sent: span.context_sent } : {}),
+    } as Record<string, unknown>;
+  }, [span]);
+
+  const promptStages = useMemo(
+    () => (span ? extractPromptStagesFromMetadata(metaForPromptStages) : []),
+    [span, metaForPromptStages],
   );
+
+  const hasPromptCompare = promptStages.length >= 2;
 
   const { input: inputBlocks, output: outputBlocks } = useMemo(
     () => (span ? extractRunChatBlocks(span) : { input: [], output: [] }),
@@ -312,51 +283,14 @@ export function TraceSpanRunPanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-t border-border bg-white lg:border-t-0">
       {!embedded ? (
-        <header className="shrink-0 space-y-2 border-b border-border bg-white px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-base font-semibold tracking-tight text-neutral-900">{span.name}</h2>
-              {span.model_name ? (
-                <p className="mt-1 truncate font-mono text-xs text-neutral-600" title={span.model_name}>
-                  {span.model_name}
-                </p>
-              ) : null}
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                <span
-                  className={[
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    span.error ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-900",
-                  ].join(" ")}
-                >
-                  {span.error ? t("detailStatusError") : t("detailStatusSuccess")}
-                </span>
-                {durationMs != null ? (
-                  <span className="tabular-nums text-neutral-600">
-                    {t("detailSpanLatency", { ms: durationMs.toLocaleString() })}
-                  </span>
-                ) : null}
-                {tok.hasAny && tok.displayTotal != null ? (
-                  <span className="tabular-nums text-neutral-600">
-                    {t("detailSpanTokens", { n: tok.displayTotal.toLocaleString() })}
-                  </span>
-                ) : null}
-                {tok.hasAny ? (
-                  <span className="tabular-nums text-neutral-600">
-                    {t("detailSpanTokenInOut", {
-                      in: tok.prompt.toLocaleString(),
-                      out: tok.completion.toLocaleString(),
-                    })}
-                  </span>
-                ) : null}
-                {tok.cacheRead > 0 ? (
-                  <span className="tabular-nums text-neutral-500">
-                    {t("detailSpanTokenCache", { n: tok.cacheRead.toLocaleString() })}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </header>
+        <TraceInspectBasicHeader
+          variant="panel"
+          selectedSpan={span}
+          traceId={span.trace_id}
+          chipTags={span.module ? [span.module] : []}
+          rowTokens={null}
+          rowDurationMs={durationMs}
+        />
       ) : null}
 
       <div
@@ -497,10 +431,10 @@ export function TraceSpanRunPanel({
                 {t("inspectorToolResultSize", { chars: String(resultChars) })}
               </p>
             ) : null}
-            {hasContextDiff ? (
+            {hasPromptCompare ? (
               <div className="border-t border-border px-3 py-3 sm:px-4">
                 <p className="mb-2 text-xs font-semibold text-neutral-800">{t("inspectorTabContext")}</p>
-                <ContextLineDiff full={span.context_full!} sent={span.context_sent!} />
+                <PromptStagesMultiCompare key={span.span_id} stages={promptStages} />
               </div>
             ) : null}
           </div>
@@ -623,10 +557,10 @@ export function TraceSpanRunPanel({
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             <HighlightedBlock text={metadataJson} query={search} />
-          {hasContextDiff ? (
+          {hasPromptCompare ? (
             <div className="mt-6 border-t border-border pt-4">
               <p className="mb-2 text-xs font-semibold text-neutral-800">{t("inspectorTabContext")}</p>
-              <ContextLineDiff full={span.context_full!} sent={span.context_sent!} />
+              <PromptStagesMultiCompare key={span.span_id} stages={promptStages} />
             </div>
           ) : null}
           </div>

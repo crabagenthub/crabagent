@@ -5,21 +5,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import {
   ArrowUp,
+  Bot,
   ChevronLeft,
   ChevronRight,
-  Copy,
   Filter,
   Info,
-  MessageSquare,
-  Pencil,
+  Radio,
   Search,
   Sparkles,
   SquarePen,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LocalizedLink } from "@/components/localized-link";
+import { InspectDrawerMetaSection } from "@/components/inspect-drawer-meta-section";
 import { MessageHint } from "@/components/message-hint";
-import { buttonVariants } from "@/components/ui/button";
+import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
@@ -30,27 +29,11 @@ import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import {
   formatDurationMs,
+  traceRecordAgentName,
+  traceRecordChannel,
   traceRecordDurationMs,
   type TraceRecordRow,
 } from "@/lib/trace-records";
-import { spanTokenTotals } from "@/lib/span-token-display";
-import { cn } from "@/lib/utils";
-
-function formatSecondsOneDecimal(ms: number | null): string {
-  if (ms == null || !Number.isFinite(ms) || ms < 0) {
-    return "—";
-  }
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    /* ignore */
-  }
-}
-
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,7 +56,6 @@ export function TraceRecordInspectDialog({
 }: Props) {
   const t = useTranslations("Traces");
   const traceId = row?.trace_id ?? "";
-  const threadKey = row?.thread_key ?? "";
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const treeSearchRef = useRef<HTMLInputElement>(null);
   const [treeFilter, setTreeFilter] = useState("");
@@ -164,41 +146,32 @@ export function TraceRecordInspectDialog({
 
   const rowDur = row ? traceRecordDurationMs(row) : null;
   const rowTokens = row && typeof row.total_tokens === "number" ? row.total_tokens : null;
-  const spanDurMs =
-    selectedSpan && selectedSpan.end_time != null && Number.isFinite(selectedSpan.start_time)
-      ? Math.max(0, selectedSpan.end_time - selectedSpan.start_time)
-      : null;
-  const spanTokInfo = useMemo(
-    () => (selectedSpan != null ? spanTokenTotals(selectedSpan) : null),
-    [selectedSpan],
-  );
   const traceRowWhenLabel =
     row && row.start_time
       ? formatTraceDateTimeLocal(new Date(row.start_time).toISOString())
       : "—";
-  const spanWhenLabel = selectedSpan
-    ? formatTraceDateTimeLocal(new Date(selectedSpan.start_time).toISOString())
-    : traceRowWhenLabel;
 
   const tags = row && Array.isArray(row.tags) ? row.tags : [];
+
+  const inspectChipTags = useMemo(() => {
+    const out = [...tags];
+    if (selectedSpan?.module && !out.includes(selectedSpan.module)) {
+      out.push(selectedSpan.module);
+    }
+    return out;
+  }, [tags, selectedSpan?.module]);
 
   const traceShort =
     traceId.length > 28 ? `${traceId.slice(0, 14)}…${traceId.slice(-10)}` : traceId;
   const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
+  const traceAgent = row ? traceRecordAgentName(row) : null;
+  const traceChannel = row ? traceRecordChannel(row) : null;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       {row ? (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
-          <DrawerClose
-            className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("threadDrawerCloseAria")}
-          >
-            <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-            </svg>
-          </DrawerClose>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-700">
@@ -208,37 +181,104 @@ export function TraceRecordInspectDialog({
                 {t("traceInspectTitle")}
               </Dialog.Title>
             </div>
-            <p className="mt-1 font-mono text-xs text-muted-foreground" title={traceId}>
-              {traceId ? traceShort : "—"}
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>{traceRowWhenLabel}</span>
-              <span className="text-border">·</span>
-              <span>{t("traceInspectSpanCountMeta", { count: String(items.length) })}</span>
-              <span className="text-border">·</span>
-              <span>
-                {t("colDuration")}: {metaDuration}
-              </span>
-              {rowTokens != null && rowTokens > 0 ? (
-                <>
-                  <span className="text-border">·</span>
-                  <span>
-                    {t("colTotalTokens")}: {rowTokens.toLocaleString()}
-                  </span>
-                </>
-              ) : null}
-            </div>
+            <InspectDrawerMetaSection
+              fields={[
+                {
+                  label: t("drawerMetaTraceIdLabel"),
+                  value: traceId ? traceShort : "—",
+                  title: traceId || undefined,
+                  mono: true,
+                  copyText: traceId || undefined,
+                  copyAriaLabel: t("inspectCopyTraceIdAria"),
+                },
+                {
+                  label: t("drawerMetaFirstSeenLabel"),
+                  value: traceRowWhenLabel,
+                },
+                {
+                  label: t("drawerMetaStepsInTraceLabel"),
+                  value: <span className="tabular-nums">{String(items.length)}</span>,
+                },
+                {
+                  label: t("drawerMetaDurationTotalLabel"),
+                  value: <span className="tabular-nums">{metaDuration}</span>,
+                },
+                {
+                  label: t("drawerMetaAgentLabel"),
+                  value: (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Bot className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                      <span className="truncate">{traceAgent ?? "—"}</span>
+                    </span>
+                  ),
+                  title: traceAgent ?? undefined,
+                },
+                {
+                  label: t("drawerMetaChannelLabel"),
+                  value: (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Radio className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                      <span className="truncate">{traceChannel ?? "—"}</span>
+                    </span>
+                  ),
+                  title: traceChannel ?? undefined,
+                },
+                {
+                  label: t("drawerMetaTokensLabel"),
+                  value: (
+                    <span className="tabular-nums">
+                      {rowTokens != null && rowTokens > 0 ? rowTokens.toLocaleString() : "—"}
+                    </span>
+                  ),
+                },
+              ]}
+              highlight={{
+                title: t("inspectDrawerTraceSummaryTitle"),
+                subtitle: t("inspectTokenUsageSubtitle"),
+                metrics: (
+                  <>
+                    <span className="text-neutral-900 dark:text-neutral-100">
+                      <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">{items.length}</span>
+                      <span className="text-neutral-600 dark:text-neutral-400">
+                        {" "}
+                        {t("inspectDrawerMetricStepCountUnit")}
+                      </span>
+                    </span>
+                    {rowTokens != null && rowTokens > 0 ? (
+                      <span className="text-neutral-900 dark:text-neutral-100">
+                        <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">
+                          {rowTokens.toLocaleString()}
+                        </span>
+                        <span className="text-neutral-600 dark:text-neutral-400"> {t("colTotalTokens")}</span>
+                      </span>
+                    ) : null}
+                  </>
+                ),
+              }}
+              footerItems={
+                tags.length > 0
+                  ? [
+                      {
+                        content: (
+                          <span>
+                            <span className="text-neutral-700 dark:text-neutral-300">{t("colTags")}：</span>
+                            <span className="text-neutral-900 dark:text-neutral-100">{tags.join(" · ")}</span>
+                          </span>
+                        ),
+                      },
+                    ]
+                  : undefined
+              }
+            />
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {threadKey ? (
-              <LocalizedLink
-                href={`/traces/${encodeURIComponent(threadKey)}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                {t("traceInspectGoThread")}
-              </LocalizedLink>
-            ) : null}
-          </div>
+          <DrawerClose
+            className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t("threadDrawerCloseAria")}
+          >
+            <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
+            </svg>
+          </DrawerClose>
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-4 py-2">
@@ -356,148 +396,13 @@ export function TraceRecordInspectDialog({
 
               {/* Right: span inspector */}
               <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-background">
-                <div className="shrink-0 border-b border-border bg-background px-4 py-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex min-w-0 gap-3">
-                      <div
-                        className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-pink-100 text-pink-700"
-                        aria-hidden
-                      >
-                        <span className="text-xs font-bold">{selectedSpan?.type?.slice(0, 1) ?? "·"}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-base font-semibold text-foreground">
-                          {selectedSpan
-                            ? [selectedSpan.name, selectedSpan.module].filter(Boolean).join(" · ")
-                            : t("traceInspectNoSpan")}
-                        </p>
-                        {selectedSpan?.model_name ? (
-                          <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground" title={selectedSpan.model_name}>
-                            {selectedSpan.model_name}
-                          </p>
-                        ) : null}
-                        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                          <span>{spanWhenLabel}</span>
-                          <span className="text-border">·</span>
-                          <span className="tabular-nums">
-                            {selectedSpan ? formatSecondsOneDecimal(spanDurMs) : formatSecondsOneDecimal(rowDur)}
-                          </span>
-                          <span className="text-border">·</span>
-                          <span className="font-mono tabular-nums text-muted-foreground">
-                            #
-                            {selectedSpan
-                              ? selectedSpan.span_id.length > 12
-                                ? `${selectedSpan.span_id.slice(0, 6)}…`
-                                : selectedSpan.span_id
-                              : traceId.slice(0, 8)}
-                          </span>
-                          {spanTokInfo?.hasAny && spanTokInfo.displayTotal != null ? (
-                            <>
-                              <span className="text-border">·</span>
-                              <span className="tabular-nums font-medium text-foreground">
-                                {t("detailSpanTokens", { n: spanTokInfo.displayTotal.toLocaleString() })}
-                              </span>
-                              <span className="text-border">·</span>
-                              <span className="tabular-nums">
-                                {spanTokInfo.prompt.toLocaleString()}/{spanTokInfo.completion.toLocaleString()}
-                              </span>
-                              {spanTokInfo.cacheRead > 0 ? (
-                                <>
-                                  <span className="text-border">·</span>
-                                  <span className="tabular-nums text-muted-foreground">
-                                    cache {spanTokInfo.cacheRead.toLocaleString()}
-                                  </span>
-                                </>
-                              ) : null}
-                            </>
-                          ) : spanTokInfo?.hasAny ? (
-                            <>
-                              <span className="text-border">·</span>
-                              <span className="tabular-nums">
-                                {spanTokInfo.prompt.toLocaleString()}/{spanTokInfo.completion.toLocaleString()}
-                              </span>
-                            </>
-                          ) : rowTokens != null && rowTokens > 0 ? (
-                            <>
-                              <span className="text-border">·</span>
-                              <span className="tabular-nums">{rowTokens.toLocaleString()}</span>
-                            </>
-                          ) : null}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-1 sm:gap-2">
-                      <button
-                        type="button"
-                        disabled
-                        className="hidden rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground sm:inline-flex"
-                        title={t("traceInspectAddToSoon")}
-                      >
-                        {t("traceInspectAddTo")}
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted"
-                        disabled
-                        title={t("traceInspectCommentSoon")}
-                      >
-                        <MessageSquare className="size-3.5 shrink-0 opacity-70" strokeWidth={1.75} />
-                        <span className="hidden sm:inline">{t("traceInspectComments")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted"
-                        disabled
-                        title={t("traceInspectEditSoon")}
-                        aria-label={t("traceInspectEditSoon")}
-                      >
-                        <Pencil className="size-3.5 shrink-0 opacity-70" strokeWidth={1.75} />
-                        <span className="hidden lg:inline">{t("traceInspectTabFeedback")}</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    {tags.length === 0 && !selectedSpan?.module ? (
-                      <span className="text-xs text-neutral-400">—</span>
-                    ) : (
-                      <>
-                        {tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex max-w-[10rem] truncate rounded-md bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-900"
-                            title={tag}
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        {selectedSpan?.module && !tags.includes(selectedSpan.module) ? (
-                          <span className="rounded-md bg-violet-500/12 px-2 py-0.5 text-[11px] font-medium text-violet-900">
-                            {selectedSpan.module}
-                          </span>
-                        ) : null}
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex size-6 items-center justify-center rounded border border-dashed border-neutral-300 text-neutral-400"
-                      title={t("traceInspectAddTagSoon")}
-                      aria-label={t("traceInspectAddTagSoon")}
-                    >
-                      +
-                    </button>
-                    {selectedSpan ? (
-                      <button
-                        type="button"
-                        onClick={() => void copyText(selectedSpan.span_id)}
-                        className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-50"
-                      >
-                        <Copy className="size-3.5" strokeWidth={2} />
-                        {t("traceInspectCopySpanId")}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
+                <TraceInspectBasicHeader
+                  selectedSpan={selectedSpan}
+                  traceId={traceId}
+                  chipTags={inspectChipTags}
+                  rowTokens={rowTokens}
+                  rowDurationMs={rowDur}
+                />
 
                 <div className="min-h-0 flex-1 overflow-hidden border-t border-border">
                   <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />

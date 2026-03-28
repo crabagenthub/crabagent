@@ -1,7 +1,10 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
+import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
+import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -53,27 +56,79 @@ export function SpansDataTable({
   listOrder,
   onColumnSort,
   onRowClick,
+  channelFilter = "",
+  channelOptions = [],
+  onChannelFilterChange,
+  agentFilter = "",
+  agentOptions = [],
+  onAgentFilterChange,
+  statusFilter = "",
+  onStatusFilterChange,
+  emptyBody,
 }: {
   rows: SpanRecordRow[];
   sortKey: ObserveListSortParam;
   listOrder: "asc" | "desc";
   onColumnSort: (sort: ObserveListSortParam, order: "asc" | "desc") => void;
   onRowClick?: (row: SpanRecordRow) => void;
+  channelFilter?: string;
+  channelOptions?: string[];
+  onChannelFilterChange?: (next: string) => void;
+  agentFilter?: string;
+  agentOptions?: string[];
+  onAgentFilterChange?: (next: string) => void;
+  statusFilter?: ObserveListStatusParam | "";
+  onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
+  emptyBody?: ReactNode;
 }) {
   const t = useTranslations("Traces");
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white shadow-sm">
-      <ScrollableTableFrame variant="neutral" contentKey={rows.length}>
+    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white">
+      <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
         <table className="w-max min-w-[1600px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 bg-neutral-50/90 text-xs font-semibold uppercase tracking-wide text-neutral-600">
               <th className="min-w-[10rem] max-w-[14rem] px-3 py-3 normal-case">{t("spansColSpanId")}</th>
-              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">{t("spansColAgent")}</th>
-              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">{t("spansColChannel")}</th>
+              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
+                {onAgentFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("spansColAgent")}
+                    value={agentFilter}
+                    options={agentOptions}
+                    onChange={onAgentFilterChange}
+                    ariaLabelKey="agentColumnFilterAria"
+                  />
+                ) : (
+                  t("spansColAgent")
+                )}
+              </th>
+              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
+                {onChannelFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("spansColChannel")}
+                    value={channelFilter}
+                    options={channelOptions}
+                    onChange={onChannelFilterChange}
+                    ariaLabelKey="channelColumnFilterAria"
+                  />
+                ) : (
+                  t("spansColChannel")
+                )}
+              </th>
               <th className="min-w-[7rem] max-w-[12rem] px-3 py-3 normal-case">{t("spansColName")}</th>
               <th className="w-24 px-3 py-3">{t("spansColType")}</th>
-              <th className="min-w-[5.5rem] px-3 py-3 normal-case">{t("spansColStatus")}</th>
+              <th className="min-w-[5.5rem] px-3 py-3 normal-case">
+                {onStatusFilterChange ? (
+                  <ObserveStatusColumnFilter
+                    label={t("spansColStatus")}
+                    value={statusFilter}
+                    onChange={onStatusFilterChange}
+                  />
+                ) : (
+                  t("spansColStatus")
+                )}
+              </th>
               <th className="min-w-[10rem] max-w-[14rem] px-3 py-3 normal-case">{t("spansColInput")}</th>
               <th className="min-w-[10rem] max-w-[14rem] px-3 py-3 normal-case">{t("spansColOutput")}</th>
               <th className="min-w-[11rem] px-3 py-3 normal-case">
@@ -109,6 +164,13 @@ export function SpansDataTable({
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && emptyBody ? (
+              <tr>
+                <td colSpan={12} className="border-0 bg-white p-0 align-top">
+                  <div className="flex justify-center px-4 py-10">{emptyBody}</div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((r) => (
               <tr
                 key={`${r.trace_id}:${r.span_id}`}

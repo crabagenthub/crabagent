@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger";
 import type { ObserveDateRange } from "@/lib/observe-date-range";
@@ -43,7 +44,7 @@ export function ObserveListToolbar({
     <section className="mb-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2 gap-y-3">
         {toolbarTop ? <div className="min-w-0 shrink-0 max-sm:w-full">{toolbarTop}</div> : null}
-        <div className="relative min-w-[16rem] max-w-[min(60rem,88vw)] shrink-0 flex-1 basis-[28rem] sm:flex-initial">
+        <div className="relative min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink-0 flex-1 basis-[min(100%,44rem)] sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
           <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <circle cx="11" cy="11" r="7" />
@@ -70,13 +71,23 @@ export function ObserveListToolbar({
             onClick={() => onRefresh()}
             title={t("refreshList")}
             aria-label={t("refreshList")}
+            aria-busy={isFetching}
+            className={cn(isFetching && "disabled:!opacity-100")}
           >
-            <span className={isFetching ? "inline-flex animate-spin" : "inline-flex"}>
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" strokeLinecap="round" />
-                <path d="M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
+            <svg
+              className={cn(
+                "h-4 w-4 origin-center will-change-transform",
+                isFetching && "motion-reduce:animate-none motion-reduce:opacity-80 animate-spin",
+              )}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" strokeLinecap="round" />
+              <path d="M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </Button>
         </div>
       </div>

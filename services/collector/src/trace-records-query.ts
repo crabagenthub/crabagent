@@ -65,8 +65,14 @@ SELECT t.trace_id,
        COALESCE(NULLIF(TRIM(t.thread_id), ''), t.trace_id) AS thread_key,
        (SELECT COUNT(*) FROM opik_spans s WHERE s.trace_id = t.trace_id AND s.span_type = 'llm') AS loop_count,
        (SELECT COUNT(*) FROM opik_spans s WHERE s.trace_id = t.trace_id AND s.span_type = 'tool') AS tool_call_count,
-       CAST(COALESCE(json_extract(t.metadata_json, '$.saved_tokens_total'), 0) AS INTEGER) AS saved_tokens_total
+       CAST(COALESCE(json_extract(t.metadata_json, '$.saved_tokens_total'), 0) AS INTEGER) AS saved_tokens_total,
+       th.agent_name AS thread_agent_name,
+       th.channel_name AS thread_channel_name
 FROM opik_traces t
+LEFT JOIN opik_threads th
+  ON th.thread_id = t.thread_id
+ AND th.workspace_name = t.workspace_name
+ AND th.project_name = t.project_name
 `;
 
 function clampSearch(s: string): string | undefined {
@@ -224,6 +230,22 @@ export function mapTraceRecordRow(r: TraceRecordRawRow): Record<string, unknown>
     }
   } catch {
     metadata = {};
+  }
+
+  /** Facet columns live on `opik_threads`; list UI reads `channel` / `agent_name` from `metadata`. */
+  const threadAgent =
+    r.thread_agent_name != null && String(r.thread_agent_name).trim() !== ""
+      ? String(r.thread_agent_name).trim()
+      : null;
+  const threadChannel =
+    r.thread_channel_name != null && String(r.thread_channel_name).trim() !== ""
+      ? String(r.thread_channel_name).trim()
+      : null;
+  if (threadAgent != null) {
+    metadata = { ...metadata, agent_name: threadAgent };
+  }
+  if (threadChannel != null) {
+    metadata = { ...metadata, channel: threadChannel };
   }
 
   const spent = Number(r.total_tokens) || 0;

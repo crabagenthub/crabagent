@@ -117,7 +117,16 @@ function renderInlineWithMemory(segment: string, memoryRefs: MemoryRefSnippet[])
   });
 }
 
-function SimpleMarkdownBlocks({ text, memoryRefs }: { text: string; memoryRefs: MemoryRefSnippet[] }) {
+function SimpleMarkdownBlocks({
+  text,
+  memoryRefs,
+  compact,
+}: {
+  text: string;
+  memoryRefs: MemoryRefSnippet[];
+  compact?: boolean;
+}) {
+  const bodySize = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
   const lines = text.split(/\r?\n/);
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -142,7 +151,7 @@ function SimpleMarkdownBlocks({ text, memoryRefs }: { text: string; memoryRefs: 
       blocks.push(
         <ul
           key={`ul-${blocks.length}`}
-          className="my-2 list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed text-neutral-900 marker:text-neutral-400"
+          className={cn("my-2 list-disc space-y-1.5 pl-5 text-neutral-900 marker:text-neutral-400", bodySize)}
         >
           {items.map((item, j) => (
             <li key={j}>{renderInlineWithMemory(item, memoryRefs)}</li>
@@ -164,7 +173,7 @@ function SimpleMarkdownBlocks({ text, memoryRefs }: { text: string; memoryRefs: 
       blocks.push(
         <ol
           key={`ol-${blocks.length}`}
-          className="my-2 list-decimal space-y-1.5 pl-5 text-[15px] leading-relaxed text-neutral-900 marker:text-neutral-500"
+          className={cn("my-2 list-decimal space-y-1.5 pl-5 text-neutral-900 marker:text-neutral-500", bodySize)}
         >
           {items.map((item, j) => (
             <li key={j}>{renderInlineWithMemory(item, memoryRefs)}</li>
@@ -185,7 +194,7 @@ function SimpleMarkdownBlocks({ text, memoryRefs }: { text: string; memoryRefs: 
     }
     const para = paraLines.join("\n");
     blocks.push(
-      <p key={`p-${blocks.length}`} className="text-[15px] leading-relaxed text-neutral-900">
+      <p key={`p-${blocks.length}`} className={cn("text-neutral-900", bodySize)}>
         {renderInlineWithMemory(para, memoryRefs)}
       </p>,
     );
@@ -247,6 +256,7 @@ function AssistantBubble({
   threadKey,
   msgId,
   messagesOnly,
+  compact,
 }: {
   text: string;
   thinking: string | null;
@@ -255,6 +265,7 @@ function AssistantBubble({
   msgId: string | null;
   /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
   messagesOnly?: boolean;
+  compact?: boolean;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
@@ -267,12 +278,15 @@ function AssistantBubble({
 
   const showTraceLink = !messagesOnly && threadKey.trim().length > 0;
 
+  const bubbleText = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
+  const bubblePad = compact ? "px-3 py-2" : "px-4 py-3";
+
   const assistantRichBody =
     memoryRefs.length > 0 ? (
       text.trim() ? (
-        <SimpleMarkdownBlocks text={text} memoryRefs={memoryRefs} />
+        <SimpleMarkdownBlocks text={text} memoryRefs={memoryRefs} compact={compact} />
       ) : (
-        <p className="text-sm">—</p>
+        <p className={compact ? "text-xs" : "text-sm"}>—</p>
       )
     ) : null;
 
@@ -301,23 +315,36 @@ function AssistantBubble({
       {memoryRefs.length > 0 ? (
         <MessageContent
           markdown={false}
-          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none"
+          className={cn(
+            "!bg-[#F8F9FA] rounded-xl border-b border-neutral-200/90 text-neutral-900 shadow-none",
+            bubbleText,
+            bubblePad,
+          )}
         >
           {assistantRichBody as ReactNode}
         </MessageContent>
       ) : text.trim() ? (
         <MessageContent
           markdown
-          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none prose-headings:my-2 prose-p:my-1.5"
+          className={cn(
+            "!bg-[#F8F9FA] rounded-xl border-b border-neutral-200/90 text-neutral-900 shadow-none prose-headings:my-2 prose-p:my-1.5",
+            compact && "prose-sm",
+            bubbleText,
+            bubblePad,
+          )}
         >
           {text.trim()}
         </MessageContent>
       ) : (
         <MessageContent
           markdown={false}
-          className="!bg-[#F8F9FA] rounded-xl border-0 px-4 py-3 text-[15px] leading-relaxed text-neutral-900 shadow-none"
+          className={cn(
+            "!bg-[#F8F9FA] rounded-xl border-b border-neutral-200/90 text-neutral-900 shadow-none",
+            bubbleText,
+            bubblePad,
+          )}
         >
-          <p className="text-sm">—</p>
+          <p className={compact ? "text-xs" : "text-sm"}>—</p>
         </MessageContent>
       )}
       {showTraceLink ? (
@@ -340,18 +367,20 @@ function ConversationTimelineBlocks({
   threadKey,
   msgId,
   messagesOnly,
+  compact,
 }: {
   items: ConversationTimelineItem[];
   threadKey: string;
   msgId: string | null;
   messagesOnly?: boolean;
+  compact?: boolean;
 }) {
   const t = useTranslations("Traces");
   const hasAssistant = items.some((i) => i.kind === "assistant");
 
   return (
     <>
-      <div className="ml-auto w-full max-w-[min(100%,28rem)] sm:max-w-[min(100%,34rem)]">
+      <div className="w-full min-w-0">
         {items.map((item, idx) => {
           const isLast = idx === items.length - 1;
           const dividerStyle = { borderColor: TURN_DIVIDER };
@@ -366,7 +395,10 @@ function ConversationTimelineBlocks({
                 <Message className="max-w-[min(100%,70%)] flex-row-reverse">
                   <MessageContent
                     markdown={false}
-                    className="!bg-[#E8EBFF] max-w-full border-0 text-[15px] leading-relaxed text-neutral-900"
+                    className={cn(
+                      "!bg-[#E8EBFF] max-w-full rounded-xl [border:0] shadow-none ring-0 outline-none ring-offset-0 [box-shadow:none] text-neutral-900",
+                      compact ? "px-3 py-2 text-[13px] leading-snug" : "px-4 py-3 text-[15px] leading-relaxed",
+                    )}
                   >
                     <p className="whitespace-pre-wrap break-words">{item.text}</p>
                   </MessageContent>
@@ -398,12 +430,15 @@ function ConversationTimelineBlocks({
                 threadKey={threadKey}
                 msgId={msgId}
                 messagesOnly={messagesOnly}
+                compact={compact}
               />
             </div>
           );
         })}
         {!hasAssistant && items.length > 0 ? (
-          <p className="pt-2 text-center text-xs text-amber-800/90">{t("convEmptyAssistant")}</p>
+          <p className={cn("pt-2 text-center text-amber-800/90", compact ? "text-[11px]" : "text-xs")}>
+            {t("convEmptyAssistant")}
+          </p>
         ) : null}
       </div>
     </>
@@ -421,6 +456,8 @@ export function TraceConversationView({
   conversationTurns,
   /** 仅用户输入 + 助手输出（无折叠链路、thinking、查看全链路链接）。 */
   messagesOnly = false,
+  /** 缩小正文字号（如会话抽屉对话区）。 */
+  compact = false,
 }: {
   events: TraceTimelineEvent[];
   turn: UserTurnListItem | null;
@@ -430,6 +467,7 @@ export function TraceConversationView({
   variant?: TraceConversationViewVariant;
   conversationTurns?: UserTurnListItem[];
   messagesOnly?: boolean;
+  compact?: boolean;
 }) {
   const t = useTranslations("Traces");
   const scopedEvents = useMemo(() => {
@@ -447,13 +485,21 @@ export function TraceConversationView({
   );
 
   if (!turn && items.length === 0) {
-    return <p className="p-6 text-sm text-ca-muted">{t("convNoTurn")}</p>;
+    return (
+      <p className={cn("p-6 text-ca-muted", compact ? "text-xs" : "text-sm")}>{t("convNoTurn")}</p>
+    );
   }
 
   const msgId = turn?.msgId ?? null;
 
   const blocks = (
-    <ConversationTimelineBlocks items={items} threadKey={threadKey} msgId={msgId} messagesOnly={messagesOnly} />
+    <ConversationTimelineBlocks
+      items={items}
+      threadKey={threadKey}
+      msgId={msgId}
+      messagesOnly={messagesOnly}
+      compact={compact}
+    />
   );
 
   if (variant === "turnEmbed") {

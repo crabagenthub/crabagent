@@ -1,15 +1,20 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
+import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
+import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
-import type { ObserveListSortParam } from "@/lib/observe-facets";
+import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import {
   formatDurationMs,
   statusBandLabel,
   statusBandPillClass,
   traceListStatusBandFromApiStatus,
+  traceRecordAgentName,
+  traceRecordChannel,
   traceRecordDurationMs,
   type TraceRecordRow,
 } from "@/lib/trace-records";
@@ -51,12 +56,31 @@ export function TracesOpikTable({
   listOrder,
   onColumnSort,
   onRowClick,
+  channelFilter = "",
+  channelOptions = [],
+  onChannelFilterChange,
+  agentFilter = "",
+  agentOptions = [],
+  onAgentFilterChange,
+  statusFilter = "",
+  onStatusFilterChange,
+  emptyBody,
 }: {
   rows: TraceRecordRow[];
   sortKey: ObserveListSortParam;
   listOrder: "asc" | "desc";
   onColumnSort: (sort: ObserveListSortParam, order: "asc" | "desc") => void;
   onRowClick?: (row: TraceRecordRow) => void;
+  channelFilter?: string;
+  channelOptions?: string[];
+  onChannelFilterChange?: (next: string) => void;
+  agentFilter?: string;
+  agentOptions?: string[];
+  onAgentFilterChange?: (next: string) => void;
+  statusFilter?: ObserveListStatusParam | "";
+  onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
+  /** 无数据时表体区域内展示（表头仍渲染） */
+  emptyBody?: ReactNode;
 }) {
   const t = useTranslations("Traces");
 
@@ -95,13 +119,49 @@ export function TracesOpikTable({
   );
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white shadow-sm">
-      <ScrollableTableFrame variant="neutral" contentKey={rows.length}>
-        <table className="w-max min-w-[1100px] border-collapse text-left text-sm">
+    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white">
+      <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
+        <table className="w-max min-w-[1240px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 bg-neutral-50/95 text-xs font-semibold uppercase tracking-wide text-neutral-600">
               <th className="min-w-[10rem] max-w-[14rem] px-3 py-3 normal-case">{t("colTableMessageId")}</th>
-              <th className="min-w-[5.5rem] whitespace-nowrap px-3 py-3">{t("colStatus")}</th>
+              <th className="min-w-[6.5rem] max-w-[10rem] px-3 py-3 normal-case">
+                {onChannelFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("filterChannelLabel")}
+                    value={channelFilter}
+                    options={channelOptions}
+                    onChange={onChannelFilterChange}
+                    ariaLabelKey="channelColumnFilterAria"
+                  />
+                ) : (
+                  t("filterChannelLabel")
+                )}
+              </th>
+              <th className="min-w-[6.5rem] max-w-[11rem] px-3 py-3 normal-case">
+                {onAgentFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("filterAgentLabel")}
+                    value={agentFilter}
+                    options={agentOptions}
+                    onChange={onAgentFilterChange}
+                    ariaLabelKey="agentColumnFilterAria"
+                  />
+                ) : (
+                  t("filterAgentLabel")
+                )}
+              </th>
+              <th className="min-w-[5.5rem] whitespace-nowrap px-3 py-3">
+                {onStatusFilterChange ? (
+                  <ObserveStatusColumnFilter
+                    label={t("colStatus")}
+                    value={statusFilter}
+                    onChange={onStatusFilterChange}
+                  />
+                ) : (
+                  t("colStatus")
+                )}
+              </th>
               <th className="min-w-[9rem] px-3 py-3">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span>{t("colStartTime")}</span>
@@ -172,6 +232,13 @@ export function TracesOpikTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
+            {rows.length === 0 && emptyBody ? (
+              <tr>
+                <td colSpan={12} className="border-0 bg-white p-0 align-top">
+                  <div className="flex justify-center px-4 py-10">{emptyBody}</div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((row) => {
               const dur = traceRecordDurationMs(row);
               const fail = ["error", "timeout"].includes(String(row.status).toLowerCase());
@@ -179,6 +246,8 @@ export function TracesOpikTable({
               const inPrev = rowInputSnippet(row, 200);
               const outPrev = rowOutputSnippet(row, 200);
               const tags = Array.isArray(row.tags) ? row.tags : [];
+              const channelDisp = traceRecordChannel(row);
+              const agentDisp = traceRecordAgentName(row);
               return (
                 <tr
                   key={row.trace_id}
@@ -201,6 +270,24 @@ export function TracesOpikTable({
                     {row.trace_id.trim() ? (
                       <span className="block truncate" title={row.trace_id}>
                         {row.trace_id}
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">—</span>
+                    )}
+                  </td>
+                  <td className="max-w-[10rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
+                    {channelDisp ? (
+                      <span className="line-clamp-2 break-words" title={channelDisp}>
+                        {channelDisp}
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">—</span>
+                    )}
+                  </td>
+                  <td className="max-w-[11rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
+                    {agentDisp ? (
+                      <span className="line-clamp-2 break-words" title={agentDisp}>
+                        {agentDisp}
                       </span>
                     ) : (
                       <span className="text-neutral-400">—</span>

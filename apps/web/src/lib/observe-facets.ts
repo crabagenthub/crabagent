@@ -3,6 +3,13 @@ import { collectorAuthHeaders } from "@/lib/collector";
 /** Matches Collector `parseObserveListStatus` / list query `status` query key. */
 export type ObserveListStatusParam = "running" | "success" | "error" | "timeout";
 
+export const OBSERVE_LIST_STATUS_OPTIONS: readonly ObserveListStatusParam[] = [
+  "running",
+  "success",
+  "error",
+  "timeout",
+];
+
 /** Matches Collector `parseObserveListSort` / list query `sort`. */
 export type ObserveListSortParam = "time" | "tokens";
 

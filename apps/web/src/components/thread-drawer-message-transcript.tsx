@@ -121,6 +121,7 @@ export function ThreadDrawerMessageTranscript({
                   variant="turnEmbed"
                   conversationTurns={userTurns}
                   messagesOnly
+                  compact
                 />
               </section>
             );

@@ -24,7 +24,7 @@ export function Drawer({ open, onOpenChange, children, className }: DrawerProps)
         >
           <Dialog.Popup
             className={cn(
-              "flex h-[100dvh] max-h-[100dvh] w-[min(100vw-0.5rem,64rem)] max-w-[min(100vw-0.5rem,64rem)] flex-col border-l border-border bg-background shadow-2xl outline-none",
+              "flex h-[100dvh] max-h-[100dvh] w-[min(100vw-0.5rem,80rem)] max-w-[min(100vw-0.5rem,80rem)] flex-col border-l border-border bg-background shadow-2xl outline-none",
               "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
               "data-[ending-style]:translate-x-2 data-[ending-style]:opacity-0",
               "data-[starting-style]:translate-x-2 data-[starting-style]:opacity-0",

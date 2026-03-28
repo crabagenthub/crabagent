@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
+import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -137,18 +138,32 @@ export function ThreadsOpikTable({
   listOrder,
   onColumnSort,
   onRowClick,
+  channelFilter = "",
+  channelOptions = [],
+  onChannelFilterChange,
+  agentFilter = "",
+  agentOptions = [],
+  onAgentFilterChange,
+  emptyBody,
 }: {
   rows: ThreadRecordRow[];
   sortKey: ObserveListSortParam;
   listOrder: "asc" | "desc";
   onColumnSort: (sort: ObserveListSortParam, order: "asc" | "desc") => void;
   onRowClick?: (row: ThreadRecordRow) => void;
+  channelFilter?: string;
+  channelOptions?: string[];
+  onChannelFilterChange?: (next: string) => void;
+  agentFilter?: string;
+  agentOptions?: string[];
+  onAgentFilterChange?: (next: string) => void;
+  emptyBody?: ReactNode;
 }) {
   const t = useTranslations("Traces");
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white shadow-sm">
-      <ScrollableTableFrame variant="neutral" contentKey={rows.length}>
+    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white">
+      <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
         <table className="w-max min-w-[1240px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-neutral-200 bg-neutral-50/95 text-xs font-semibold uppercase tracking-wide text-neutral-600">
@@ -167,8 +182,32 @@ export function ThreadsOpikTable({
                   />
                 </div>
               </th>
-              <th className="min-w-[6rem] max-w-[10rem] whitespace-nowrap px-3 py-3">{t("threadsColAgent")}</th>
-              <th className="min-w-[6rem] max-w-[10rem] whitespace-nowrap px-3 py-3">{t("threadsColChannel")}</th>
+              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
+                {onAgentFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("threadsColAgent")}
+                    value={agentFilter}
+                    options={agentOptions}
+                    onChange={onAgentFilterChange}
+                    ariaLabelKey="agentColumnFilterAria"
+                  />
+                ) : (
+                  t("threadsColAgent")
+                )}
+              </th>
+              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
+                {onChannelFilterChange ? (
+                  <ObserveFacetColumnFilter
+                    label={t("threadsColChannel")}
+                    value={channelFilter}
+                    options={channelOptions}
+                    onChange={onChannelFilterChange}
+                    ariaLabelKey="channelColumnFilterAria"
+                  />
+                ) : (
+                  t("threadsColChannel")
+                )}
+              </th>
               <th className="min-w-[12rem] max-w-[18rem] whitespace-nowrap px-3 py-3">{t("threadsColFirstMessage")}</th>
               <th className="min-w-[12rem] max-w-[18rem] whitespace-nowrap px-3 py-3">{t("threadsColLastMessage")}</th>
               <th className="w-24 whitespace-nowrap px-3 py-3">{t("threadsColMessageCount")}</th>
@@ -192,6 +231,13 @@ export function ThreadsOpikTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
+            {rows.length === 0 && emptyBody ? (
+              <tr>
+                <td colSpan={11} className="border-0 bg-white p-0 align-top">
+                  <div className="flex justify-center px-4 py-10">{emptyBody}</div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((row) => {
               const id = threadRowStableId(row);
               const statusBand = traceListStatusBandFromApiStatus(row.status ?? null);

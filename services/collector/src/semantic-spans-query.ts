@@ -47,6 +47,16 @@ function parseUsageExtended(usageJson: string | null | undefined): {
     o.usageMetadata && typeof o.usageMetadata === "object" && !Array.isArray(o.usageMetadata)
       ? (o.usageMetadata as Record<string, unknown>)
       : {};
+  const usageNested =
+    o.usage && typeof o.usage === "object" && !Array.isArray(o.usage)
+      ? (o.usage as Record<string, unknown>)
+      : {};
+  const umNested =
+    usageNested.usageMetadata &&
+    typeof usageNested.usageMetadata === "object" &&
+    !Array.isArray(usageNested.usageMetadata)
+      ? (usageNested.usageMetadata as Record<string, unknown>)
+      : {};
 
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : null;
@@ -60,15 +70,47 @@ function parseUsageExtended(usageJson: string | null | undefined): {
   };
 
   const prompt =
-    pick(o.prompt_tokens, o.promptTokens, um.promptTokenCount, um.inputTokenCount) ?? 0;
+    pick(
+      o.prompt_tokens,
+      o.promptTokens,
+      um.promptTokenCount,
+      um.inputTokenCount,
+      usageNested.prompt_tokens,
+      usageNested.promptTokens,
+      usageNested.prompt_token_count,
+      usageNested.input_tokens,
+      usageNested.inputTokens,
+      usageNested.promptTokenCount,
+      usageNested.inputTokenCount,
+      umNested.promptTokenCount,
+      umNested.inputTokenCount,
+    ) ?? 0;
   const completion =
-    pick(o.completion_tokens, o.completionTokens, um.candidatesTokenCount, um.outputTokenCount) ?? 0;
+    pick(
+      o.completion_tokens,
+      o.completionTokens,
+      um.candidatesTokenCount,
+      um.outputTokenCount,
+      usageNested.completion_tokens,
+      usageNested.completionTokens,
+      usageNested.completion_token_count,
+      usageNested.output_tokens,
+      usageNested.outputTokens,
+      usageNested.candidatesTokenCount,
+      usageNested.outputTokenCount,
+      umNested.candidatesTokenCount,
+      umNested.outputTokenCount,
+    ) ?? 0;
   const cacheRead = pick(
     o.cache_read_tokens,
     o.cacheReadTokens,
     um.cachedContentTokenCount,
     o.cached_prompt_tokens,
     um.cacheReadInputTokens,
+    usageNested.cache_read_tokens,
+    usageNested.cacheReadTokens,
+    umNested.cachedContentTokenCount,
+    umNested.cacheReadInputTokens,
   );
   const totalExplicit = pick(
     o.total_tokens,
@@ -76,6 +118,11 @@ function parseUsageExtended(usageJson: string | null | undefined): {
     um.totalTokenCount,
     um.totalTokens,
     o.totalTokenCount,
+    usageNested.total_tokens,
+    usageNested.totalTokens,
+    usageNested.totalTokenCount,
+    umNested.totalTokenCount,
+    umNested.totalTokens,
   );
 
   const usage_breakdown: Record<string, number> = {};
@@ -90,6 +137,19 @@ function parseUsageExtended(usageJson: string | null | undefined): {
     const n = num(v);
     if (n != null) {
       usage_breakdown[`usageMetadata.${k}`] = n;
+    }
+  }
+  for (const [k, v] of Object.entries(usageNested)) {
+    if (k === "usageMetadata") continue;
+    const n = num(v);
+    if (n != null) {
+      usage_breakdown[`usage.${k}`] = n;
+    }
+  }
+  for (const [k, v] of Object.entries(umNested)) {
+    const n = num(v);
+    if (n != null) {
+      usage_breakdown[`usage.usageMetadata.${k}`] = n;
     }
   }
 
