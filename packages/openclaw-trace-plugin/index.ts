@@ -279,6 +279,26 @@ export default {
         contentLen: String(event.content ?? "").length,
         preview: String(event.content ?? "").slice(0, 160),
       });
+      // #region agent log
+      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
+        body: JSON.stringify({
+          sessionId: "24bc8e",
+          hypothesisId: "H4",
+          location: "openclaw-trace-plugin/index.ts:message_received",
+          message: "hook message_received fired",
+          data: {
+            agentId: ctx.agentId,
+            agentName: ctx.agentName,
+            from: event.from,
+            sessionKeyHead: effectiveSk(ctx, event.from).slice(0, 64),
+            contentLen: String(event.content ?? "").length,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
     });
 
     api.on("before_model_resolve", (ev: unknown, c: unknown) => {
@@ -341,6 +361,28 @@ export default {
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
       const cfg = getCfg();
       const sk = effectiveSk(ctx);
+      // #region agent log
+      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
+        body: JSON.stringify({
+          sessionId: "24bc8e",
+          hypothesisId: "H7",
+          location: "openclaw-trace-plugin/index.ts:llm_input entry",
+          message: "hook llm_input invoked (before onLlmInput)",
+          data: {
+            agentId: ctx.agentId,
+            agentName: ctx.agentName,
+            sessionKeyHead: sk.slice(0, 64),
+            sampleRateBps: cfg.sampleRateBps,
+            provider: event.provider,
+            model: event.model,
+            promptChars: typeof event.prompt === "string" ? event.prompt.length : 0,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       const prev = getRuntime().onLlmInput(
         sk,
         {
@@ -478,6 +520,29 @@ export default {
             : [],
         queuedNonEmptyBatch: Boolean(batch && batchNonEmpty(batch)),
       });
+      // #region agent log
+      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
+        body: JSON.stringify({
+          sessionId: "24bc8e",
+          hypothesisId: "H7",
+          location: "openclaw-trace-plugin/index.ts:agent_end",
+          message: "hook agent_end",
+          data: {
+            agentId: ctx.agentId,
+            agentName: ctx.agentName,
+            sessionKeyHead: effectiveSk(ctx).slice(0, 64),
+            success: event.success,
+            messagesLen: Array.isArray(event.messages) ? event.messages.length : -1,
+            queuedNonEmptyBatch: Boolean(batch && batchNonEmpty(batch)),
+            traceRows: batch?.traces?.length ?? 0,
+            spanRows: batch?.spans?.length ?? 0,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       pushIfAny(batch, "agent_end");
     });
 

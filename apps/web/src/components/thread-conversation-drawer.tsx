@@ -8,6 +8,7 @@ import { ThreadDrawerMessageTranscript } from "@/components/thread-drawer-messag
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
 import { loadTraceEvents } from "@/lib/trace-events";
 import { type ThreadRecordRow } from "@/lib/thread-records";
 import { formatDurationMs } from "@/lib/trace-records";
@@ -21,7 +22,7 @@ import {
 } from "@/lib/user-turn-list";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
 import { cn } from "@/lib/utils";
-import { Binary, GaugeCircle } from "lucide-react";
+import { Binary, GaugeCircle, MessagesSquare } from "lucide-react";
 
 function turnStatusLabelKey(st: TurnListStatus): string {
   switch (st) {
@@ -212,7 +213,8 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   const metaDuration =
     row?.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—";
   const metaMsgCount = userTurns.length > 0 ? userTurns.length : row?.trace_count ?? 0;
-  const totalTokensNum = row != null ? row.total_tokens : 0;
+  const listTotalTokens = row != null ? row.total_tokens : 0;
+  const threadUsage = useMemo(() => aggregateThreadLlmOutputUsage(merged), [merged]);
 
   const turnRail = userTurns.map((u, turnIdx) => {
     const active = u.listKey === selectedListKey;
@@ -327,8 +329,8 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-700">
-              #
+            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
+              <MessagesSquare className="size-4 shrink-0" strokeWidth={2} aria-hidden />
             </span>
             <Dialog.Title className="truncate text-lg font-semibold leading-tight text-foreground">
               {t("threadDrawerTitle")}
@@ -405,10 +407,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 className="flex min-h-0 w-[min(100%,21rem)] shrink-0 flex-col border-border bg-muted/10 dark:bg-neutral-900/25"
                 aria-label={t("threadDrawerAuxInfoTitle")}
               >
-                <div className="shrink-0 border-b border-border/80 px-3 py-2">
-                  <h2 className="text-xs font-semibold leading-tight text-foreground">{t("threadDrawerAuxInfoTitle")}</h2>
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 pb-3 pt-2">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
                   <ThreadConversationInspectHeader
                     variant="sidebar"
                     row={row}
@@ -417,7 +416,8 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                     metaStart={metaStart}
                     metaDuration={metaDuration}
                     metaMsgCount={metaMsgCount}
-                    totalTokensNum={totalTokensNum}
+                    listTotalTokens={listTotalTokens}
+                    threadUsage={threadUsage}
                   />
                 </div>
               </aside>

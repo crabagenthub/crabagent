@@ -43,10 +43,24 @@ function totalFromUsageShape(u: Record<string, unknown>): number | null {
   return tRaw > 0 ? tRaw : null;
 }
 
+function cacheReadFromUsageShape(u: Record<string, unknown>): number {
+  const direct =
+    pickNonNegativeNum(u.cache_read_tokens) ||
+    pickNonNegativeNum(u.cacheReadTokens) ||
+    pickNonNegativeNum(u.cached_prompt_tokens) ||
+    pickNonNegativeNum(u.prompt_cache_hit_tokens);
+  const ptd = u.prompt_tokens_details;
+  if (isPlainObject(ptd)) {
+    return direct || pickNonNegativeNum(ptd.cached_tokens);
+  }
+  return direct;
+}
+
 function mergeFromUsageMetadata(um: Record<string, unknown>): {
   prompt: number;
   completion: number;
   total: number | null;
+  cacheRead: number;
 } {
   const prompt =
     pickNonNegativeNum(um.promptTokenCount) ||
@@ -61,7 +75,11 @@ function mergeFromUsageMetadata(um: Record<string, unknown>): {
     pickNonNegativeNum(um.totalTokens) ||
     pickNonNegativeNum(um.total_tokens);
   const total = tRaw > 0 ? tRaw : null;
-  return { prompt, completion, total };
+  const cacheRead =
+    pickNonNegativeNum(um.cachedContentTokenCount) ||
+    pickNonNegativeNum(um.cacheReadInputTokens) ||
+    pickNonNegativeNum(um.cached_content_token_count);
+  return { prompt, completion, total, cacheRead };
 }
 
 /**
@@ -71,16 +89,19 @@ export function usageFromTracePayload(payload: Record<string, unknown>): {
   prompt: number;
   completion: number;
   total: number | null;
+  cacheRead: number;
 } {
   let prompt = 0;
   let completion = 0;
   let total: number | null = null;
+  let cacheRead = 0;
 
   const u = payload.usage;
   if (isPlainObject(u)) {
     prompt = promptFromUsageShape(u);
     completion = completionFromUsageShape(u);
     total = totalFromUsageShape(u);
+    cacheRead = cacheReadFromUsageShape(u);
   }
 
   const umTop = payload.usageMetadata;
@@ -94,6 +115,9 @@ export function usageFromTracePayload(payload: Record<string, unknown>): {
     }
     if (total == null && m.total != null) {
       total = m.total;
+    }
+    if (!cacheRead) {
+      cacheRead = m.cacheRead;
     }
   }
 
@@ -114,7 +138,65 @@ export function usageFromTracePayload(payload: Record<string, unknown>): {
         pickNonNegativeNum(tm.output_tokens) ||
         pickNonNegativeNum(tm.outputTokens);
     }
+    if (!cacheRead) {
+      cacheRead =
+        pickNonNegativeNum(tm.cache_read_tokens) ||
+        pickNonNegativeNum(tm.cacheReadTokens) ||
+        pickNonNegativeNum(tm.cached_prompt_tokens);
+    }
   }
 
-  return { prompt, completion, total };
+  return { prompt, completion, total, cacheRead };
+}
+
+export type ThreadLlmUsageAggregate = {
+  llmOutputCount: number;
+  prompt: number;
+  completion: number;
+  cacheRead: number;
+  /** 与回合窗口一致：有分项合优先；否则累加各条显式 total */
+  displayTotal: number | null;
+};
+
+/** 会话级：汇总时间线上全部 `llm_output` 的 usage（用于会话抽屉侧栏）。 */
+export function aggregateThreadLlmOutputUsage(
+  events: readonly { type?: string | null; payload?: unknown }[],
+): ThreadLlmUsageAggregate {
+  let promptSum = 0;
+  let completionSum = 0;
+  let cacheSum = 0;
+  let explicitTotalSum = 0;
+  let explicitTotalRows = 0;
+  let llmOutputCount = 0;
+
+  for (const e of events) {
+    if ((e.type ?? "") !== "llm_output") {
+      continue;
+    }
+    llmOutputCount += 1;
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+    const u = usageFromTracePayload(payload);
+    promptSum += u.prompt;
+    completionSum += u.completion;
+    cacheSum += u.cacheRead;
+    if (u.total != null && u.total > 0) {
+      explicitTotalSum += u.total;
+      explicitTotalRows += 1;
+    }
+  }
+
+  const sumParts = promptSum + completionSum + cacheSum;
+  const displayTotal =
+    sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
+
+  return {
+    llmOutputCount,
+    prompt: promptSum,
+    completion: completionSum,
+    cacheRead: cacheSum,
+    displayTotal,
+  };
 }

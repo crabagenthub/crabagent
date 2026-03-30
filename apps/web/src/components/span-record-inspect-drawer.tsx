@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Filter,
   Info,
+  ListOrdered,
   Radio,
   Search,
   Sparkles,
@@ -204,8 +205,8 @@ export function SpanRecordInspectDrawer({
         <div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-700">
-                #
+              <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
+                <ListOrdered className="size-4 shrink-0" strokeWidth={2} aria-hidden />
               </span>
               <Dialog.Title className="text-lg font-semibold leading-tight text-foreground">
                 {t("spanInspectDrawerTitle")}

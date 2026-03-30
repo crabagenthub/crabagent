@@ -706,6 +706,27 @@ export class OpikOpenClawRuntime {
         provider: ev.provider,
         model: ev.model,
       });
+      // #region agent log
+      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
+        body: JSON.stringify({
+          sessionId: "24bc8e",
+          hypothesisId: "H3",
+          location: "opik-runtime.ts:onLlmInput sample skip",
+          message: "llm_input skipped by sampleRateBps",
+          data: {
+            sessionKeyHead: sk.slice(0, 64),
+            sampleRateBps: sampleBps,
+            agentId: ctx.agentId,
+            agentName: ctx.agentName,
+            provider: ev.provider,
+            model: ev.model,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       return null;
     }
     const prev = this.closeTurn(sk, "new_llm_input", pendingKeys);

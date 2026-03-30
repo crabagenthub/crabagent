@@ -43,6 +43,13 @@ import {
   type ObserveListSortParam,
   type ObserveListStatusParam,
 } from "@/lib/observe-facets";
+import {
+  buildObserveQueryForPick,
+  pickObserveInspectFromSearchParams,
+  resolveSpanRowForInspect,
+  resolveThreadRowForInspect,
+  resolveTraceRowForInspect,
+} from "@/lib/observe-inspect-url";
 import { loadSpanRecords, type SpanRecordRow } from "@/lib/span-records";
 import { loadThreadRecords, type ThreadRecordRow } from "@/lib/thread-records";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
@@ -125,8 +132,14 @@ export default function TracesPage() {
 
   const handleListKindChange = useCallback(
     (next: ListKind) => {
+      setThreadDrawerRow(null);
+      setInspectTraceRow(null);
+      setInspectSpanRow(null);
       const nextQuery: Record<string, string> = {};
       searchParams.forEach((value, key) => {
+        if (key === "thread" || key === "trace" || key === "span") {
+          return;
+        }
         nextQuery[key] = value;
       });
       if (next === "threads") {
@@ -172,6 +185,9 @@ export default function TracesPage() {
   const [threadDrawerRow, setThreadDrawerRow] = useState<ThreadRecordRow | null>(null);
   const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
   const [inspectSpanRow, setInspectSpanRow] = useState<SpanRecordRow | null>(null);
+
+  const inspectPick = useMemo(() => pickObserveInspectFromSearchParams(searchParams), [searchParams]);
+
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
     setApiKey(loadApiKey());
@@ -430,6 +446,185 @@ export default function TracesPage() {
     staleTime: 0,
   });
 
+  useEffect(() => {
+    const pick = pickObserveInspectFromSearchParams(searchParams);
+    if (!pick) {
+      return;
+    }
+    const hasSpan = searchParams.has("span");
+    const hasTrace = searchParams.has("trace");
+    const hasThread = searchParams.has("thread");
+    const redundant =
+      (pick.kind === "span" && (hasTrace || hasThread)) ||
+      (pick.kind === "trace" && hasThread) ||
+      (pick.kind === "thread" && (hasTrace || hasSpan));
+    if (!redundant) {
+      return;
+    }
+    router.replace({ pathname, query: buildObserveQueryForPick(searchParams, pick) });
+  }, [pathname, router, searchParams]);
+
+  const threadInspectResolveQ = useQuery({
+    queryKey: ["observe-inspect-resolve", "thread", baseUrl, apiKey, inspectPick?.kind === "thread" ? inspectPick.id : ""] as const,
+    queryFn: () => resolveThreadRowForInspect(baseUrl, apiKey, inspectPick!.id),
+    enabled: listEnabled && inspectPick?.kind === "thread",
+    staleTime: 60_000,
+  });
+  const traceInspectResolveQ = useQuery({
+    queryKey: ["observe-inspect-resolve", "trace", baseUrl, apiKey, inspectPick?.kind === "trace" ? inspectPick.id : ""] as const,
+    queryFn: () => resolveTraceRowForInspect(baseUrl, apiKey, inspectPick!.id),
+    enabled: listEnabled && inspectPick?.kind === "trace",
+    staleTime: 60_000,
+  });
+  const spanInspectResolveQ = useQuery({
+    queryKey: ["observe-inspect-resolve", "span", baseUrl, apiKey, inspectPick?.kind === "span" ? inspectPick.id : ""] as const,
+    queryFn: () => resolveSpanRowForInspect(baseUrl, apiKey, inspectPick!.id),
+    enabled: listEnabled && inspectPick?.kind === "span",
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!listEnabled || !inspectPick) {
+      return;
+    }
+
+    if (inspectPick.kind === "thread") {
+      if (threadInspectResolveQ.isPending) {
+        return;
+      }
+      if (threadInspectResolveQ.isError) {
+        return;
+      }
+      const row = threadInspectResolveQ.data;
+      if (row === undefined) {
+        return;
+      }
+      if (row === null) {
+        router.replace({ pathname, query: buildObserveQueryForPick(searchParams, null) });
+        return;
+      }
+      setThreadDrawerRow(row);
+      setInspectTraceRow(null);
+      setInspectSpanRow(null);
+      const kindOk = listKind === "threads";
+      if (!kindOk) {
+        const q = buildObserveQueryForPick(searchParams, inspectPick);
+        delete q.kind;
+        router.replace({ pathname, query: q });
+      }
+      return;
+    }
+
+    if (inspectPick.kind === "trace") {
+      if (traceInspectResolveQ.isPending) {
+        return;
+      }
+      if (traceInspectResolveQ.isError) {
+        return;
+      }
+      const row = traceInspectResolveQ.data;
+      if (row === undefined) {
+        return;
+      }
+      if (row === null) {
+        router.replace({ pathname, query: buildObserveQueryForPick(searchParams, null) });
+        return;
+      }
+      setInspectTraceRow(row);
+      setThreadDrawerRow(null);
+      setInspectSpanRow(null);
+      const kindOk = listKind === "traces";
+      if (!kindOk) {
+        const q = buildObserveQueryForPick(searchParams, inspectPick);
+        q.kind = "traces";
+        router.replace({ pathname, query: q });
+      }
+      return;
+    }
+
+    if (inspectPick.kind === "span") {
+      if (spanInspectResolveQ.isPending) {
+        return;
+      }
+      if (spanInspectResolveQ.isError) {
+        return;
+      }
+      const row = spanInspectResolveQ.data;
+      if (row === undefined) {
+        return;
+      }
+      if (row === null) {
+        router.replace({ pathname, query: buildObserveQueryForPick(searchParams, null) });
+        return;
+      }
+      setInspectSpanRow(row);
+      setThreadDrawerRow(null);
+      setInspectTraceRow(null);
+      const kindOk = listKind === "spans";
+      if (!kindOk) {
+        const q = buildObserveQueryForPick(searchParams, inspectPick);
+        q.kind = "spans";
+        router.replace({ pathname, query: q });
+      }
+    }
+  }, [
+    listEnabled,
+    inspectPick,
+    listKind,
+    pathname,
+    router,
+    searchParams,
+    threadInspectResolveQ.isPending,
+    threadInspectResolveQ.isError,
+    threadInspectResolveQ.data,
+    traceInspectResolveQ.isPending,
+    traceInspectResolveQ.isError,
+    traceInspectResolveQ.data,
+    spanInspectResolveQ.isPending,
+    spanInspectResolveQ.isError,
+    spanInspectResolveQ.data,
+  ]);
+
+  const openThreadInspect = useCallback(
+    (row: ThreadRecordRow) => {
+      setInspectTraceRow(null);
+      setInspectSpanRow(null);
+      setThreadDrawerRow(row);
+      const q = buildObserveQueryForPick(searchParams, { kind: "thread", id: row.thread_id });
+      delete q.kind;
+      router.replace({ pathname, query: q });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const openTraceInspect = useCallback(
+    (row: TraceRecordRow) => {
+      setThreadDrawerRow(null);
+      setInspectSpanRow(null);
+      setInspectTraceRow(row);
+      const q = buildObserveQueryForPick(searchParams, { kind: "trace", id: row.trace_id });
+      q.kind = "traces";
+      router.replace({ pathname, query: q });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const openSpanInspect = useCallback(
+    (row: SpanRecordRow) => {
+      setThreadDrawerRow(null);
+      setInspectTraceRow(null);
+      setInspectSpanRow(row);
+      const q = buildObserveQueryForPick(searchParams, { kind: "span", id: row.span_id });
+      q.kind = "spans";
+      router.replace({ pathname, query: q });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const clearObserveInspectInUrl = useCallback(() => {
+    router.replace({ pathname, query: buildObserveQueryForPick(searchParams, null) });
+  }, [pathname, router, searchParams]);
+
   const q = listKind === "traces" ? tracesQ : listKind === "threads" ? threadsQ : spansQ;
   const traceRows = useMemo(() => tracesQ.data?.items ?? [], [tracesQ.data?.items]);
   const threadRows = useMemo(() => threadsQ.data?.items ?? [], [threadsQ.data?.items]);
@@ -638,7 +833,7 @@ export default function TracesPage() {
                   sortKey={sortKey}
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
-                  onRowClick={(r) => setInspectTraceRow(r)}
+                  onRowClick={(r) => openTraceInspect(r)}
                   channelFilter={filterChannel}
                   channelOptions={channelOptions}
                   onChannelFilterChange={setFilterChannel}
@@ -649,27 +844,7 @@ export default function TracesPage() {
                   onStatusFilterChange={setFilterStatus}
                   emptyBody={
                     traceRows.length === 0 ? (
-                      <ListEmptyState
-                        variant="plain"
-                        className="min-h-0 py-2"
-                        title={emptyTitle}
-                        description={emptyDescription}
-                        footer={
-                          searchActive || filterCount > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void clearSearch();
-                                setDateRangePersist(defaultObserveDateRange());
-                                clearObserveFacetFilters();
-                              }}
-                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
-                            >
-                              {t("filterClear")}
-                            </button>
-                          ) : undefined
-                        }
-                      />
+                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
                     ) : undefined
                   }
                 />
@@ -680,7 +855,7 @@ export default function TracesPage() {
                   sortKey={sortKey}
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
-                  onRowClick={(row) => setThreadDrawerRow(row)}
+                  onRowClick={(row) => openThreadInspect(row)}
                   channelFilter={filterChannel}
                   channelOptions={channelOptions}
                   onChannelFilterChange={setFilterChannel}
@@ -689,27 +864,7 @@ export default function TracesPage() {
                   onAgentFilterChange={setFilterAgent}
                   emptyBody={
                     threadRows.length === 0 ? (
-                      <ListEmptyState
-                        variant="plain"
-                        className="min-h-0 py-2"
-                        title={emptyTitle}
-                        description={emptyDescription}
-                        footer={
-                          searchActive || filterCount > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void clearSearch();
-                                setDateRangePersist(defaultObserveDateRange());
-                                clearObserveFacetFilters();
-                              }}
-                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
-                            >
-                              {t("filterClear")}
-                            </button>
-                          ) : undefined
-                        }
-                      />
+                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
                     ) : undefined
                   }
                 />
@@ -720,7 +875,7 @@ export default function TracesPage() {
                   sortKey={sortKey}
                   listOrder={listOrder}
                   onColumnSort={handleColumnSort}
-                  onRowClick={(r) => setInspectSpanRow(r)}
+                  onRowClick={(r) => openSpanInspect(r)}
                   channelFilter={filterChannel}
                   channelOptions={channelOptions}
                   onChannelFilterChange={setFilterChannel}
@@ -731,27 +886,7 @@ export default function TracesPage() {
                   onStatusFilterChange={setFilterStatus}
                   emptyBody={
                     spanRows.length === 0 ? (
-                      <ListEmptyState
-                        variant="plain"
-                        className="min-h-0 py-2"
-                        title={emptyTitle}
-                        description={emptyDescription}
-                        footer={
-                          searchActive || filterCount > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void clearSearch();
-                                setDateRangePersist(defaultObserveDateRange());
-                                clearObserveFacetFilters();
-                              }}
-                              className="rounded-xl border border-ca-border bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
-                            >
-                              {t("filterClear")}
-                            </button>
-                          ) : undefined
-                        }
-                      />
+                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
                     ) : undefined
                   }
                 />
@@ -878,6 +1013,7 @@ export default function TracesPage() {
         onOpenChange={(next) => {
           if (!next) {
             setThreadDrawerRow(null);
+            clearObserveInspectInUrl();
           }
         }}
         row={threadDrawerRow}
@@ -890,11 +1026,12 @@ export default function TracesPage() {
         onOpenChange={(next) => {
           if (!next) {
             setInspectTraceRow(null);
+            clearObserveInspectInUrl();
           }
         }}
         row={inspectTraceRow}
         rows={traceRows}
-        onNavigate={setInspectTraceRow}
+        onNavigate={(row) => openTraceInspect(row)}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />
@@ -904,11 +1041,12 @@ export default function TracesPage() {
         onOpenChange={(next) => {
           if (!next) {
             setInspectSpanRow(null);
+            clearObserveInspectInUrl();
           }
         }}
         row={inspectSpanRow}
         rows={spanRows}
-        onNavigate={setInspectSpanRow}
+        onNavigate={(row) => openSpanInspect(row)}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />

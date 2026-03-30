@@ -119,12 +119,14 @@ export function buildTraceRecordsWhere(q: TraceRecordsListQuery): { whereSql: st
   const search = q.search ? clampSearch(q.search) : undefined;
   if (search) {
     whereParts.push(
-      `(instr(lower(COALESCE(t.input_json, '')), lower(?)) > 0
+      `(instr(lower(t.trace_id), lower(?)) > 0
+        OR instr(lower(COALESCE(t.thread_id, '')), lower(?)) > 0
+        OR instr(lower(COALESCE(t.input_json, '')), lower(?)) > 0
         OR instr(lower(COALESCE(t.output_json, '')), lower(?)) > 0
         OR instr(lower(COALESCE(t.metadata_json, '')), lower(?)) > 0
         OR instr(lower(COALESCE(t.name, '')), lower(?)) > 0)`,
     );
-    params.push(search, search, search, search);
+    params.push(search, search, search, search, search, search);
   }
 
   const channel = clampFacetFilter(q.channel);

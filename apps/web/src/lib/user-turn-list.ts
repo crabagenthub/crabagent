@@ -608,7 +608,7 @@ export type TurnWindowMetrics = {
   durationMs: number | null;
   promptTokens: number;
   completionTokens: number;
-  /** 优先 prompt+completion；仅有 API `total_tokens` 时为各轮之和。 */
+  /** 优先 prompt+completion+cacheRead；仅有 API `total_tokens` 时为各轮之和。 */
   displayTotal: number | null;
 };
 
@@ -622,6 +622,7 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
   const sorted = [...windowEvents].sort(compareTimelineChrono);
   let promptSum = 0;
   let completionSum = 0;
+  let cacheSum = 0;
   let explicitTotalSum = 0;
   let explicitTotalRows = 0;
 
@@ -636,13 +637,14 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
     const u = usageFromTracePayload(payload);
     promptSum += u.prompt;
     completionSum += u.completion;
+    cacheSum += u.cacheRead;
     if (u.total != null && u.total > 0) {
       explicitTotalSum += u.total;
       explicitTotalRows += 1;
     }
   }
 
-  const sumParts = promptSum + completionSum;
+  const sumParts = promptSum + completionSum + cacheSum;
   const displayTotal: number | null =
     sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
 
