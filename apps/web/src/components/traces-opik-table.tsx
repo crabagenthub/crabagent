@@ -3,9 +3,11 @@
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
+import { Copy } from "lucide-react";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import {
@@ -20,6 +22,7 @@ import {
 } from "@/lib/trace-records";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
+import { toast } from "sonner";
 
 function clipOneLine(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -48,6 +51,62 @@ function median(nums: number[]): number | null {
   }
   const m = Math.floor(a.length / 2);
   return a.length % 2 ? a[m]! : (a[m - 1]! + a[m]!) / 2;
+}
+
+async function copyText(text: string, onSuccess: () => void): Promise<void> {
+  if (!text.trim()) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    onSuccess();
+  } catch {
+    // ignore
+  }
+}
+
+function TraceIdCell({ traceId }: { traceId: string }) {
+  const t = useTranslations("Traces");
+
+  if (!traceId.trim()) {
+    return <span className="text-neutral-400">—</span>;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="block min-w-0 truncate" title={traceId}>
+        {traceId}
+      </span>
+      <TooltipProvider delay={80}>
+        <Tooltip>
+          <TooltipTrigger
+            render={(triggerProps) => (
+              <button
+                {...triggerProps}
+                type="button"
+                className="inline-flex shrink-0 rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  triggerProps.onClick?.(e);
+                  void copyText(traceId, () => {
+                    toast.success(t("copied"));
+                  });
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  triggerProps.onKeyDown?.(e);
+                }}
+                aria-label={t("inspectCopyTraceIdAria")}
+              >
+                <Copy className="size-3.5" strokeWidth={2} />
+              </button>
+            )}
+          />
+          <TooltipContent>{t("copy")}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
 }
 
 export function TracesOpikTable({
@@ -267,13 +326,7 @@ export function TracesOpikTable({
                   }
                 >
                   <td className="max-w-[14rem] min-w-0 px-3 py-2.5 align-top font-mono text-xs text-neutral-800">
-                    {row.trace_id.trim() ? (
-                      <span className="block truncate" title={row.trace_id}>
-                        {row.trace_id}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
+                    <TraceIdCell traceId={row.trace_id} />
                   </td>
                   <td className="max-w-[10rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
                     {channelDisp ? (

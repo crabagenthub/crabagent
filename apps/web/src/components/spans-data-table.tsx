@@ -2,14 +2,17 @@
 
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
+import { Copy } from "lucide-react";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatSpanDuration, type SpanRecordRow } from "@/lib/span-records";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 function clip(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -47,6 +50,51 @@ function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
     >
       {label}
     </span>
+  );
+}
+
+function SpanIdCell({ spanId }: { spanId: string }) {
+  const t = useTranslations("Traces");
+
+  if (!spanId.trim()) {
+    return <span className="text-neutral-400">—</span>;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="block min-w-0 truncate" title={spanId}>
+        {spanId}
+      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={(triggerProps) => (
+            <button
+              {...triggerProps}
+              type="button"
+              className="inline-flex shrink-0 rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+              onClick={async (e) => {
+                e.stopPropagation();
+                triggerProps.onClick?.(e);
+                try {
+                  await navigator.clipboard.writeText(spanId);
+                  toast.success(t("copied"));
+                } catch {
+                  // ignore
+                }
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                triggerProps.onKeyDown?.(e);
+              }}
+              aria-label={t("traceInspectCopySpanId")}
+            >
+              <Copy className="size-3.5" strokeWidth={2} />
+            </button>
+          )}
+        />
+        <TooltipContent>{t("copy")}</TooltipContent>
+      </Tooltip>
+    </div>
   );
 }
 
@@ -189,13 +237,7 @@ export function SpansDataTable({
                 className="cursor-pointer border-b border-neutral-100 hover:bg-neutral-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <td className="max-w-[14rem] min-w-0 px-3 py-2.5 font-mono text-xs text-neutral-800">
-                  {r.span_id.trim() ? (
-                    <span className="block truncate" title={r.span_id}>
-                      {r.span_id}
-                    </span>
-                  ) : (
-                    <span className="text-neutral-400">—</span>
-                  )}
+                  <SpanIdCell spanId={r.span_id} />
                 </td>
                 <td className="max-w-[10rem] truncate px-3 py-2.5 text-xs text-neutral-800" title={r.agent_name ?? ""}>
                   {r.agent_name ?? "—"}

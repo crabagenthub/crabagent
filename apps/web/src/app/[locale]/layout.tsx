@@ -7,6 +7,7 @@ import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { DocumentLang } from "@/components/document-lang";
 import { QueryProvider } from "@/components/query-provider";
 import { SiteNav } from "@/components/site-nav";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
@@ -50,6 +51,7 @@ export default async function LocaleLayout({
               <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
             </div>
           </div>
+          <Toaster richColors position="top-center" />
         </TooltipProvider>
       </QueryProvider>
     </NextIntlClientProvider>

@@ -58,8 +58,8 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
                 type="button"
                 onClick={() => pick("")}
                 className={cn(
-                  "flex w-full rounded-sm px-3 py-2 text-left text-sm transition-colors hover:bg-muted/80",
-                  !value ? "font-medium text-primary" : "text-foreground",
+                  "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
+                  !value && "bg-neutral-100 font-medium",
                 )}
               >
                 {t("filterAll")}
@@ -71,8 +71,8 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
                   type="button"
                   onClick={() => pick(s)}
                   className={cn(
-                    "flex w-full rounded-sm px-3 py-2 text-left text-sm transition-colors hover:bg-muted/80",
-                    value === s ? "font-medium text-primary" : "text-foreground",
+                    "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
+                    value === s && "bg-neutral-100 font-medium",
                   )}
                 >
                   {statusLabel(s)}

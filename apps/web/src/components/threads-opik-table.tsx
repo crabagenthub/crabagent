@@ -2,15 +2,17 @@
 
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
+import { Copy } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import {
   formatDurationMs,
   statusBandLabel,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/trace-records";
 import { extractThreadListLastMessageText, extractThreadListMessageText } from "@/lib/strip-inbound-meta";
 import { threadRowStableId, type ThreadRecordRow } from "@/lib/thread-records";
+import { toast } from "sonner";
 
 function clipOneLine(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -30,6 +33,51 @@ function clipOneLine(s: string | null | undefined, max: number): string {
 
 const lastMessageBadgeCls =
   "h-auto min-h-5 max-w-full min-w-0 border-transparent bg-blue-50 py-0.5 font-mono font-normal text-blue-700 dark:bg-blue-950 dark:text-blue-300";
+
+function ThreadIdCell({ threadId }: { threadId: string }) {
+  const t = useTranslations("Traces");
+
+  if (!threadId.trim()) {
+    return <span className="text-neutral-400">—</span>;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span className="block min-w-0 truncate" title={threadId}>
+        {threadId}
+      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={(triggerProps) => (
+            <button
+              {...triggerProps}
+              type="button"
+              className="inline-flex shrink-0 rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+              onClick={async (e) => {
+                e.stopPropagation();
+                triggerProps.onClick?.(e);
+                try {
+                  await navigator.clipboard.writeText(threadId);
+                  toast.success(t("copied"));
+                } catch {
+                  // ignore
+                }
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                triggerProps.onKeyDown?.(e);
+              }}
+              aria-label={t("threadDrawerCopyThreadId")}
+            >
+              <Copy className="size-3.5" strokeWidth={2} />
+            </button>
+          )}
+        />
+        <TooltipContent>{t("copy")}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
 
 function ThreadMessageCell({
   raw,
@@ -247,7 +295,7 @@ export function ThreadsOpikTable({
                   role={onRowClick ? "button" : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
                   className="cursor-pointer transition-colors hover:bg-neutral-50/80"
-                  onClickCapture={
+                  onClick={
                     onRowClick
                       ? () => {
                           onRowClick(row);
@@ -266,13 +314,7 @@ export function ThreadsOpikTable({
                   }
                 >
                   <td className="max-w-[14rem] min-w-0 px-3 py-2.5 align-top font-mono text-xs text-neutral-800">
-                    {row.thread_id.trim() ? (
-                      <span className="block truncate" title={row.thread_id}>
-                        {row.thread_id}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
+                    <ThreadIdCell threadId={row.thread_id} />
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 align-top">
                     {row.status ? (
@@ -286,7 +328,7 @@ export function ThreadsOpikTable({
                     )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs text-neutral-700">
-                    {formatTraceDateTimeLocal(new Date(row.first_seen_ms).toISOString())}
+                    {formatTraceDateTimeFromMs(row.first_seen_ms)}
                   </td>
                   <td className="max-w-[10rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
                     {row.agent_name ? (

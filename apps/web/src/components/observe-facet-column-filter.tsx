@@ -55,8 +55,8 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
                 type="button"
                 onClick={() => pick("")}
                 className={cn(
-                  "flex w-full rounded-sm px-3 py-2 text-left text-sm transition-colors hover:bg-muted/80",
-                  !applied ? "font-medium text-primary" : "text-foreground",
+                  "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
+                  !applied && "bg-neutral-100 font-medium",
                 )}
               >
                 {t("filterAll")}
@@ -68,8 +68,8 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
                   type="button"
                   onClick={() => pick(opt)}
                   className={cn(
-                    "flex w-full rounded-sm px-3 py-2 text-left text-sm break-words transition-colors hover:bg-muted/80",
-                    applied === opt ? "font-medium text-primary" : "text-foreground",
+                    "flex w-full rounded-md px-3 py-2 text-left text-sm break-words text-foreground transition-colors hover:bg-neutral-100",
+                    applied === opt && "bg-neutral-100 font-medium",
                   )}
                 >
                   {opt}
