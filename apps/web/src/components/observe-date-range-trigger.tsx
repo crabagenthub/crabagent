@@ -1,26 +1,19 @@
 "use client";
 
+import "@/lib/arco-react19-setup";
+import DatePicker from "@arco-design/web-react/es/DatePicker";
+import { Dropdown, Menu } from "@arco-design/web-react";
+import { CalendarIcon, ChevronDown } from "lucide-react";
+import dayjs, { type Dayjs } from "dayjs";
 import { endOfDay, format, startOfDay } from "date-fns";
 import { enUS, zhCN } from "date-fns/locale";
-import { CalendarIcon, ChevronDown } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
-import type { DateRange } from "react-day-picker";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import type { ObserveDatePreset, ObserveDateRange } from "@/lib/observe-date-range";
 import { cn } from "@/lib/utils";
+
+const RangePicker = DatePicker.RangePicker;
 
 const MENU_PRESETS: ObserveDatePreset[] = ["24h", "3d", "7d", "30d", "60d", "all"];
 
@@ -54,9 +47,11 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
   const localeTag = useLocale();
   const dfLocale = localeTag.toLowerCase().startsWith("zh") ? zhCN : enUS;
   const dateFmt = localeTag.toLowerCase().startsWith("zh") ? "yyyy年M月d日" : "MMM d, yyyy";
+  const dayStartOfWeek = localeTag.toLowerCase().startsWith("zh") ? 1 : 0;
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const [customDraft, setCustomDraft] = useState<DateRange | undefined>();
+  const [customOpen, setCustomOpen] = useState(false);
+  const [rangeDraft, setRangeDraft] = useState<[Dayjs, Dayjs] | null>(null);
 
   const triggerLabel = (() => {
     if (value.kind === "custom") {
@@ -66,8 +61,6 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
     }
     return t(presetTranslationKey(value.preset));
   })();
-
-  const radioValue = value.kind === "preset" ? value.preset : "";
 
   const onPresetChange = useCallback(
     (v: string) => {
@@ -80,80 +73,105 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
   );
 
   const applyCustom = useCallback(() => {
-    const from = customDraft?.from;
-    const to = customDraft?.to ?? customDraft?.from;
-    if (!from || !to) {
+    if (!rangeDraft?.[0] || !rangeDraft[1]) {
       return;
     }
+    const from = rangeDraft[0].toDate();
+    const to = rangeDraft[1].toDate();
     onChange({
       kind: "custom",
       startMs: startOfDay(from).getTime(),
       endMs: endOfDay(to).getTime(),
     });
     setMenuOpen(false);
-  }, [customDraft, onChange]);
+  }, [rangeDraft, onChange]);
+
+  const openCustom = useCallback(() => {
+    if (value.kind === "custom") {
+      setRangeDraft([dayjs(value.startMs), dayjs(value.endMs)]);
+    } else {
+      setRangeDraft(null);
+    }
+    setCustomOpen(true);
+  }, [value]);
 
   return (
-    <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-      <DropdownMenuTrigger
-        type="button"
-        className={cn(
-          buttonVariants({ variant: "outline", size: "lg" }),
-          "h-9 gap-2 px-3 font-medium shadow-sm",
-          className,
-        )}
-        aria-label={t("dateRangeLabel")}
-      >
+    <Dropdown
+      popupVisible={menuOpen}
+      onVisibleChange={(next) => {
+        setMenuOpen(next);
+        if (!next) {
+          setCustomOpen(false);
+        }
+      }}
+      trigger="click"
+      droplist={
+        <div className="w-[20rem] rounded-md bg-popover p-2 text-popover-foreground shadow-sm">
+          {!customOpen ? (
+            <div className="space-y-1">
+              <Menu
+                selectable
+                selectedKeys={value.kind === "preset" ? [value.preset] : []}
+                onClickMenuItem={(key) => {
+                  onPresetChange(String(key));
+                }}
+              >
+                {MENU_PRESETS.map((p) => (
+                  <Menu.Item key={p}>{t(presetTranslationKey(p))}</Menu.Item>
+                ))}
+              </Menu>
+              <div className="my-2 h-px bg-border" />
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full justify-between px-3 font-normal"
+                onClick={openCustom}
+              >
+                <span>{t("dateRangeCustom")}</span>
+                <CalendarIcon className="size-4 text-muted-foreground" aria-hidden />
+              </Button>
+            </div>
+          ) : (
+            <div className="w-full p-1">
+              <RangePicker
+                dayStartOfWeek={dayStartOfWeek}
+                style={{ width: "100%" }}
+                value={rangeDraft ?? undefined}
+                onChange={(_, v) => {
+                  if (v?.[0] && v?.[1]) {
+                    setRangeDraft([v[0], v[1]]);
+                  } else if (v?.[0]) {
+                    setRangeDraft([v[0], v[0]]);
+                  } else {
+                    setRangeDraft(null);
+                  }
+                }}
+              />
+              <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCustomOpen(false);
+                  }}
+                >
+                  {t("dateRangeCancel")}
+                </Button>
+                <Button type="button" size="sm" disabled={!rangeDraft?.[0] || !rangeDraft[1]} onClick={() => applyCustom()}>
+                  {t("dateRangeApply")}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      }
+    >
+      <Button type="button" variant="outline" size="lg" className={cn("h-9 gap-2 px-3 font-medium shadow-sm", className)} aria-label={t("dateRangeLabel")}>
         <CalendarIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{triggerLabel}</span>
         <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[12rem]">
-        <DropdownMenuRadioGroup value={radioValue} onValueChange={onPresetChange}>
-          {MENU_PRESETS.map((p) => (
-            <DropdownMenuRadioItem key={p} value={p}>
-              {t(presetTranslationKey(p))}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuSub
-          onOpenChange={(open) => {
-            if (open) {
-              if (value.kind === "custom") {
-                setCustomDraft({
-                  from: new Date(value.startMs),
-                  to: new Date(value.endMs),
-                });
-              } else {
-                setCustomDraft(undefined);
-              }
-            }
-          }}
-        >
-          <DropdownMenuSubTrigger className="gap-2">
-            <span className="flex-1">{t("dateRangeCustom")}</span>
-            <CalendarIcon className="size-4 text-muted-foreground" aria-hidden />
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto p-3" alignOffset={-4} sideOffset={6}>
-            <Calendar
-              mode="range"
-              numberOfMonths={1}
-              selected={customDraft}
-              onSelect={setCustomDraft}
-              locale={dfLocale}
-            />
-            <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
-              <Button type="button" variant="outline" size="sm" onClick={() => setMenuOpen(false)}>
-                {t("dateRangeCancel")}
-              </Button>
-              <Button type="button" size="sm" disabled={!customDraft?.from} onClick={() => applyCustom()}>
-                {t("dateRangeApply")}
-              </Button>
-            </div>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </Button>
+    </Dropdown>
   );
 }

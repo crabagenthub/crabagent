@@ -1,24 +1,24 @@
+"use client";
+
+import ArcoCard from "@arco-design/web-react/es/Card";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+type AppCardProps = Omit<React.ComponentProps<typeof ArcoCard>, "size"> & {
+  size?: "default" | "sm";
+};
+
 /**
- * 与 shadcn/ui Card（Radix 文档版式）对齐：根容器 + Header / Title / Description / Action / Content / Footer。
- * @see https://ui.shadcn.com/docs/components/radix/card
+ * Arco Card + 与原有 shadcn 版式一致的子块（Header / Content …），便于少改调用处。
  */
-function Card({
-  className,
-  size = "default",
-  ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+function Card({ className, size = "default", ...props }: AppCardProps) {
   return (
-    <div
-      data-slot="card"
-      className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border border-border shadow-sm",
-        size === "sm" && "gap-4 rounded-lg",
-        className,
-      )}
+    <ArcoCard
+      bordered
+      size={size === "sm" ? "small" : "default"}
+      className={cn("bg-card text-card-foreground shadow-sm", className)}
+      bodyStyle={{ padding: 0 }}
       {...props}
     />
   );

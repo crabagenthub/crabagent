@@ -1,6 +1,5 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import {
@@ -208,9 +207,9 @@ export function SpanRecordInspectDrawer({
               <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
                 <ListOrdered className="size-4 shrink-0" strokeWidth={2} aria-hidden />
               </span>
-              <Dialog.Title className="text-lg font-semibold leading-tight text-foreground">
+              <h2 className="text-lg font-semibold leading-tight text-foreground">
                 {t("spanInspectDrawerTitle")}
-              </Dialog.Title>
+              </h2>
             </div>
             <InspectDrawerMetaSection
               fields={[

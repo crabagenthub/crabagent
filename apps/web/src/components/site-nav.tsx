@@ -1,13 +1,16 @@
 "use client";
 
+import "@/lib/arco-react19-setup";
+import { Popover } from "@arco-design/web-react";
 import Image from "next/image";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import type { ComponentType, CSSProperties, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import type { ComponentType, ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
+import { Button } from "@/components/ui/button";
+import type { AppLocale } from "@/i18n/routing";
 import { clearApiKey } from "@/lib/collector";
 import {
   NavIconAlerts,
@@ -59,8 +62,6 @@ function SidebarRailIcon({ collapsed }: { collapsed: boolean }) {
     </svg>
   );
 }
-
-type AppLocale = "en" | "zh-CN";
 
 function IconGear({ className }: { className?: string }) {
   return (
@@ -115,21 +116,18 @@ function UserPanelLocale({ onAfterChange }: { onAfterChange?: () => void }) {
   const btn = (code: AppLocale, label: string) => {
     const active = locale === code;
     return (
-      <button
+      <Button
         key={code}
         type="button"
         aria-pressed={active}
         aria-label={label}
         onClick={() => pick(code)}
-        className={[
-          "flex-1 rounded-lg px-3 py-2 text-center text-xs font-semibold transition",
-          active
-            ? "bg-primary text-primary-foreground shadow-sm"
-            : "bg-muted text-popover-foreground ring-1 ring-border hover:bg-accent hover:text-accent-foreground",
-        ].join(" ")}
+        variant={active ? "default" : "secondary"}
+        size="sm"
+        className="flex-1 text-center text-xs"
       >
         {code === "en" ? "EN" : "中文"}
-      </button>
+      </Button>
     );
   };
 
@@ -200,36 +198,6 @@ function SidebarUserProfile({
 }) {
   const t = useTranslations("Nav");
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
-
-  useEffect(() => setMounted(true), []);
-
-  useLayoutEffect(() => {
-    if (!open || !anchorRef.current) {
-      return;
-    }
-    const r = anchorRef.current.getBoundingClientRect();
-    const width = Math.min(288, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
-    const gap = 10;
-    const bottom = window.innerHeight - r.top + gap;
-    setPanelStyle({ left, bottom, width });
-  }, [open, sidebarCollapsed]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
 
   const onLogout = () => {
     clearApiKey();
@@ -243,66 +211,57 @@ function SidebarUserProfile({
     </div>
   );
 
-  const panel =
-    open &&
-    mounted &&
-    createPortal(
-      <>
-        <div
-          className="fixed inset-0 z-[60] bg-black/80"
-          role="presentation"
-          onClick={() => setOpen(false)}
-        />
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="nav-user-panel-title"
-          className="fixed z-[70] max-h-[min(90dvh,32rem)] overflow-y-auto rounded-xl border border-border bg-popover pb-0 text-popover-foreground shadow-xl"
-          style={panelStyle}
-        >
-          <div className="px-3 pt-3">
-            <p id="nav-user-panel-title" className="text-[11px] font-semibold text-muted-foreground">
-              {t("userPopTitle")}
-            </p>
-            <div className="mt-2 flex gap-3 rounded-xl bg-primary/10 px-3 py-2.5 ring-1 ring-primary/20">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
-                <UserAvatarSilhouette className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <div className="min-w-0 flex-1 leading-tight">
-                <p className="truncate text-sm font-semibold text-popover-foreground">{t("userDisplayName")}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
-              </div>
-            </div>
+  const userMenuPanel = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nav-user-panel-title"
+      className="w-[min(100vw-1.5rem,18rem)] border-0 bg-popover pb-0 text-popover-foreground"
+    >
+      <div className="px-3 pt-3">
+        <p id="nav-user-panel-title" className="text-[11px] font-semibold text-muted-foreground">
+          {t("userPopTitle")}
+        </p>
+        <div className="mt-2 flex gap-3 rounded-xl bg-primary/10 px-3 py-2.5 ring-1 ring-primary/20">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
+            <UserAvatarSilhouette className="h-5 w-5 text-primary-foreground" />
           </div>
-          <div className="mt-2 border-t border-border px-2 py-1">
-            <LocalizedLink
-              href="/settings"
-              className="flex items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium text-popover-foreground no-underline transition hover:bg-accent hover:text-accent-foreground"
-              onClick={() => setOpen(false)}
-            >
-              <IconGear className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {t("userAccountSettings")}
-            </LocalizedLink>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-left text-sm font-medium text-popover-foreground transition hover:bg-accent hover:text-accent-foreground"
-              onClick={onLogout}
-            >
-              <IconLogout className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {t("userLogout")}
-            </button>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-sm font-semibold text-popover-foreground">{t("userDisplayName")}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
           </div>
-          <UserPanelLocale onAfterChange={() => setOpen(false)} />
         </div>
-      </>,
-      document.body,
-    );
+      </div>
+      <div className="mt-2 border-t border-border px-2 py-1">
+        <LocalizedLink
+          href="/settings"
+          className="flex items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium text-popover-foreground no-underline transition hover:bg-accent hover:text-accent-foreground"
+          onClick={() => setOpen(false)}
+        >
+          <IconGear className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {t("userAccountSettings")}
+        </LocalizedLink>
+        <Button
+          type="button"
+          variant="ghost"
+          className="flex w-full items-center justify-start gap-2.5 px-2 py-2.5 text-left text-sm font-medium text-popover-foreground"
+          onClick={onLogout}
+        >
+          <IconLogout className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {t("userLogout")}
+        </Button>
+      </div>
+      <UserPanelLocale onAfterChange={() => setOpen(false)} />
+    </div>
+  );
 
   const collapseBtn =
     onRequestStripCollapse != null ? (
-      <button
+      <Button
         type="button"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        variant="ghost"
+        size="icon-sm"
+        className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring"
         aria-label={t("collapseBottom")}
         title={t("collapseBottom")}
         onClick={(e) => {
@@ -312,65 +271,62 @@ function SidebarUserProfile({
         }}
       >
         <UserStripCollapseChevrons className="text-current" />
-      </button>
+      </Button>
     ) : null;
 
-  const openMenu = () => setOpen((o) => !o);
+  const triggerBtn = (
+    <Button
+      type="button"
+      variant="ghost"
+      size={sidebarCollapsed ? "icon" : "sm"}
+      className={[
+        "ring-offset-2 ring-offset-sidebar transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        sidebarCollapsed
+          ? "h-auto w-auto flex-col items-center rounded-full p-1"
+          : "h-auto min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 pl-1 pr-2 text-left",
+      ].join(" ")}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={t("userMenuOpen")}
+      title={sidebarCollapsed ? `${t("userDisplayName")} · ${t("userHandle")}` : undefined}
+    >
+      {avatarFace}
+      {!sidebarCollapsed ? (
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-sm font-semibold text-sidebar-foreground">{t("userDisplayName")}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
+        </div>
+      ) : null}
+    </Button>
+  );
 
   return (
-    <>
-      <div className={[sidebarCollapsed ? "px-2 pb-1.5 pt-1" : "px-2.5 pb-2.5 pt-1.5"].join(" ")}>
-        <div
-          className={["flex min-w-0 items-center gap-2", sidebarCollapsed ? "flex-col justify-center gap-1" : ""].join(
-            " ",
-          )}
+    <div className={[sidebarCollapsed ? "px-2 pb-1.5 pt-1" : "px-2.5 pb-2.5 pt-1.5"].join(" ")}>
+      <div
+        className={["flex min-w-0 items-center gap-2", sidebarCollapsed ? "flex-col justify-center gap-1" : ""].join(
+          " ",
+        )}
+      >
+        <Popover
+          className="site-nav-user-popover"
+          trigger="click"
+          position="top"
+          blurToHide={false}
+          escToClose
+          popupVisible={open}
+          onVisibleChange={setOpen}
+          style={{ maxWidth: 288 }}
+          triggerProps={{
+            showArrow: false,
+            duration: { enter: 180, exit: 140, appear: 180 },
+          }}
+          content={userMenuPanel}
         >
-          {sidebarCollapsed ? (
-            <>
-              <button
-                ref={anchorRef}
-                type="button"
-                className={[
-                  "flex flex-col items-center rounded-full p-1 outline-none ring-offset-2 ring-offset-sidebar transition",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                ].join(" ")}
-                aria-expanded={open}
-                aria-haspopup="dialog"
-                aria-label={t("userMenuOpen")}
-                title={`${t("userDisplayName")} · ${t("userHandle")}`}
-                onClick={openMenu}
-              >
-                {avatarFace}
-              </button>
-              {collapseBtn}
-            </>
-          ) : (
-            <>
-              <button
-                ref={anchorRef}
-                type="button"
-                className={[
-                  "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 pl-1 pr-2 text-left outline-none ring-offset-2 ring-offset-sidebar transition",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                ].join(" ")}
-                aria-expanded={open}
-                aria-haspopup="dialog"
-                aria-label={t("userMenuOpen")}
-                onClick={openMenu}
-              >
-                {avatarFace}
-                <div className="min-w-0 flex-1 leading-tight">
-                  <p className="truncate text-sm font-semibold text-sidebar-foreground">{t("userDisplayName")}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
-                </div>
-              </button>
-              {collapseBtn}
-            </>
-          )}
-        </div>
+          {triggerBtn}
+        </Popover>
+        {collapseBtn}
       </div>
-      {panel}
-    </>
+    </div>
   );
 }
 
@@ -571,10 +527,12 @@ export function SiteNav() {
           </div>
         )}
 
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-sm"
           className={[
-            "flex shrink-0 items-center justify-center rounded-lg bg-sidebar text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "shrink-0 bg-sidebar text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             collapsed ? "h-7 w-7 border-0 ring-0" : "h-8 w-8 border border-sidebar-border",
           ].join(" ")}
           aria-label={collapsed ? t("expandSidebar") : t("collapseSidebar")}
@@ -582,7 +540,7 @@ export function SiteNav() {
           onClick={toggleCollapsed}
         >
           <SidebarRailIcon collapsed={collapsed} />
-        </button>
+        </Button>
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
@@ -598,9 +556,11 @@ export function SiteNav() {
       </nav>
 
       <div className="relative z-20 isolate shrink-0 border-0 bg-sidebar">
-        <button
+        <Button
           type="button"
-          className="absolute left-1/2 top-0 z-30 flex h-7 min-w-[2.25rem] -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border border-sidebar-border bg-sidebar px-2 text-muted-foreground shadow-sm transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring pointer-events-auto"
+          variant="ghost"
+          size="icon-sm"
+          className="absolute left-1/2 top-0 z-30 h-7 min-w-[2.25rem] -translate-x-1/2 -translate-y-1/2 border border-sidebar-border bg-sidebar px-2 text-muted-foreground shadow-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring pointer-events-auto"
           aria-expanded={bottomExpanded}
           aria-label={bottomExpanded ? t("collapseBottom") : t("expandBottom")}
           onClick={(e) => {
@@ -609,7 +569,7 @@ export function SiteNav() {
           }}
         >
           {bottomExpanded ? <ChevronUpThin className="h-4 w-4" /> : <ChevronDownThin className="h-4 w-4" />}
-        </button>
+        </Button>
         {bottomExpanded ? (
           <div className="pointer-events-auto pt-3">
             <SidebarUserProfile sidebarCollapsed={collapsed} onRequestStripCollapse={closeBottomStrip} />

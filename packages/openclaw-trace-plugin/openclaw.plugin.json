@@ -45,8 +45,8 @@
       },
       "debugLogHooks": {
         "type": "boolean",
-        "default": false,
-        "description": "Hook / queue / flush 调试日志（plugin logger info）。Env: CRABAGENT_TRACE_DEBUG_HOOKS=1 or CRABAGENT_TRACE_DEBUG=1 if openclaw.json cannot set this key."
+        "default": true,
+        "description": "Hook / queue / flush 调试日志（console.warn）。默认开启；设为 false 或 Env CRABAGENT_TRACE_DEBUG_HOOKS=0|false|no 关闭。"
       },
       "debug": {
         "type": "boolean",
@@ -64,10 +64,21 @@
         "default": [],
         "description": "Sub-agent ids to mirror message_received pending onto (\\x1fagent:<id> aliases). Env: CRABAGENT_TRACE_MIRROR_AGENT_IDS=id1,id2 when openclaw.json cannot set this."
       },
+      "deferredUserMessageFlushMs": {
+        "type": "number",
+        "minimum": 0,
+        "default": 3000,
+        "description": "After inbound message with body: if pending not consumed by llm_input/agent_end within this many ms, emit a non-LLM trace. 0 disables. Env: CRABAGENT_TRACE_DEFERRED_USER_FLUSH_MS."
+      },
       "persistPendingToDisk": {
         "type": "boolean",
         "default": true,
         "description": "Persist in-memory trace pending to plugin stateDir (crabagent/pending/) so hook:gmail / isolated runs survive process crash before agent_end."
+      },
+      "bridgeOpenClawSessionStore": {
+        "type": "boolean",
+        "default": true,
+        "description": "Merge pending onto session keys from OpenClaw sessions.json (same path resolution as coze-openclaw-plugin session-recovery). Env: CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE=1 to disable."
       }
     }
   }

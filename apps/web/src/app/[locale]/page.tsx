@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
-import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "@/i18n/navigation";
 import { loadCollectorUrl } from "@/lib/collector";
 
 function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
@@ -39,6 +40,7 @@ function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
 
 export default function HomePage() {
   const t = useTranslations("Home");
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [mounted, setMounted] = useState(false);
 
@@ -79,12 +81,12 @@ export default function HomePage() {
           clampClass="line-clamp-3"
         />
         <div className="mt-6 flex flex-wrap gap-3">
-          <LocalizedLink href="/traces" className="ca-btn-primary inline-flex no-underline">
+          <Button type="button" variant="default" onClick={() => router.push("/traces")}>
             {t("openTraces")}
-          </LocalizedLink>
-          <LocalizedLink href="/settings" className="ca-btn-secondary inline-flex no-underline">
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => router.push("/settings")}>
             {t("configureCollector")}
-          </LocalizedLink>
+          </Button>
         </div>
       </div>
 

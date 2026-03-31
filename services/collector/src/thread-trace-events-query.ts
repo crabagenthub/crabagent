@@ -17,7 +17,22 @@ function agentNameFromMetadata(metadata: Record<string, unknown>): string | null
       return v.trim();
     }
   }
+  const oc = metadata.openclaw_context;
+  if (oc && typeof oc === "object" && !Array.isArray(oc)) {
+    const o = oc as Record<string, unknown>;
+    for (const k of ["agentName", "agent_name", "agentId", "agent_id"] as const) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) {
+        return v.trim();
+      }
+    }
+  }
   return null;
+}
+
+/** 插件写入的 non-LLM / agent_end 合成 trace，勿把 metadata.output_preview 当助手回复。 */
+function isSyntheticNonLlmTraceKind(traceKind: unknown): boolean {
+  return typeof traceKind === "string" && traceKind.startsWith("agent_end_");
 }
 
 function safeObject(raw: string | null | undefined): Record<string, unknown> {
@@ -140,6 +155,24 @@ function llmOutputPayload(
   metadata: Record<string, unknown>,
 ): Record<string, unknown> {
   const out = { ...output };
+  const mdUsage = metadata.usage;
+  if (
+    (out.usage == null || typeof out.usage !== "object" || Array.isArray(out.usage)) &&
+    mdUsage &&
+    typeof mdUsage === "object" &&
+    !Array.isArray(mdUsage)
+  ) {
+    out.usage = { ...(mdUsage as Record<string, unknown>) };
+  }
+  const mdUsageMetadata = metadata.usageMetadata;
+  if (
+    (out.usageMetadata == null || typeof out.usageMetadata !== "object" || Array.isArray(out.usageMetadata)) &&
+    mdUsageMetadata &&
+    typeof mdUsageMetadata === "object" &&
+    !Array.isArray(mdUsageMetadata)
+  ) {
+    out.usageMetadata = { ...(mdUsageMetadata as Record<string, unknown>) };
+  }
   const extracted = extractAssistantTextsFromOutputShape(out);
   if (extracted != null) {
     const existing = out.assistantTexts;
@@ -148,7 +181,11 @@ function llmOutputPayload(
     }
   }
   const prev = metadata.output_preview;
-  if (typeof prev === "string" && prev.trim()) {
+  if (
+    typeof prev === "string" &&
+    prev.trim() &&
+    !isSyntheticNonLlmTraceKind(metadata.trace_kind)
+  ) {
     const existing = out.assistantTexts;
     if (!Array.isArray(existing) || existing.length === 0) {
       out.assistantTexts = [prev.trim()];
@@ -169,6 +206,9 @@ function llmOutputPayload(
  */
 export function queryThreadTraceEvents(db: Database.Database, threadKey: string): Record<string, unknown>[] {
   const key = threadKey.trim();
+  // #region agent log
+  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H3",location:"services/collector/src/thread-trace-events-query.ts:191",message:"queryThreadTraceEvents_enter",data:{threadKey:key},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (!key) {
     return [];
   }
@@ -187,6 +227,9 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
        ORDER BY created_at_ms ASC, trace_id ASC`,
     )
     .all(key) as TraceRow[];
+  // #region agent log
+  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H3",location:"services/collector/src/thread-trace-events-query.ts:210",message:"queryThreadTraceEvents_rows_loaded",data:{threadKey:key,rowCount:rows.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   const events: Record<string, unknown>[] = [];
   let seq = 0;
@@ -203,6 +246,9 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     const input = safeObject(r.input_json);
     const output = safeObject(r.output_json);
     const metadata = safeObject(r.metadata_json);
+    // #region agent log
+    fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H1",location:"services/collector/src/thread-trace-events-query.ts:229",message:"llm_output_usage_source_shape",data:{traceId,threadKey:key,outputHasUsage:typeof output.usage==="object"&&output.usage!==null,outputHasUsageMetadata:typeof output.usageMetadata==="object"&&output.usageMetadata!==null,metadataHasUsage:typeof metadata.usage==="object"&&metadata.usage!==null,metadataHasTotalTokens:typeof metadata.total_tokens==="number"||typeof metadata.totalTokens==="number"},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     const agentName = agentNameFromMetadata(metadata);
     const chatTitle = typeof r.name === "string" && r.name.trim() ? r.name.trim() : null;
@@ -254,6 +300,13 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       created_at: when,
       payload: llmOutputPayload(output, metadata),
     });
+    // #region agent log
+    {
+      const p = events[events.length - 1]?.payload;
+      const po = p && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
+      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H2",location:"services/collector/src/thread-trace-events-query.ts:280",message:"llm_output_payload_ready",data:{traceId,threadKey:key,payloadHasUsage:typeof po.usage==="object"&&po.usage!==null,payloadHasUsageMetadata:typeof po.usageMetadata==="object"&&po.usageMetadata!==null,payloadAssistantTexts:Array.isArray(po.assistantTexts)?po.assistantTexts.length:0},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
   }
 
   return events;

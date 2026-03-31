@@ -12,12 +12,17 @@
     "verify:detail-chain": "cd apps/web && pnpm dlx tsx@4.19.0 --tsconfig tsconfig.json src/lib/detail-chain.verify.ts",
     "test:trace": "pnpm verify:detail-chain && pnpm smoke",
     "test:openclaw-plugin": "pnpm --filter @crabagent/openclaw-trace-plugin test",
-    "collector:clear-db": "node scripts/clear-collector-db.mjs",
+    "collector:clear-db": "pnpm --filter @crabagent/collector run clear-db",
     "openclaw:merge-config": "node scripts/merge-openclaw-config.mjs",
     "sync:trace-plugin": "node scripts/sync-openclaw-trace-plugin.mjs",
     "lint": "pnpm -r --if-present run lint"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@arco-design/web-react@2.66.12": "patches/@arco-design__web-react@2.66.12.patch"
+    }
   }
 }

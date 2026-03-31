@@ -18,6 +18,8 @@ import { applyOpikBatch } from "./opik-batch-ingest.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
+const AUTH_BYPASS_LOCAL =
+  ["1", "true", "yes"].includes((process.env.CRABAGENT_DISABLE_API_KEY_AUTH ?? "").trim().toLowerCase());
 const collectorPackageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDbPath = path.join(collectorPackageRoot, "data", "crabagent.db");
 const DB_PATH = process.env.CRABAGENT_DB_PATH?.trim() || defaultDbPath;
@@ -54,6 +56,9 @@ function parseObserveListSort(raw: string | undefined): "time" | "tokens" {
 }
 
 function checkApiKey(c: KeyCtx): boolean {
+  if (AUTH_BYPASS_LOCAL) {
+    return true;
+  }
   if (!API_KEY) {
     return true;
   }
@@ -70,51 +75,6 @@ function checkApiKey(c: KeyCtx): boolean {
 
 app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
 
-function summarizeOpikBatchForDebug(body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { parse: "invalid_body" };
-  }
-  const b = body as Record<string, unknown>;
-  const traces = Array.isArray(b.traces) ? b.traces : [];
-  const threads = Array.isArray(b.threads) ? b.threads : [];
-  const spans = Array.isArray(b.spans) ? b.spans : [];
-  const traceSample = traces.slice(0, 6).map((t) => {
-    if (!t || typeof t !== "object" || Array.isArray(t)) {
-      return {};
-    }
-    const tr = t as Record<string, unknown>;
-    const input = tr.input && typeof tr.input === "object" && !Array.isArray(tr.input) ? (tr.input as Record<string, unknown>) : {};
-    const openclaw = input.openclaw && typeof input.openclaw === "object" && !Array.isArray(input.openclaw) ? (input.openclaw as Record<string, unknown>) : {};
-    const meta =
-      tr.metadata && typeof tr.metadata === "object" && !Array.isArray(tr.metadata) ? (tr.metadata as Record<string, unknown>) : {};
-    return {
-      trace_id_head: String(tr.trace_id ?? "").slice(0, 16),
-      name: tr.name,
-      agentId: openclaw.agentId,
-      created_from: tr.created_from,
-      metaKeys: Object.keys(meta).slice(0, 8),
-    };
-  });
-  const threadSample = threads.slice(0, 4).map((th) => {
-    if (!th || typeof th !== "object" || Array.isArray(th)) {
-      return {};
-    }
-    const r = th as Record<string, unknown>;
-    return {
-      thread_id_head: String(r.thread_id ?? "").slice(0, 32),
-      agent_name: r.agent_name,
-      channel_name: r.channel_name,
-    };
-  });
-  return {
-    traceCount: traces.length,
-    threadCount: threads.length,
-    spanCount: spans.length,
-    traceSample,
-    threadSample,
-  };
-}
-
 /** opik-openclaw 插件落库（与 `opik-batch-ingest` 一致）。 */
 app.post("/v1/opik/batch", async (c) => {
   if (!checkApiKey(c)) {
@@ -127,25 +87,6 @@ app.post("/v1/opik/batch", async (c) => {
     return c.json({ error: "invalid_json" }, 400);
   }
   const result = applyOpikBatch(db, body);
-  // #region agent log
-  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
-    body: JSON.stringify({
-      sessionId: "24bc8e",
-      hypothesisId: "H1,H2,H5",
-      location: "collector/index.ts:POST /v1/opik/batch",
-      message: "ingest apply result",
-      data: {
-        accepted: result.accepted,
-        skippedN: result.skipped.length,
-        skippedHead: result.skipped.slice(0, 6),
-        batchSummary: summarizeOpikBatchForDebug(body),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   if (process.env.CRABAGENT_INGEST_LOG?.trim() === "1") {
     console.info(
       `[crabagent-collector] POST /v1/opik/batch accepted threads=${result.accepted.threads} traces=${result.accepted.traces} spans=${result.accepted.spans} skipped=${result.skipped.length}`,
@@ -439,7 +380,7 @@ app.get("/v1/traces/:traceRootId/stream", (c) => {
 });
 
 console.log(
-  `[crabagent-collector] listening on http://127.0.0.1:${PORT} db=${DB_PATH_LOG} auth=${API_KEY ? "on" : "off"}`,
+  `[crabagent-collector] listening on http://127.0.0.1:${PORT} db=${DB_PATH_LOG} auth=${AUTH_BYPASS_LOCAL ? "bypassed" : API_KEY ? "on" : "off"}`,
 );
 
 serve({ fetch: app.fetch, port: PORT });

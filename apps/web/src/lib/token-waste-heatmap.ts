@@ -11,10 +11,6 @@ function rowNumericId(e: TraceTimelineEvent): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return Boolean(v && typeof v === "object" && !Array.isArray(v));
-}
-
 function assistantCharsFromPayload(payload: Record<string, unknown>): number {
   const texts = payload.assistantTexts;
   if (Array.isArray(texts)) {

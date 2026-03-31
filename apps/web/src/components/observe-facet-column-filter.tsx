@@ -1,9 +1,12 @@
 "use client";
 
+import "@/lib/arco-react19-setup";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Dropdown, Menu } from "@arco-design/web-react";
 import { Filter } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { OBSERVE_TABLE_ICON_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -28,57 +31,39 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
   return (
     <div className="flex items-center gap-1">
       <span className="whitespace-nowrap">{label}</span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                applied ? "text-primary" : "text-neutral-500",
-              )}
-              aria-label={t(ariaLabelKey)}
-              aria-expanded={open}
-            />
-          }
+      <Dropdown
+        popupVisible={open}
+        onVisibleChange={setOpen}
+        trigger="click"
+        droplist={
+          <Menu
+            selectedKeys={applied ? [applied] : ["__all__"]}
+            onClickMenuItem={(key) => {
+              pick(key === "__all__" ? "" : String(key));
+            }}
+            className="min-w-[10rem]"
+          >
+            <Menu.Item key="__all__">{t("filterAll")}</Menu.Item>
+            {options.map((opt) => (
+              <Menu.Item key={opt}>{opt}</Menu.Item>
+            ))}
+          </Menu>
+        }
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
+            applied ? "text-primary" : "text-neutral-500",
+          )}
+          aria-label={t(ariaLabelKey)}
+          aria-expanded={open}
         >
           <Filter className="size-3.5" strokeWidth={2} aria-hidden />
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={6}
-          className="max-h-[min(24rem,70vh)] w-auto min-w-[10rem] max-w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto p-1 shadow-md"
-        >
-          <ul className="m-0 list-none p-0">
-            <li>
-              <button
-                type="button"
-                onClick={() => pick("")}
-                className={cn(
-                  "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
-                  !applied && "bg-neutral-100 font-medium",
-                )}
-              >
-                {t("filterAll")}
-              </button>
-            </li>
-            {options.map((opt) => (
-              <li key={opt}>
-                <button
-                  type="button"
-                  onClick={() => pick(opt)}
-                  className={cn(
-                    "flex w-full rounded-md px-3 py-2 text-left text-sm break-words text-foreground transition-colors hover:bg-neutral-100",
-                    applied === opt && "bg-neutral-100 font-medium",
-                  )}
-                >
-                  {opt}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </PopoverContent>
-      </Popover>
+        </Button>
+      </Dropdown>
     </div>
   );
 }

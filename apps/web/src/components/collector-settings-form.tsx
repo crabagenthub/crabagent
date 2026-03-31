@@ -1,10 +1,14 @@
 "use client";
 
+import ArcoInput from "@arco-design/web-react/es/Input";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { Button } from "@/components/ui/button";
 import { loadApiKey, loadCollectorUrl, saveApiKey, saveCollectorUrl } from "@/lib/collector";
+
+import "@/lib/arco-react19-setup";
 
 export const CRABAGENT_COLLECTOR_SETTINGS_EVENT = "crabagent-collector-settings";
 
@@ -128,35 +132,34 @@ export function CollectorSettingsForm() {
         <h2 className="text-sm font-semibold text-neutral-900">{t("connectionTitle")}</h2>
         <div>
           <span className="ca-label">{t("collectorUrl")}</span>
-          <input
-            className="ca-input"
+          <ArcoInput
+            className="mt-1.5"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={setUrl}
             placeholder="http://127.0.0.1:8787"
+            allowClear
           />
         </div>
         <div>
           <span className="ca-label">{t("apiKey")}</span>
-          <input
-            className="ca-input"
-            type="password"
+          <ArcoInput.Password
+            className="mt-1.5"
             autoComplete="off"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={setApiKey}
           />
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <Button
             type="button"
-            className="ca-btn-primary"
+            loading={saving}
             onClick={() => {
               setSaving(true);
               void save().finally(() => setSaving(false));
             }}
-            disabled={saving}
           >
             {t("saveSettings")}
-          </button>
+          </Button>
           {saveBanner === "ok" && (
             <span className="text-sm font-medium text-primary" role="status">
               {t("saveOk")}

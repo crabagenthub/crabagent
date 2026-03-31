@@ -24,17 +24,9 @@ import { SpansDataTable } from "@/components/spans-data-table";
 import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
 import { ThreadsOpikTable } from "@/components/threads-opik-table";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationFirst,
-  PaginationItem,
-  PaginationLast,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import ArcoPagination from "@arco-design/web-react/es/Pagination";
+
+import "@/lib/arco-react19-setup";
 import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
 import { TracesOpikTable } from "@/components/traces-opik-table";
 import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
@@ -78,36 +70,6 @@ function readStoredPageSize(): number {
 }
 
 type ListKind = "threads" | "traces" | "spans";
-
-/** 1-based page indices for shadcn-style pagination (with ellipses). */
-function buildVisiblePages(current1Based: number, totalPages: number): (number | "ellipsis")[] {
-  if (totalPages <= 1) {
-    return [1];
-  }
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-  const delta = 1;
-  const range = new Set<number>();
-  range.add(1);
-  range.add(totalPages);
-  const l = Math.max(2, current1Based - delta);
-  const r = Math.min(totalPages - 1, current1Based + delta);
-  for (let i = l; i <= r; i++) {
-    range.add(i);
-  }
-  const sorted = [...range].sort((a, b) => a - b);
-  const out: (number | "ellipsis")[] = [];
-  let prev = 0;
-  for (const p of sorted) {
-    if (prev > 0 && p - prev > 1) {
-      out.push("ellipsis");
-    }
-    out.push(p);
-    prev = p;
-  }
-  return out;
-}
 
 function invalidateObserveLists(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.traceList] });
@@ -162,7 +124,6 @@ export default function TracesPage() {
   const [searchDraft, setSearchDraft] = useState("");
   const [searchApplied, setSearchApplied] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
-  const [jumpDraft, setJumpDraft] = useState("1");
   const [pageSize, setPageSizeState] = useState(10);
   const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
 
@@ -651,12 +612,6 @@ export default function TracesPage() {
     setSearchApplied("");
   }, []);
 
-  const clearObserveFacetFilters = useCallback(() => {
-    setFilterChannel("");
-    setFilterAgent("");
-    setFilterStatus("");
-  }, []);
-
   const searchActive = searchApplied.length > 0;
   const observeFacetFilterCount =
     (filterChannel.trim() ? 1 : 0) +
@@ -669,29 +624,7 @@ export default function TracesPage() {
 
   const rangeFrom = total > 0 ? pageIndex * pageSize + 1 : 0;
   const rangeTo = pageIndex * pageSize + (listKind === "traces" ? traceRows.length : listKind === "threads" ? threadRows.length : spanRows.length);
-  const hasNextPage = rangeTo < total;
-  const hasPrevPage = pageIndex > 0;
-  const maxPageIndex = Math.max(0, Math.ceil(total / pageSize) - 1);
-  const hasFirstPage = pageIndex > 0;
-  const hasLastPage = pageIndex < maxPageIndex;
   const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
-  const visiblePages = useMemo(
-    () => buildVisiblePages(pageIndex + 1, totalPages),
-    [pageIndex, totalPages],
-  );
-
-  useEffect(() => {
-    setJumpDraft(String(pageIndex + 1));
-  }, [pageIndex]);
-
-  const applyJumpPage = useCallback(() => {
-    const n = Number.parseInt(jumpDraft.trim(), 10);
-    if (!Number.isFinite(n) || totalPages < 1) {
-      return;
-    }
-    const clamped = Math.min(Math.max(1, Math.trunc(n)), totalPages);
-    setPageIndex(clamped - 1);
-  }, [jumpDraft, totalPages]);
 
   const searchPlaceholder =
     listKind === "threads"
@@ -909,100 +842,24 @@ export default function TracesPage() {
               <span className="text-xs font-medium tabular-nums text-muted-foreground">
                 {t("paginationTotalPages", { count: String(totalPages) })}
               </span>
-              <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <span>{t("paginationPerPageLabel")}</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setPageIndex(0);
-                  }}
-                  className="h-9 rounded-lg border border-input bg-background px-2 py-1.5 text-sm text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                >
-                  {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
-                      {t("paginationPageSizeOption", { n: String(n) })}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Pagination className="mx-0 w-auto flex-initial justify-end">
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationFirst
-                      aria-label={t("paginationFirst")}
-                      disabled={!hasFirstPage || q.isFetching}
-                      onClick={() => setPageIndex(0)}
-                    />
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      aria-label={t("paginationPrev")}
-                      disabled={!hasPrevPage || q.isFetching}
-                      onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
-                      text={t("paginationPrev")}
-                    />
-                  </PaginationItem>
-                  {visiblePages.map((item, idx) =>
-                    item === "ellipsis" ? (
-                      <PaginationItem key={`ellipsis-${idx}`}>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    ) : (
-                      <PaginationItem key={item}>
-                        <PaginationLink
-                          isActive={item === pageIndex + 1}
-                          aria-label={t("paginationPage", { n: String(item) })}
-                          disabled={q.isFetching}
-                          onClick={() => setPageIndex(item - 1)}
-                        >
-                          {item}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ),
-                  )}
-                  <PaginationItem>
-                    <PaginationNext
-                      aria-label={t("paginationNext")}
-                      disabled={!hasNextPage || q.isFetching}
-                      onClick={() => setPageIndex((p) => p + 1)}
-                      text={t("paginationNext")}
-                    />
-                  </PaginationItem>
-                  <PaginationItem>
-                    <PaginationLast
-                      aria-label={t("paginationLast")}
-                      disabled={!hasLastPage || q.isFetching}
-                      onClick={() => setPageIndex(maxPageIndex)}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="whitespace-nowrap">{t("paginationJumpLabel")}</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  aria-label={t("paginationJumpLabel")}
-                  value={jumpDraft}
-                  onChange={(e) => setJumpDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      applyJumpPage();
-                    }
-                  }}
-                  className="h-9 w-11 rounded-lg border border-input bg-background px-2 text-center text-sm tabular-nums text-foreground shadow-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                />
-                <button
-                  type="button"
-                  onClick={() => applyJumpPage()}
-                  className="h-9 shrink-0 rounded-lg border border-input bg-background px-2.5 text-xs font-semibold text-foreground shadow-sm hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {t("paginationJumpGo")}
-                </button>
-              </span>
+              <ArcoPagination
+                className="mx-0"
+                size="small"
+                current={pageIndex + 1}
+                pageSize={pageSize}
+                total={total}
+                disabled={q.isFetching}
+                bufferSize={1}
+                sizeCanChange
+                sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                showJumper
+                onChange={(page, ps) => {
+                  setPageIndex(page - 1);
+                  if (ps !== pageSize) {
+                    setPageSize(ps);
+                  }
+                }}
+              />
             </div>
           </div>
         </div>

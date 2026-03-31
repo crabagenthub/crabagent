@@ -2,7 +2,8 @@
 
 import { useTranslations } from "next-intl";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
-import { LocalizedLink } from "@/components/localized-link";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "@/i18n/navigation";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import type { TraceMessageRow } from "@/lib/trace-messages";
 import { traceMessagePreviewText, traceMessageTimeIso } from "@/lib/trace-messages";
@@ -13,6 +14,7 @@ function detailHref(threadKey: string): string {
 
 export function TraceMessageCard({ row, previewMax }: { row: TraceMessageRow; previewMax: number }) {
   const t = useTranslations("Traces");
+  const router = useRouter();
   const tk = typeof row.thread_key === "string" ? row.thread_key.trim() : "";
   const agent =
     (typeof row.agent_name === "string" && row.agent_name.trim()) ||
@@ -51,12 +53,9 @@ export function TraceMessageCard({ row, previewMax }: { row: TraceMessageRow; pr
           </div>
           <div className="flex shrink-0 sm:pt-0.5">
             {tk ? (
-              <LocalizedLink
-                href={detailHref(tk)}
-                className="ca-btn-primary inline-flex w-full justify-center px-4 py-2 no-underline sm:w-auto"
-              >
+              <Button type="button" className="w-full sm:w-auto" onClick={() => router.push(detailHref(tk))}>
                 {t("openThread")}
-              </LocalizedLink>
+              </Button>
             ) : (
               <span className="text-xs text-ca-muted">{t("openThreadDisabled")}</span>
             )}

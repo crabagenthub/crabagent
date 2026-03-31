@@ -9,6 +9,8 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "@/i18n/navigation";
 import { TraceConversationView } from "@/components/trace-conversation-view";
 import { TraceSpanAttributesPanel } from "@/components/trace-span-attributes-panel";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
@@ -96,6 +98,7 @@ function pickBackfillFromEvents(
 
 function TraceDetailContent() {
   const t = useTranslations("Traces");
+  const router = useRouter();
   const queryClient = useQueryClient();
   const params = useParams<{ traceRootId: string }>();
   const searchParams = useSearchParams();
@@ -438,9 +441,9 @@ function TraceDetailContent() {
               </div>
             ) : null}
             {sessionIdForDelete && !missingUrl && (
-              <button
+              <Button
                 type="button"
-                className="ca-btn-danger"
+                variant="destructive"
                 onClick={() => {
                   if (!window.confirm(t("confirmDeleteSession"))) {
                     return;
@@ -449,13 +452,13 @@ function TraceDetailContent() {
                 }}
               >
                 {t("deleteSession")}
-              </button>
+              </Button>
             )}
           </div>
         </div>
-        <LocalizedLink href="/settings" className="ca-btn-secondary shrink-0 no-underline">
+        <Button type="button" variant="secondary" className="shrink-0" onClick={() => router.push("/settings")}>
           {t("openSettings")}
-        </LocalizedLink>
+        </Button>
       </header>
 
       {mergedHasOnlyMessageReceived && !missingUrl && (
@@ -519,11 +522,13 @@ function TraceDetailContent() {
                   const rowTrace = turnTraceByListKey.get(u.listKey);
                   return (
                     <li key={u.listKey}>
-                      <button
+                      <Button
                         type="button"
                         id={`ca-trace-turn-${u.listKey}`}
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setSelectedListKey(u.listKey)}
-                        className={`flex w-full flex-col rounded-xl border px-2.5 py-2 text-left text-sm transition sm:px-3 sm:py-2.5 ${
+                        className={`h-auto w-full flex-col items-start rounded-xl border px-2.5 py-2 text-left text-sm transition sm:px-3 sm:py-2.5 ${
                           active
                             ? "border-primary bg-white shadow-sm ring-1 ring-primary/25"
                             : "border-transparent bg-white/70 hover:border-border hover:bg-white"
@@ -617,7 +622,7 @@ function TraceDetailContent() {
                             ) : null}
                           </div>
                         ) : null}
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}
@@ -637,30 +642,26 @@ function TraceDetailContent() {
                       role="group"
                       aria-label={t("detailViewToggleGroupAria")}
                     >
-                      <button
+                      <Button
                         type="button"
-                        className={`rounded-md px-2.5 py-1 font-medium transition ${
-                          detailViewMode === "conversation"
-                            ? "bg-primary/15 font-semibold text-primary"
-                            : "text-neutral-600 hover:bg-neutral-100"
-                        }`}
+                        variant={detailViewMode === "conversation" ? "default" : "ghost"}
+                        size="xs"
+                        className="rounded-md px-2.5 py-1 font-medium"
                         aria-pressed={detailViewMode === "conversation"}
                         onClick={() => setDetailViewMode("conversation")}
                       >
                         {t("viewModeConversation")}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className={`rounded-md px-2.5 py-1 font-medium transition ${
-                          detailViewMode === "flow"
-                            ? "bg-primary/15 font-semibold text-primary"
-                            : "text-neutral-600 hover:bg-neutral-100"
-                        }`}
+                        variant={detailViewMode === "flow" ? "default" : "ghost"}
+                        size="xs"
+                        className="rounded-md px-2.5 py-1 font-medium"
                         aria-pressed={detailViewMode === "flow"}
                         onClick={() => setDetailViewMode("flow")}
                       >
                         {t("viewModeFlow")}
-                      </button>
+                      </Button>
                     </div>
                     {selectedTurn ? (
                       <span className="shrink-0 rounded-full bg-emerald-100/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-950">

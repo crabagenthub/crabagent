@@ -1,13 +1,12 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThreadDrawerMessageTranscript } from "@/components/thread-drawer-message-transcript";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
 import { loadTraceEvents } from "@/lib/trace-events";
 import { type ThreadRecordRow } from "@/lib/thread-records";
@@ -164,7 +163,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     for (const k of dotRefCbByKeyRef.current.keys()) {
       if (!alive.has(k)) dotRefCbByKeyRef.current.delete(k);
     }
-  }, [turnKeysSig]);
+  }, [userTurns]);
 
   useLayoutEffect(() => {
     measureTurnSpine();
@@ -209,7 +208,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     threadKey.length > 28 ? `${threadKey.slice(0, 14)}…${threadKey.slice(-10)}` : threadKey;
 
   const metaStart =
-    row && row.first_seen_ms > 0 ? formatTraceDateTimeLocal(new Date(row.first_seen_ms).toISOString()) : "—";
+    row && row.first_seen_ms > 0 ? formatTraceDateTimeFromMs(row.first_seen_ms) : "—";
   const metaDuration =
     row?.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—";
   const metaMsgCount = userTurns.length > 0 ? userTurns.length : row?.trace_count ?? 0;
@@ -290,23 +289,14 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                   sideOffset={6}
                   className="max-w-xs border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md"
                 >
-                  {(metrics?.promptTokens ?? 0) === 0 &&
-                  (metrics?.completionTokens ?? 0) === 0 &&
-                  tokTotal != null &&
-                  tokTotal > 0 ? (
-                    <span className="block text-left leading-snug">
-                      {t("threadDrawerTurnTokensUnsplit", { count: tokShow })}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-left">
+                      {t("threadDrawerTurnTokensIn", { count: String(metrics?.promptTokens ?? 0) })}
                     </span>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      <span className="text-left">
-                        {t("threadDrawerTurnTokensIn", { count: String(metrics?.promptTokens ?? 0) })}
-                      </span>
-                      <span className="text-left">
-                        {t("threadDrawerTurnTokensOut", { count: String(metrics?.completionTokens ?? 0) })}
-                      </span>
-                    </div>
-                  )}
+                    <span className="text-left">
+                      {t("threadDrawerTurnTokensOut", { count: String(metrics?.completionTokens ?? 0) })}
+                    </span>
+                  </div>
                 </TooltipContent>
               </Tooltip>
             ) : (
@@ -332,9 +322,9 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
             <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
               <MessagesSquare className="size-4 shrink-0" strokeWidth={2} aria-hidden />
             </span>
-            <Dialog.Title className="truncate text-lg font-semibold leading-tight text-foreground">
+            <h2 className="truncate text-lg font-semibold leading-tight text-foreground">
               {t("threadDrawerTitle")}
-            </Dialog.Title>
+            </h2>
           </div>
           <DrawerClose
             className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

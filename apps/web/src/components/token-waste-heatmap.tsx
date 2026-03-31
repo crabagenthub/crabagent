@@ -2,6 +2,8 @@
 
 import { useTranslations } from "next-intl";
 import { ListEmptyState } from "@/components/list-empty-state";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "@/i18n/navigation";
 import { LocalizedLink } from "@/components/localized-link";
 import type { TokenWasteThreadRow } from "@/lib/token-waste-heatmap";
 
@@ -37,6 +39,7 @@ export function TokenWasteHeatmap(props: {
   maxTurnCols: number;
 }) {
   const t = useTranslations("Analytics");
+  const router = useRouter();
   const { rows, maxTurnCols } = props;
 
   if (rows.length === 0) {
@@ -46,9 +49,9 @@ export function TokenWasteHeatmap(props: {
         title={t("wasteHeatmapEmptyTitle")}
         description={t("wasteHeatmapEmpty")}
         footer={
-          <LocalizedLink href="/traces" className="ca-btn-secondary inline-flex text-sm no-underline">
+          <Button type="button" variant="secondary" size="sm" onClick={() => router.push("/traces")}>
             {t("wasteHeatmapOpenTraces")}
-          </LocalizedLink>
+          </Button>
         }
       />
     );

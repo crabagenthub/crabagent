@@ -235,6 +235,57 @@ export function traceSessionKeyCandidates(ctx: TraceAgentCtx, eventFrom?: string
   return expandAgentScopedCandidates(bases, aid);
 }
 
+/**
+ * `message_received` 用 `event.from` 扩充 pending 键；仅传 ctx 的 hook（如 `llm_input` / `agent_end`）会少一组别名，
+ * 导致 peek/takePending 命中不了同一批 pending。将 `conversationId` / `channelId` 当作 from 再跑候选合并。
+ */
+export function traceSessionKeyCandidatesForPending(ctx: TraceAgentCtx): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const addAll = (keys: string[]) => {
+    for (const raw of keys) {
+      const k = raw.trim();
+      if (!k || seen.has(k)) {
+        continue;
+      }
+      seen.add(k);
+      out.push(k);
+    }
+  };
+  addAll(traceSessionKeyCandidates(ctx));
+  const conv = ctx.conversationId?.trim();
+  if (conv) {
+    addAll(traceSessionKeyCandidates(ctx, conv));
+  }
+  const ch = ctx.channelId?.trim();
+  if (ch && ch !== conv) {
+    addAll(traceSessionKeyCandidates(ctx, ch));
+  }
+  return out.length > 0 ? out : ["unknown-session"];
+}
+
+/** 入站 + LLM 侧并集：`message_received` 的 `from` 与 ctx 派生键合并，避免 deferred flush / pending take 键不一致。 */
+export function traceSessionKeyCandidatesForInbound(ctx: TraceAgentCtx, eventFrom?: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const addAll = (keys: string[]) => {
+    for (const raw of keys) {
+      const k = raw.trim();
+      if (!k || seen.has(k)) {
+        continue;
+      }
+      seen.add(k);
+      out.push(k);
+    }
+  };
+  addAll(traceSessionKeyCandidatesForPending(ctx));
+  const from = eventFrom?.trim();
+  if (from) {
+    addAll(traceSessionKeyCandidates(ctx, from));
+  }
+  return out.length > 0 ? out : ["unknown-session"];
+}
+
 /** ActiveTurn / 采样跳过等：优先 OpenClaw broker 的 sessionKey → sessionId，再回落到主 trace 键。 */
 export function effectiveTraceSessionKey(ctx: TraceAgentCtx, eventFrom?: string): string {
   const a = ctx.sessionKey?.trim();

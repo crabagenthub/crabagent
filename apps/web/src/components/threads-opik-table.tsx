@@ -1,17 +1,22 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import "@/lib/arco-react19-setup";
+import type { TableColumnProps } from "@arco-design/web-react";
+import { Table } from "@arco-design/web-react";
 import { Copy } from "lucide-react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import type { ObserveListSortParam } from "@/lib/observe-facets";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/feedback";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { ObserveListSortParam } from "@/lib/observe-facets";
+import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
+import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import {
   formatDurationMs,
@@ -21,7 +26,7 @@ import {
 } from "@/lib/trace-records";
 import { extractThreadListLastMessageText, extractThreadListMessageText } from "@/lib/strip-inbound-meta";
 import { threadRowStableId, type ThreadRecordRow } from "@/lib/thread-records";
-import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 function clipOneLine(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -33,6 +38,9 @@ function clipOneLine(s: string | null | undefined, max: number): string {
 
 const lastMessageBadgeCls =
   "h-auto min-h-5 max-w-full min-w-0 border-transparent bg-blue-50 py-0.5 font-mono font-normal text-blue-700 dark:bg-blue-950 dark:text-blue-300";
+
+const headerCellClass =
+  "text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:text-neutral-600";
 
 function ThreadIdCell({ threadId }: { threadId: string }) {
   const t = useTranslations("Traces");
@@ -49,10 +57,13 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
       <Tooltip>
         <TooltipTrigger
           render={(triggerProps) => (
-            <button
+            <Button
               {...triggerProps}
               type="button"
-              className="inline-flex shrink-0 rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+              variant="ghost"
+              size="icon-sm"
+              data-row-click-stop
+              className="shrink-0 p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
               onClick={async (e) => {
                 e.stopPropagation();
                 triggerProps.onClick?.(e);
@@ -70,7 +81,7 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
               aria-label={t("threadDrawerCopyThreadId")}
             >
               <Copy className="size-3.5" strokeWidth={2} />
-            </button>
+            </Button>
           )}
         />
         <TooltipContent>{t("copy")}</TooltipContent>
@@ -88,7 +99,6 @@ function ThreadMessageCell({
   raw: string | null | undefined;
   ariaLabel: string;
   extractText: (raw: string | null | undefined) => string;
-  /** 末消息列：用蓝色 Badge 展示预览文案 */
   asLastMessageBadge?: boolean;
 }) {
   const full = extractText(raw).trim();
@@ -97,10 +107,8 @@ function ThreadMessageCell({
 
   const oneLine = full ? clipOneLine(full, 200) : "";
   const multiline = full ? full.includes("\n") : false;
-  /** 逻辑上被截断（超过 clip 长度，或原文明显偏长） */
   const logicClipped = full ? oneLine.endsWith("…") || full.length > 200 : false;
   const longChars = full ? full.length > 56 : false;
-  /** 末消息列：只要非空就提供悬浮全文（避免 JSON 摘要后字数变短、或 Badge 内 Preview Card 不触发） */
   const lastMessageAlwaysPreview = Boolean(full && asLastMessageBadge);
   const obviousHover = Boolean(full && (multiline || logicClipped || longChars || lastMessageAlwaysPreview));
 
@@ -152,31 +160,26 @@ function ThreadMessageCell({
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        openOnHover
-        delay={250}
-        closeDelay={220}
-        nativeButton={false}
-        aria-label={ariaLabel}
+    <Tooltip>
+      <TooltipTrigger
         render={
           <span
+            aria-label={ariaLabel}
             className={cn(
               "inline-flex max-w-[18rem] min-w-0 w-full cursor-default rounded-md border border-transparent bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               asLastMessageBadge ? "hover:opacity-90" : "hover:bg-neutral-50/80",
             )}
-          />
+          >
+            {wrapBadge(<div className="min-w-0 max-w-full">{preview}</div>)}
+          </span>
         }
-      >
-        {wrapBadge(<div className="min-w-0 max-w-full">{preview}</div>)}
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[min(100vw-1rem,20rem)] max-w-[min(100vw-1rem,20rem)] max-h-[min(70vh,28rem)] overflow-y-auto p-3"
-      >
-        <p className="m-0 whitespace-pre-wrap break-words font-mono text-xs text-neutral-800">{full}</p>
-      </PopoverContent>
-    </Popover>
+      />
+      <TooltipContent side="top" className="w-[min(100vw-1rem,20rem)] max-w-[min(100vw-1rem,20rem)]">
+        <p className="m-0 max-h-[min(70vh,28rem)] overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs text-neutral-800">
+          {full}
+        </p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -209,177 +212,252 @@ export function ThreadsOpikTable({
 }) {
   const t = useTranslations("Traces");
 
+  const columns: TableColumnProps<ThreadRecordRow>[] = useMemo(
+    () => [
+      {
+        title: <span className={headerCellClass}>{t("colTableSessionId")}</span>,
+        dataIndex: "thread_id",
+        key: "thread_id",
+        width: 200,
+        render: (_, row) => <ThreadIdCell threadId={row.thread_id} />,
+      },
+      {
+        title: <span className={headerCellClass}>{t("colStatus")}</span>,
+        dataIndex: "status",
+        key: "status",
+        width: 120,
+        render: (_, row) => {
+          const statusBand = traceListStatusBandFromApiStatus(row.status ?? null);
+          return row.status ? (
+            <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(statusBand)}`}>
+              {statusBandLabel(statusBand, row.status ?? "", t)}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          );
+        },
+      },
+      {
+        title: (
+          <span className={headerCellClass}>
+            <div className="flex flex-nowrap items-center gap-1">
+              <span className="whitespace-nowrap">{t("colStartTime")}</span>
+              <ObserveColumnSortIcons
+                dimension="time"
+                sortKey={sortKey}
+                listOrder={listOrder}
+                onSort={onColumnSort}
+                ascLabel={t("columnSortTimeAsc")}
+                descLabel={t("columnSortTimeDesc")}
+              />
+            </div>
+          </span>
+        ),
+        dataIndex: "first_seen_ms",
+        key: "first_seen_ms",
+        width: 180,
+        render: (_, row) => (
+          <span className="whitespace-nowrap font-mono text-xs text-neutral-700">
+            {formatTraceDateTimeFromMs(row.first_seen_ms)}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <span className={headerCellClass}>
+            {onAgentFilterChange ? (
+              <ObserveFacetColumnFilter
+                label={t("threadsColAgent")}
+                value={agentFilter}
+                options={agentOptions}
+                onChange={onAgentFilterChange}
+                ariaLabelKey="agentColumnFilterAria"
+              />
+            ) : (
+              t("threadsColAgent")
+            )}
+          </span>
+        ),
+        dataIndex: "agent_name",
+        key: "agent_name",
+        width: 140,
+        render: (_, row) =>
+          row.agent_name ? (
+            <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={row.agent_name}>
+              {row.agent_name}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          ),
+      },
+      {
+        title: (
+          <span className={headerCellClass}>
+            {onChannelFilterChange ? (
+              <ObserveFacetColumnFilter
+                label={t("threadsColChannel")}
+                value={channelFilter}
+                options={channelOptions}
+                onChange={onChannelFilterChange}
+                ariaLabelKey="channelColumnFilterAria"
+              />
+            ) : (
+              t("threadsColChannel")
+            )}
+          </span>
+        ),
+        dataIndex: "channel_name",
+        key: "channel_name",
+        width: 140,
+        render: (_, row) =>
+          row.channel_name ? (
+            <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={row.channel_name}>
+              {row.channel_name}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          ),
+      },
+      {
+        title: <span className={headerCellClass}>{t("threadsColFirstMessage")}</span>,
+        dataIndex: "first_message_preview",
+        key: "first_message_preview",
+        width: 220,
+        render: (_, row) => (
+          <ThreadMessageCell
+            raw={row.first_message_preview}
+            ariaLabel={t("threadsFirstMessageFullAria")}
+            extractText={extractThreadListMessageText}
+          />
+        ),
+      },
+      {
+        title: <span className={headerCellClass}>{t("threadsColLastMessage")}</span>,
+        dataIndex: "last_message_preview",
+        key: "last_message_preview",
+        width: 220,
+        render: (_, row) => (
+          <ThreadMessageCell
+            raw={row.last_message_preview}
+            ariaLabel={t("threadsLastMessageFullAria")}
+            extractText={extractThreadListLastMessageText}
+            asLastMessageBadge
+          />
+        ),
+      },
+      {
+        title: <span className={headerCellClass}>{t("threadsColMessageCount")}</span>,
+        dataIndex: "trace_count",
+        key: "trace_count",
+        width: 96,
+        render: (_, row) => (
+          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-700">{row.trace_count}</span>
+        ),
+      },
+      {
+        title: <span className={headerCellClass}>{t("colDuration")}</span>,
+        dataIndex: "duration_ms",
+        key: "duration_ms",
+        width: 112,
+        render: (_, row) => (
+          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-800">
+            {row.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—"}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <span className={headerCellClass}>
+            <div className="flex flex-nowrap items-center gap-1">
+              <span className="whitespace-nowrap">{t("colTotalTokens")}</span>
+              <ObserveColumnSortIcons
+                dimension="tokens"
+                sortKey={sortKey}
+                listOrder={listOrder}
+                onSort={onColumnSort}
+                ascLabel={t("columnSortTokensAsc")}
+                descLabel={t("columnSortTokensDesc")}
+              />
+            </div>
+          </span>
+        ),
+        dataIndex: "total_tokens",
+        key: "total_tokens",
+        width: 128,
+        render: (_, row) => (
+          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-800">
+            {row.total_tokens > 0 ? row.total_tokens.toLocaleString() : "—"}
+          </span>
+        ),
+      },
+      {
+        title: (
+          <span className={headerCellClass} title={t("threadsCostHint")}>
+            {t("colEstCost")}
+          </span>
+        ),
+        dataIndex: "total_cost",
+        key: "total_cost",
+        width: 112,
+        render: (_, row) => (
+          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-600">
+            {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
+          </span>
+        ),
+      },
+    ],
+    [
+      t,
+      sortKey,
+      listOrder,
+      onColumnSort,
+      channelFilter,
+      channelOptions,
+      onChannelFilterChange,
+      agentFilter,
+      agentOptions,
+      onAgentFilterChange,
+    ],
+  );
+
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white">
+    <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
       <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
-        <table className="w-max min-w-[1240px] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-neutral-200 bg-neutral-50/95 text-xs font-semibold uppercase tracking-wide text-neutral-600">
-              <th className="min-w-[10rem] max-w-[14rem] px-3 py-3 normal-case">{t("colTableSessionId")}</th>
-              <th className="min-w-[5.5rem] whitespace-nowrap px-3 py-3">{t("colStatus")}</th>
-              <th className="min-w-[9rem] whitespace-nowrap px-3 py-3">
-                <div className="flex flex-nowrap items-center gap-1">
-                  <span className="whitespace-nowrap">{t("colStartTime")}</span>
-                  <ObserveColumnSortIcons
-                    dimension="time"
-                    sortKey={sortKey}
-                    listOrder={listOrder}
-                    onSort={onColumnSort}
-                    ascLabel={t("columnSortTimeAsc")}
-                    descLabel={t("columnSortTimeDesc")}
-                  />
-                </div>
-              </th>
-              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
-                {onAgentFilterChange ? (
-                  <ObserveFacetColumnFilter
-                    label={t("threadsColAgent")}
-                    value={agentFilter}
-                    options={agentOptions}
-                    onChange={onAgentFilterChange}
-                    ariaLabelKey="agentColumnFilterAria"
-                  />
-                ) : (
-                  t("threadsColAgent")
-                )}
-              </th>
-              <th className="min-w-[6rem] max-w-[10rem] px-3 py-3 normal-case">
-                {onChannelFilterChange ? (
-                  <ObserveFacetColumnFilter
-                    label={t("threadsColChannel")}
-                    value={channelFilter}
-                    options={channelOptions}
-                    onChange={onChannelFilterChange}
-                    ariaLabelKey="channelColumnFilterAria"
-                  />
-                ) : (
-                  t("threadsColChannel")
-                )}
-              </th>
-              <th className="min-w-[12rem] max-w-[18rem] whitespace-nowrap px-3 py-3">{t("threadsColFirstMessage")}</th>
-              <th className="min-w-[12rem] max-w-[18rem] whitespace-nowrap px-3 py-3">{t("threadsColLastMessage")}</th>
-              <th className="w-24 whitespace-nowrap px-3 py-3">{t("threadsColMessageCount")}</th>
-              <th className="w-28 whitespace-nowrap px-3 py-3">{t("colDuration")}</th>
-              <th className="w-32 whitespace-nowrap px-3 py-3">
-                <div className="flex flex-nowrap items-center gap-1">
-                  <span className="whitespace-nowrap">{t("colTotalTokens")}</span>
-                  <ObserveColumnSortIcons
-                    dimension="tokens"
-                    sortKey={sortKey}
-                    listOrder={listOrder}
-                    onSort={onColumnSort}
-                    ascLabel={t("columnSortTokensAsc")}
-                    descLabel={t("columnSortTokensDesc")}
-                  />
-                </div>
-              </th>
-              <th className="w-28 whitespace-nowrap px-3 py-3" title={t("threadsCostHint")}>
-                {t("colEstCost")}
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-100">
-            {rows.length === 0 && emptyBody ? (
-              <tr>
-                <td colSpan={11} className="border-0 bg-white p-0 align-top">
-                  <div className="flex justify-center px-4 py-10">{emptyBody}</div>
-                </td>
-              </tr>
-            ) : null}
-            {rows.map((row) => {
-              const id = threadRowStableId(row);
-              const statusBand = traceListStatusBandFromApiStatus(row.status ?? null);
-              return (
-                <tr
-                  key={id}
-                  role={onRowClick ? "button" : undefined}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  className="cursor-pointer transition-colors hover:bg-neutral-50/80"
-                  onClick={
-                    onRowClick
-                      ? () => {
-                          onRowClick(row);
-                        }
-                      : undefined
-                  }
-                  onKeyDown={
-                    onRowClick
-                      ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            onRowClick(row);
-                          }
-                        }
-                      : undefined
-                  }
-                >
-                  <td className="max-w-[14rem] min-w-0 px-3 py-2.5 align-top font-mono text-xs text-neutral-800">
-                    <ThreadIdCell threadId={row.thread_id} />
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top">
-                    {row.status ? (
-                      <span
-                        className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(statusBand)}`}
-                      >
-                        {statusBandLabel(statusBand, row.status ?? "", t)}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs text-neutral-700">
-                    {formatTraceDateTimeFromMs(row.first_seen_ms)}
-                  </td>
-                  <td className="max-w-[10rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
-                    {row.agent_name ? (
-                      <span className="block truncate whitespace-nowrap" title={row.agent_name}>
-                        {row.agent_name}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                  <td className="max-w-[10rem] min-w-0 px-3 py-2.5 align-top text-xs text-neutral-800">
-                    {row.channel_name ? (
-                      <span className="block truncate whitespace-nowrap" title={row.channel_name}>
-                        {row.channel_name}
-                      </span>
-                    ) : (
-                      <span className="text-neutral-400">—</span>
-                    )}
-                  </td>
-                  <td className="max-w-[18rem] min-w-0 px-3 py-2.5 align-top">
-                    <ThreadMessageCell
-                      raw={row.first_message_preview}
-                      ariaLabel={t("threadsFirstMessageFullAria")}
-                      extractText={extractThreadListMessageText}
-                    />
-                  </td>
-                  <td className="max-w-[18rem] min-w-0 px-3 py-2.5 align-top">
-                    <ThreadMessageCell
-                      raw={row.last_message_preview}
-                      ariaLabel={t("threadsLastMessageFullAria")}
-                      extractText={extractThreadListLastMessageText}
-                      asLastMessageBadge
-                    />
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs tabular-nums text-neutral-700">
-                    {row.trace_count}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs tabular-nums text-neutral-800">
-                    {row.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs tabular-nums text-neutral-800">
-                    {row.total_tokens > 0 ? row.total_tokens.toLocaleString() : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 align-top font-mono text-xs tabular-nums text-neutral-600">
-                    {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="min-w-[1240px]">
+          <Table<ThreadRecordRow>
+            className={OBSERVE_TABLE_CLASSNAME}
+            size="small"
+            border={false}
+            columns={columns}
+            data={rows}
+            rowKey={(row) => threadRowStableId(row)}
+            pagination={false}
+            tableLayoutFixed={false}
+            hover={Boolean(onRowClick)}
+            noDataElement={
+              rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
+            }
+            onRow={
+              onRowClick
+                ? (record) => ({
+                    onClick: (e) => {
+                      if (shouldIgnoreRowClick(e.target)) {
+                        return;
+                      }
+                      onRowClick(record);
+                    },
+                    onKeyDown: (e: KeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onRowClick(record);
+                      }
+                    },
+                    className: "cursor-pointer",
+                  })
+                : undefined
+            }
+          />
+        </div>
       </ScrollableTableFrame>
     </div>
   );

@@ -1,9 +1,12 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
+import "@/lib/arco-react19-setup";
+import { Drawer as ArcoDrawer } from "@arco-design/web-react";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+
+const DrawerCloseContext = React.createContext<(() => void) | null>(null);
 
 type DrawerProps = {
   open: boolean;
@@ -13,30 +16,54 @@ type DrawerProps = {
 };
 
 export function Drawer({ open, onOpenChange, children, className }: DrawerProps) {
+  const close = React.useCallback(() => onOpenChange(false), [onOpenChange]);
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Viewport
-          className={cn(
-            "fixed inset-0 z-50 flex justify-end bg-[#0000001a] p-0 outline-none transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] [&]:z-50",
-            "data-[ending-style]:bg-transparent data-[starting-style]:bg-transparent",
-          )}
-        >
-          <Dialog.Popup
-            className={cn(
-              "flex h-[100dvh] max-h-[100dvh] w-[min(100vw-0.5rem,80rem)] max-w-[min(100vw-0.5rem,80rem)] flex-col border-l border-border bg-background shadow-2xl outline-none",
-              "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-              "data-[ending-style]:translate-x-2 data-[ending-style]:opacity-0",
-              "data-[starting-style]:translate-x-2 data-[starting-style]:opacity-0",
-              className,
-            )}
-          >
-            {children}
-          </Dialog.Popup>
-        </Dialog.Viewport>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <DrawerCloseContext.Provider value={close}>
+      <ArcoDrawer
+        visible={open}
+        onCancel={() => onOpenChange(false)}
+        placement="right"
+        width="min(100vw - 0.5rem, 80rem)"
+        title={null}
+        footer={null}
+        closable={false}
+        maskClosable
+        escToExit
+        mountOnEnter
+        className={cn("ca-arco-app-drawer !bg-background", className)}
+        bodyStyle={{
+          padding: 0,
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+        maskStyle={{ background: "rgba(0, 0, 0, 0.06)" }}
+        wrapClassName="ca-arco-app-drawer-wrap"
+      >
+        {children}
+      </ArcoDrawer>
+    </DrawerCloseContext.Provider>
   );
 }
 
-export const DrawerClose = Dialog.Close;
+type DrawerCloseProps = React.ComponentPropsWithoutRef<"button">;
+
+export function DrawerClose({ className, children, onClick, type = "button", ...props }: DrawerCloseProps) {
+  const close = React.useContext(DrawerCloseContext);
+  return (
+    <button
+      type={type}
+      {...props}
+      className={className}
+      onClick={(e) => {
+        close?.();
+        onClick?.(e);
+      }}
+    >
+      {children}
+    </button>
+  );
+}

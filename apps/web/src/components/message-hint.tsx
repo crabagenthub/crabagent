@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
 function ChatBubbleIcon({ className }: { className?: string }) {
   return (
@@ -123,9 +124,11 @@ export function HintTooltipButton({
 
   return (
     <>
-      <button
+      <Button
         ref={btnRef}
         type="button"
+        variant="ghost"
+        size="icon-sm"
         className={buttonClassName}
         aria-describedby={open ? `${id}-tip` : undefined}
         aria-label={ariaLabel}
@@ -136,7 +139,7 @@ export function HintTooltipButton({
         onBlur={hide}
       >
         {children}
-      </button>
+      </Button>
       {mounted && tipEl ? createPortal(tipEl, document.body) : null}
     </>
   );

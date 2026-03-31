@@ -1,4 +1,5 @@
 /* 包 exports 仅声明 `style` 条件，Turbopack/CSS 管线常无法解析裸包名，改为指向 dist 文件 */
+@import "../../node_modules/@arco-design/web-react/dist/css/arco.css";
 @import "../../node_modules/tw-animate-css/dist/tw-animate.css";
 @import "../../node_modules/shadcn/dist/tailwind.css";
 @tailwind base;
@@ -9,6 +10,10 @@
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   /** 与 `SiteNav` 展开宽度一致；折叠时由 `html[data-sidebar-collapsed]` 覆盖，供主区 fixed 底栏对齐。 */
   --ca-content-offset-left: 272px;
+  /**
+   * Arco：`arco-provider` 的 theme.token 引用下方 @layer 内 `--primary` / `--foreground` 等，
+   * 与 Tailwind/shadcn 共用一套语义色（亮暗随 `.dark` 切换）。
+   */
 }
 
 html[data-sidebar-collapsed="1"] {
@@ -25,7 +30,7 @@ html[data-sidebar-collapsed="1"] {
   }
   /* shadcn/ui Blue 主题 https://ui.shadcn.com/ */
   :root {
-    --radius: 0.65rem;
+    --radius: 0.375rem;
     --radius-md: 0.375rem;
     --background: oklch(1 0 0);
     --foreground: oklch(0.141 0.005 285.823);
@@ -110,6 +115,49 @@ html[data-sidebar-collapsed="1"] {
 }
 
 @layer components {
+  /* Arco + Tailwind 混合风格：下拉菜单项 hover / 选中同态 */
+  .arco-dropdown-menu .arco-dropdown-menu-item {
+    border-radius: 8px;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+  .arco-dropdown-menu .arco-dropdown-menu-item:hover,
+  .arco-dropdown-menu .arco-dropdown-menu-item.arco-dropdown-menu-selected {
+    background: #f2f3f5;
+    color: #1d2129;
+    font-weight: 500;
+  }
+  .arco-dropdown-menu .arco-dropdown-menu-item.arco-dropdown-menu-selected::before {
+    display: none;
+  }
+
+  .arco-trigger-popup {
+    animation-duration: 200ms !important;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  }
+
+  /* SiteNav 用户菜单：与原先自绘面板一致，去掉 Arco Popover 默认内容区 padding */
+  .site-nav-user-popover .arco-popover-content {
+    padding: 0;
+    max-height: min(90dvh, 32rem);
+    overflow-y: auto;
+    border-radius: 0.75rem;
+    box-shadow:
+      0 20px 25px -5px rgb(0 0 0 / 0.08),
+      0 8px 10px -6px rgb(0 0 0 / 0.06);
+  }
+  .site-nav-user-popover .arco-popover-inner-content {
+    padding: 0;
+  }
+
+  /* 与应用侧栏 / Tailwind z 层协调：大详情抽屉 */
+  .ca-arco-app-drawer-wrap {
+    z-index: 100 !important;
+  }
+  .ca-arco-app-drawer-wrap .ca-arco-app-drawer.arco-drawer {
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.08);
+  }
+
   /** 主内容区：与 Trace 列表等页统一的左右、上下边距与最大宽度 */
   .ca-page {
     @apply mx-auto w-full max-w-[min(100%,1600px)] px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6;
@@ -208,7 +256,7 @@ html[data-sidebar-collapsed="1"] {
   /* Tailwind @apply 无法对 `var(--primary)` 生成 `bg-primary/90` 等透明度变体，hover/active 用 color-mix */
   .ca-btn-primary {
     @apply inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition
-      disabled:pointer-events-none disabled:opacity-45;
+      disabled:pointer-events-none disabled:opacity-50;
   }
   .ca-btn-primary:hover:not(:disabled) {
     background-color: color-mix(in oklch, var(--primary) 90%, black);
@@ -219,7 +267,7 @@ html[data-sidebar-collapsed="1"] {
 
   .ca-btn-secondary {
     @apply inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-medium text-foreground transition
-      hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-45;
+      hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50;
   }
   .ca-btn-secondary:active:not(:disabled) {
     background-color: color-mix(in oklch, var(--muted) 92%, black);
@@ -227,7 +275,7 @@ html[data-sidebar-collapsed="1"] {
 
   .ca-btn-danger {
     @apply inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-ca-danger-soft px-5 py-2.5 text-sm font-medium text-red-700 transition
-      hover:bg-red-100 disabled:pointer-events-none disabled:opacity-45;
+      hover:bg-red-100 disabled:pointer-events-none disabled:opacity-50;
   }
 
   .ca-table-wrap {

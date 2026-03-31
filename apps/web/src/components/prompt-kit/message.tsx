@@ -1,13 +1,11 @@
 "use client";
 
+import ArcoAvatar from "@arco-design/web-react/es/Avatar";
 import * as React from "react";
 import type { Components } from "react-markdown";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+import "@/lib/arco-react19-setup";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./markdown";
 
@@ -30,11 +28,16 @@ export type MessageAvatarProps = {
 };
 
 const MessageAvatar = ({ src, alt, fallback, className }: MessageAvatarProps) => {
+  const [broken, setBroken] = React.useState(false);
   return (
-    <Avatar className={cn("h-8 w-8 shrink-0", className)}>
-      <AvatarImage src={src} alt={alt} />
-      {fallback ? <AvatarFallback>{fallback}</AvatarFallback> : null}
-    </Avatar>
+    <ArcoAvatar className={cn("shrink-0", className)} size={32}>
+      {!broken && src ? (
+        // eslint-disable-next-line @next/next/no-img-element -- 会话头像任意 URL
+        <img src={src} alt={alt} onError={() => setBroken(true)} />
+      ) : (
+        (fallback ?? (alt ? alt.slice(0, 1).toUpperCase() : "?"))
+      )}
+    </ArcoAvatar>
   );
 };
 

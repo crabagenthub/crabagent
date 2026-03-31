@@ -4,6 +4,8 @@ import {
   agentScopedTraceKey,
   resolvePrimaryTraceKey,
   traceSessionKeyCandidates,
+  traceSessionKeyCandidatesForInbound,
+  traceSessionKeyCandidatesForPending,
 } from "./trace-session-key.js";
 
 describe("trace-session-key（CozeLoop 式渠道键）", () => {
@@ -53,5 +55,25 @@ describe("trace-session-key（CozeLoop 式渠道键）", () => {
     const sk = "agent:email_automatic:feishu:user:ou_abc";
     const keys = traceSessionKeyCandidates({ sessionKey: sk, agentId: "email_automatic" });
     assert.ok(keys.includes("feishu/ou_abc"));
+  });
+
+  it("traceSessionKeyCandidatesForPending 含以 conversationId 为 from 的候选（对齐仅带 ctx 的 llm_input）", () => {
+    const ctx = { sessionKey: "agent:test:feishu:group:oc_9", conversationId: "user:side" };
+    const expanded = traceSessionKeyCandidatesForPending(ctx);
+    for (const k of traceSessionKeyCandidates(ctx, "user:side")) {
+      assert.ok(expanded.includes(k), `missing ${k}`);
+    }
+  });
+
+  it("traceSessionKeyCandidatesForInbound 并集 event.from 与 ForPending（deferred flush）", () => {
+    const ctx = { channelId: "feishu/oc_z" };
+    const from = "oc_z";
+    const merged = traceSessionKeyCandidatesForInbound(ctx, from);
+    for (const k of traceSessionKeyCandidates(ctx, from)) {
+      assert.ok(merged.includes(k), `missing ${k}`);
+    }
+    for (const k of traceSessionKeyCandidatesForPending(ctx)) {
+      assert.ok(merged.includes(k), `missing ${k}`);
+    }
   });
 });

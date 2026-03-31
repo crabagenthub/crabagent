@@ -132,6 +132,33 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
+  it("agent_end_* 合成 trace 不把 output_preview 冒充助手回复", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-synth.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-synth";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId: "tr-synth",
+        threadId,
+        inputJson: "{}",
+        outputJson: "{}",
+        metadataJson: JSON.stringify({
+          output_preview: "占位说明不应当助手文本",
+          trace_kind: "agent_end_without_llm",
+        }),
+        createdMs: now,
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { assistantTexts?: string[] };
+      assert.ok(!Array.isArray(p.assistantTexts) || p.assistantTexts.length === 0);
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
   it("同 thread 多行 trace → 事件数 = 3 × 行数", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-d.db`);
     const db = openDatabase(dbPath);

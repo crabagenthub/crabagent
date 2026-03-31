@@ -1,0 +1,109 @@
+/**
+ * 借鉴 coze-openclaw-plugin `session-recovery`：解析 OpenClaw `agents/main/sessions` 路径，
+ * 读 `sessions.json`，按 `sessionId` 反查 store 里的 `sessionKey`，写入同一份 pending，缓解 hook ctx 键与 store 键不一致导致的丢数。
+ */
+import { readFileSync, statSync } from "node:fs";
+import path from "node:path";
+
+export type OpenClawSessionEntry = {
+  sessionId?: string;
+  sessionFile?: string;
+  deliveryContext?: { channel?: string; to?: string; accountId?: string };
+};
+
+export type OpenClawSessionStore = Record<string, OpenClawSessionEntry>;
+
+/** 与 coze `session-recovery` 同序：runtime.resolvePath → OPENCLAW_STATE_DIR → workspace 父目录 → 容器默认。 */
+export function resolveOpenClawSessionsBasePath(api: unknown): string | null {
+  const a = api as Record<string, unknown>;
+  const runtime = a.runtime as { resolvePath?: (rel: string) => string } | undefined;
+  if (typeof runtime?.resolvePath === "function") {
+    try {
+      const p = runtime.resolvePath("agents/main/sessions")?.trim();
+      if (p) {
+        return p;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const stateDir = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (stateDir) {
+    return path.join(stateDir, "agents/main/sessions");
+  }
+  const cfg = a.config as { agents?: { defaults?: { workspace?: string } } } | undefined;
+  const ws = cfg?.agents?.defaults?.workspace?.trim();
+  if (ws) {
+    return path.join(path.dirname(ws), "agents/main/sessions");
+  }
+  return "/workspace/projects/agents/main/sessions";
+}
+
+type SidIndexCache = {
+  mtimeMs: number;
+  /** sessionId → 该 id 在 store 中出现的所有 sessionKey */
+  sidToStoreKeys: Map<string, string[]>;
+};
+
+const indexByBasePath = new Map<string, SidIndexCache>();
+
+function buildSidToStoreKeys(store: OpenClawSessionStore): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const [storeKey, entry] of Object.entries(store)) {
+    const sid = entry?.sessionId?.trim();
+    if (!sid) {
+      continue;
+    }
+    const list = m.get(sid) ?? [];
+    if (!list.includes(storeKey)) {
+      list.push(storeKey);
+    }
+    m.set(sid, list);
+  }
+  return m;
+}
+
+function loadSidIndex(basePath: string): Map<string, string[]> | null {
+  const storePath = path.join(basePath, "sessions.json");
+  let st: { mtimeMs: number };
+  try {
+    st = statSync(storePath);
+  } catch {
+    return null;
+  }
+  const cached = indexByBasePath.get(basePath);
+  if (cached && cached.mtimeMs === st.mtimeMs) {
+    return cached.sidToStoreKeys;
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(storePath, "utf8");
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as OpenClawSessionStore;
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const sidToStoreKeys = buildSidToStoreKeys(parsed as OpenClawSessionStore);
+  indexByBasePath.set(basePath, { mtimeMs: st.mtimeMs, sidToStoreKeys });
+  return sidToStoreKeys;
+}
+
+/** 返回与 `sessionId` 关联的 OpenClaw store 键（用于 mergePendingContext）。 */
+export function sessionStoreKeysForSessionId(basePath: string, sessionId: string): string[] {
+  const sid = sessionId.trim();
+  if (!sid) {
+    return [];
+  }
+  const idx = loadSidIndex(basePath);
+  if (!idx) {
+    return [];
+  }
+  return [...(idx.get(sid) ?? [])];
+}

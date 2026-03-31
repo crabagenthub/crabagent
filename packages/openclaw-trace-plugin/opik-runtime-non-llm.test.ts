@@ -117,6 +117,23 @@ describe("OpikOpenClawRuntime — 无 LLM 回合上报", () => {
     assert.equal(mr?.content, "查杭州天气");
   });
 
+  it("pending 仅在 feishu/oc 桶时，仅靠 primarySk 中 oc_ token 扩展别名仍可低采样建 LLM trace", () => {
+    const rt = new OpikOpenClawRuntime("default", "openclaw");
+    rt.mergePendingContext("feishu/oc_expand_t1", {
+      message_received: { from: "feishu:oc_expand_t1", content: "token-expand" },
+    });
+    const sk = "agent:main:feishu:group:oc_expand_t1";
+    const ctx = { agentId: "main", sessionKey: sk };
+    const wrongKeys = ["coarse-key-without-feishu-token"];
+    rt.onLlmInput(sk, { provider: "p", model: "m", prompt: "go" }, ctx, 0, wrongKeys);
+    const active = (rt as unknown as { active: Map<string, { traceRow: Record<string, unknown> }> }).active;
+    assert.ok(active.has(sk));
+    const input = active.get(sk)!.traceRow.input as Record<string, unknown>;
+    const ut = input.user_turn as Record<string, unknown> | undefined;
+    const mr = ut?.message_received as Record<string, unknown> | undefined;
+    assert.equal(mr?.content, "token-expand");
+  });
+
   it("飞书 feishu/oc pending 与 agent:email_automatic:feishu:group:oc LLM 键对齐（全链路入库）", () => {
     const rt = new OpikOpenClawRuntime("default", "openclaw");
     rt.mergePendingContext("feishu/oc_x", {

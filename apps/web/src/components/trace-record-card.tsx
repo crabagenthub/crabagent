@@ -2,7 +2,8 @@
 
 import { useTranslations } from "next-intl";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
-import { LocalizedLink } from "@/components/localized-link";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "@/i18n/navigation";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import {
   formatDurationMs,
@@ -24,6 +25,7 @@ function detailHref(row: TraceRecordRow): string {
 
 export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tokenWarnAt: number }) {
   const t = useTranslations("Traces");
+  const router = useRouter();
   const dur = traceRecordDurationMs(row);
   const agent = traceRecordAgentName(row);
   const channel = traceRecordChannel(row);
@@ -47,12 +49,9 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
             </p>
           </div>
           <div className="flex shrink-0 sm:pt-0.5">
-            <LocalizedLink
-              href={detailHref(row)}
-              className="ca-btn-primary inline-flex w-full justify-center px-4 py-2 no-underline sm:w-auto"
-            >
+            <Button type="button" className="w-full sm:w-auto" onClick={() => router.push(detailHref(row))}>
               {t("open")}
-            </LocalizedLink>
+            </Button>
           </div>
         </div>
 

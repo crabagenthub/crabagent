@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { extractRoutedAgentIdFromMessageMetadata } from "./inbound-mirror.js";
 import { deletePendingSnapshot, loadAllPendingSnapshots, writePendingSnapshot } from "./pending-disk.js";
 import type { OpikBatchPayload } from "./opik-types.js";
+import { extractAgentIdFromRoutingSessionKey } from "./trace-session-key.js";
 
 /** 与 `message_received` 正文上限对齐；Gmail/Hook 隔离路径无 inbound hook，依赖本段 prompt 预览入库。 */
 export const TRACE_PROMPT_PREVIEW_MAX_CHARS = 16_384;
@@ -29,6 +31,89 @@ function threadChannelLabel(ctx: AgentCtx): string | undefined {
     return `${provider} · ${ch}`;
   }
   return provider || ch || undefined;
+}
+
+/** OpenClaw 可能给秒级或毫秒级时间戳；`>=1e12` 视为毫秒，以免把已是 ms 的值误乘 1000。 */
+function normalizeInboundEventTimestampMs(ts: unknown, flushMs: number): number | undefined {
+  if (typeof ts !== "number" || !Number.isFinite(ts) || ts <= 0) {
+    return undefined;
+  }
+  let ms: number;
+  if (ts >= 1e12) {
+    ms = Math.floor(ts);
+  } else if (ts >= 1e9) {
+    ms = Math.floor(ts * 1000);
+  } else {
+    return undefined;
+  }
+  const maxSkew = 10 * 365 * 86400_000;
+  const slack = 7 * 86400_000;
+  if (ms < flushMs - maxSkew || ms > flushMs + slack) {
+    return undefined;
+  }
+  return ms;
+}
+
+/** 用于无 LLM / 延迟 flush：优先用用户入站时间作为线程与 trace 起点。 */
+function firstUserInboundTimestampMs(pending: Record<string, unknown>, flushMs: number): number {
+  const mr = pending.message_received;
+  if (!mr || typeof mr !== "object" || Array.isArray(mr)) {
+    return flushMs;
+  }
+  const ms = normalizeInboundEventTimestampMs((mr as { timestamp?: unknown }).timestamp, flushMs);
+  return ms ?? flushMs;
+}
+
+function threadAgentLabelFromPending(ctx: AgentCtx, pending: Record<string, unknown>): string | undefined {
+  const base = threadAgentLabel(ctx);
+  if (base) {
+    return base;
+  }
+  const mr = pending.message_received;
+  if (!mr || typeof mr !== "object" || Array.isArray(mr)) {
+    return undefined;
+  }
+  const md = (mr as { metadata?: unknown }).metadata;
+  if (md && typeof md === "object" && !Array.isArray(md)) {
+    const m = md as Record<string, unknown>;
+    const rid = extractRoutedAgentIdFromMessageMetadata(m);
+    if (rid) {
+      return rid;
+    }
+    const pick = (k: string) => {
+      const v = m[k];
+      return typeof v === "string" && v.trim() ? v.trim() : undefined;
+    };
+    return pick("agentName") ?? pick("agent_name") ?? pick("displayAgentName");
+  }
+  const routed = extractAgentIdFromRoutingSessionKey(ctx.sessionKey ?? ctx.channelId);
+  if (routed) {
+    return routed;
+  }
+  return undefined;
+}
+
+function threadChannelLabelFromPending(
+  ctx: AgentCtx,
+  pending: Record<string, unknown>,
+  threadId: string,
+): string | undefined {
+  const base = threadChannelLabel(ctx);
+  if (base) {
+    return base;
+  }
+  const mr = pending.message_received;
+  if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+    const from = (mr as { from?: unknown }).from;
+    if (typeof from === "string" && from.toLowerCase().startsWith("feishu")) {
+      return "feishu";
+    }
+  }
+  const t = threadId.trim();
+  if (t.toLowerCase().startsWith("feishu/")) {
+    return "feishu";
+  }
+  return undefined;
 }
 
 function nowMs(): number {
@@ -257,6 +342,65 @@ function summarizePendingShape(p: Record<string, unknown> | undefined): Record<s
     hasUsableBeforePromptBuild: promptHookBlobUsable(p.before_prompt_build),
     hasUsableBeforeAgentStart: promptHookBlobUsable(p.before_agent_start),
   };
+}
+
+/** 仅当 `message_received` 含非空正文时视为「用户发消息」，用于强制走 LLM trace 与延迟 flush。 */
+function pendingHasUserInboundMessage(p: Record<string, unknown> | undefined): boolean {
+  if (!p || typeof p !== "object") {
+    return false;
+  }
+  const mr = p.message_received;
+  if (!mr || typeof mr !== "object" || Array.isArray(mr)) {
+    return false;
+  }
+  const c = (mr as { content?: unknown }).content;
+  return typeof c === "string" && c.trim().length > 0;
+}
+
+/** 飞书 oc_/ou_ 等，用于在 hook 别名与 pending 桶名不一致时仍能合并取出。 */
+function extractThreadCorrelationIds(s: string): Set<string> {
+  const out = new Set<string>();
+  const re = /\b(ou_[a-zA-Z0-9_]+|oc_[a-zA-Z0-9_]+)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    out.add(m[1].toLowerCase());
+  }
+  return out;
+}
+
+function messageReceivedCorrelationIds(p: Record<string, unknown>): Set<string> {
+  const ids = new Set<string>();
+  const mr = p.message_received;
+  if (!mr || typeof mr !== "object" || Array.isArray(mr)) {
+    return ids;
+  }
+  const mo = mr as { from?: unknown; metadata?: unknown };
+  if (typeof mo.from === "string") {
+    for (const x of extractThreadCorrelationIds(mo.from)) {
+      ids.add(x);
+    }
+  }
+  const md = mo.metadata;
+  if (md && typeof md === "object" && !Array.isArray(md)) {
+    for (const v of Object.values(md as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        for (const x of extractThreadCorrelationIds(v)) {
+          ids.add(x);
+        }
+      }
+    }
+  }
+  return ids;
+}
+
+function anchorCorrelationIds(aliasKeys: string[], primarySk: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of [...aliasKeys, primarySk]) {
+    for (const x of extractThreadCorrelationIds(raw)) {
+      out.add(x);
+    }
+  }
+  return out;
 }
 
 function pendingHasIngestibleContext(p: Record<string, unknown> | undefined): boolean {
@@ -585,6 +729,108 @@ export class OpikOpenClawRuntime {
     return acc;
   }
 
+  /**
+   * 在 hook 给的别名之外，把 `pendingOnly` 中含用户正文且 oc_/ou_ 与主键/别名相交的桶并入，避免首帧 llm_input 仅粗键时 peek 为空。
+   */
+  private expandPendingAliasKeysForUserTurn(baseKeys: string[], primarySk: string): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (raw: string) => {
+      const k = raw.trim() || "unknown-session";
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(k);
+      }
+    };
+    for (const k of baseKeys) {
+      add(k);
+    }
+    add(primarySk);
+    const anchor = anchorCorrelationIds(baseKeys, primarySk);
+    if (anchor.size === 0) {
+      return out;
+    }
+    for (const [pk, p] of this.pendingOnly) {
+      if (!pendingHasUserInboundMessage(p)) {
+        continue;
+      }
+      const side = new Set<string>();
+      for (const x of extractThreadCorrelationIds(pk)) {
+        side.add(x);
+      }
+      for (const x of messageReceivedCorrelationIds(p)) {
+        side.add(x);
+      }
+      let hit = false;
+      for (const a of anchor) {
+        if (side.has(a)) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
+        add(pk);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 不消费 pending：用于采样判断。合并 `pendingOnly` 与进行中回合的 `pendingUserMessage`（入站可能在 LLM 尚未结束时到达）。
+   */
+  private peekPendingForSampling(keys: string[], primarySk: string): Record<string, unknown> | undefined {
+    const seen = new Set<string>();
+    let acc: Record<string, unknown> | undefined;
+    for (const raw of [...keys, primarySk]) {
+      const k = raw.trim() || "unknown-session";
+      if (seen.has(k)) {
+        continue;
+      }
+      seen.add(k);
+      const disk = this.pendingOnly.get(k);
+      const activeP = this.active.get(k)?.pendingUserMessage;
+      const blob = {
+        ...(disk && typeof disk === "object" ? disk : {}),
+        ...(activeP && typeof activeP === "object" ? activeP : {}),
+      } as Record<string, unknown>;
+      if (Object.keys(blob).length > 0) {
+        acc = acc ? { ...acc, ...blob } : { ...blob };
+      }
+    }
+    return acc && Object.keys(acc).length > 0 ? acc : undefined;
+  }
+
+  /** 任一会话键上是否存在进行中的 LLM 回合。 */
+  activeHasAny(keys: string[]): boolean {
+    for (const raw of keys) {
+      const k = raw.trim() || "unknown-session";
+      if (this.active.has(k)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 用户发消息但长时间无 `llm_input` / `agent_end` 时，将仍留在 pending 的 inbound 合成为 non-LLM trace。
+   */
+  tryDeferredNonLlmFlush(aliasKeys: string[], ctx: AgentCtx): OpikBatchPayload | null {
+    const keys =
+      aliasKeys.length > 0
+        ? [...new Set(aliasKeys.map((k) => k.trim() || "unknown-session"))]
+        : ["unknown-session"];
+    const primary = keys[0] ?? "unknown-session";
+    const expanded = this.expandPendingAliasKeysForUserTurn(keys, primary);
+    if (this.activeHasAny(expanded)) {
+      return null;
+    }
+    const peeked = this.peekPendingForSampling(expanded, primary);
+    if (!pendingHasUserInboundMessage(peeked)) {
+      return null;
+    }
+    return this.flushNonLlmAgentEnd(primary, ctx, { success: true, messages: [] }, expanded);
+  }
+
   private registerLateLlmOutputRef(
     sk: string,
     ref: Pick<LateLlmRef, "traceId" | "spanId" | "threadId" | "closedAtMs">,
@@ -657,6 +903,20 @@ export class OpikOpenClawRuntime {
         s.end_time_ms = s.end_time_ms ?? t;
       }
     }
+    if (cur.pendingUserMessage && Object.keys(cur.pendingUserMessage).length > 0) {
+      const inputRaw = cur.traceRow.input;
+      const input =
+        inputRaw && typeof inputRaw === "object" && !Array.isArray(inputRaw)
+          ? (inputRaw as Record<string, unknown>)
+          : {};
+      const utRaw = input.user_turn;
+      const userTurn =
+        utRaw && typeof utRaw === "object" && !Array.isArray(utRaw) ? (utRaw as Record<string, unknown>) : {};
+      cur.traceRow.input = {
+        ...input,
+        user_turn: { ...userTurn, ...cur.pendingUserMessage },
+      };
+    }
     const batch: OpikBatchPayload = {
       threads: [cur.threadRow],
       traces: [cur.traceRow],
@@ -687,18 +947,22 @@ export class OpikOpenClawRuntime {
       systemPrompt?: string;
       imagesCount?: number;
       sessionId?: string;
+      runId?: string;
     },
     ctx: AgentCtx,
     sampleBps: number,
     pendingAliasKeys?: string[],
   ): OpikBatchPayload | null {
     const sk = skRaw.trim() || effectiveSessionKey(ctx);
-    const pendingKeys =
+    const basePendingKeys =
       pendingAliasKeys && pendingAliasKeys.length > 0
         ? [...new Set(pendingAliasKeys.map((k) => k.trim() || "unknown-session"))]
         : [sk];
-    if (!shouldSample(sampleBps)) {
-      /** 采样跳过时不建 LLM trace，但不在此吞掉 pending：`agent_end` 仍应走 flushNonLlm 用 message_received / before_* 合成，否则整轮零上报且 pending 滞留。 */
+    const pendingKeys = this.expandPendingAliasKeysForUserTurn(basePendingKeys, sk);
+    const peeked = this.peekPendingForSampling(pendingKeys, sk);
+    const forceTraceForUserMessage = pendingHasUserInboundMessage(peeked);
+    if (!forceTraceForUserMessage && !shouldSample(sampleBps)) {
+      /** 无用户 inbound 时仍可按采样跳过；有用户正文则强制本回合建 LLM trace。 */
       this.debugTrace?.("llm_input_sample_skipped", {
         sessionKey: sk,
         sampleRateBps: sampleBps,
@@ -706,27 +970,6 @@ export class OpikOpenClawRuntime {
         provider: ev.provider,
         model: ev.model,
       });
-      // #region agent log
-      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "24bc8e" },
-        body: JSON.stringify({
-          sessionId: "24bc8e",
-          hypothesisId: "H3",
-          location: "opik-runtime.ts:onLlmInput sample skip",
-          message: "llm_input skipped by sampleRateBps",
-          data: {
-            sessionKeyHead: sk.slice(0, 64),
-            sampleRateBps: sampleBps,
-            agentId: ctx.agentId,
-            agentName: ctx.agentName,
-            provider: ev.provider,
-            model: ev.model,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return null;
     }
     const prev = this.closeTurn(sk, "new_llm_input", pendingKeys);
@@ -735,6 +978,16 @@ export class OpikOpenClawRuntime {
     const threadId = sk;
     const llmSpanId = randomUUID();
     const pending = this.takePendingAliases(pendingKeys);
+    const pendingRec =
+      pending && typeof pending === "object" && !Array.isArray(pending)
+        ? (pending as Record<string, unknown>)
+        : {};
+    const startMs = pendingHasUserInboundMessage(pendingRec)
+      ? firstUserInboundTimestampMs(pendingRec, t)
+      : t;
+    const agLabel = threadAgentLabelFromPending(ctx, pendingRec) ?? threadAgentLabel(ctx);
+    const chLabel =
+      threadChannelLabelFromPending(ctx, pendingRec, threadId) ?? threadChannelLabel(ctx);
     const promptStr = typeof ev.prompt === "string" ? ev.prompt : undefined;
     /** Leading field so DB previews / SUBSTR on input_json still catch user text if JSON is truncated. */
     const input = {
@@ -750,14 +1003,15 @@ export class OpikOpenClawRuntime {
         agentId: ctx.agentId,
       },
     };
+    const runIdTrim = typeof ev.runId === "string" ? ev.runId.trim() : "";
     const threadRow = {
       thread_id: threadId,
       workspace_name: this.workspace,
       project_name: this.project,
-      first_seen_ms: t,
+      first_seen_ms: startMs,
       last_seen_ms: t,
-      agent_name: threadAgentLabel(ctx),
-      channel_name: threadChannelLabel(ctx),
+      agent_name: agLabel,
+      channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
     };
     const traceRow: Record<string, unknown> = {
@@ -770,12 +1024,15 @@ export class OpikOpenClawRuntime {
       metadata: {
         provider: ev.provider,
         usage: {},
+        ...(runIdTrim.length > 0 ? { run_id: runIdTrim, runId: runIdTrim } : {}),
+        agent_name: agLabel,
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
+          agentId: ctx.agentId,
         },
       },
-      created_at_ms: t,
+      created_at_ms: startMs,
       is_complete: 0,
       created_from: "openclaw-trace-plugin",
     };
@@ -785,7 +1042,7 @@ export class OpikOpenClawRuntime {
       parent_span_id: null,
       name: ev.model ?? "llm",
       type: "llm",
-      start_time_ms: t,
+      start_time_ms: startMs,
       input: { promptPreview: ev.prompt?.slice(0, 2000) },
       model: ev.model,
       provider: ev.provider,
@@ -801,7 +1058,7 @@ export class OpikOpenClawRuntime {
       llmSpanId,
       toolSpanByCallId: new Map(),
       spanSort: 1,
-      startedAt: t,
+      startedAt: startMs,
       threadRow,
       traceRow,
       spans: [spanRow],
@@ -894,10 +1151,11 @@ export class OpikOpenClawRuntime {
     ev: { success?: boolean; error?: unknown; durationMs?: number; messages?: unknown[] },
     pendingAliasKeys: string[],
   ): OpikBatchPayload | null {
-    const keys =
+    const baseKeys =
       pendingAliasKeys.length > 0
         ? [...new Set(pendingAliasKeys.map((k) => k.trim() || "unknown-session"))]
         : [sk];
+    const keys = this.expandPendingAliasKeysForUserTurn(baseKeys, sk);
     let pending = this.takePendingAliases(keys);
     const pendingAfterTake = pending;
     if (!pendingHasIngestibleContext(pending)) {
@@ -919,11 +1177,17 @@ export class OpikOpenClawRuntime {
       return null;
     }
     const t = nowMs();
+    const startMs = firstUserInboundTimestampMs(pending, t);
+    const traceDur =
+      typeof ev.durationMs === "number" && Number.isFinite(ev.durationMs) && ev.durationMs > 0
+        ? Math.floor(ev.durationMs)
+        : Math.max(1, t - startMs);
     const traceId = randomUUID();
     const threadId = sk;
     const preview = previewFromPendingUserTurn(pending);
-    const traceName =
-      ctx.agentId?.trim() || ctx.agentName?.trim() || "non_llm_turn";
+    const agLabel = threadAgentLabelFromPending(ctx, pending);
+    const chLabel = threadChannelLabelFromPending(ctx, pending, threadId);
+    const traceName = agLabel ?? "non_llm_turn";
     const input = {
       list_input_preview: preview,
       prompt: preview,
@@ -939,10 +1203,10 @@ export class OpikOpenClawRuntime {
       thread_id: threadId,
       workspace_name: this.workspace,
       project_name: this.project,
-      first_seen_ms: t,
+      first_seen_ms: startMs,
       last_seen_ms: t,
-      agent_name: threadAgentLabel(ctx),
-      channel_name: threadChannelLabel(ctx),
+      agent_name: agLabel,
+      channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
     };
     const traceRow: Record<string, unknown> = {
@@ -954,11 +1218,12 @@ export class OpikOpenClawRuntime {
       input,
       metadata: {
         usage: {},
-        openclaw_context: {
-          messageProvider: ctx.messageProvider,
-          conversationId: ctx.conversationId,
-          agentId: ctx.agentId,
-        },
+        agent_name: agLabel,
+      openclaw_context: {
+        messageProvider: ctx.messageProvider,
+        conversationId: ctx.conversationId,
+        agentId: ctx.agentId,
+      },
         trace_kind: (() => {
           const fr =
             pending.message_received &&
@@ -976,11 +1241,12 @@ export class OpikOpenClawRuntime {
         })(),
         messageCount: Array.isArray(ev.messages) ? ev.messages.length : undefined,
       },
-      created_at_ms: t,
+      created_at_ms: startMs,
+      updated_at_ms: t,
       is_complete: 1,
       success: ev.success === false ? 0 : 1,
       ended_at_ms: t,
-      duration_ms: ev.durationMs ?? 0,
+      duration_ms: traceDur,
       created_from: "openclaw-trace-plugin",
     };
     if (ev.error) {
@@ -995,9 +1261,9 @@ export class OpikOpenClawRuntime {
       parent_span_id: null,
       name: "turn",
       type: "general",
-      start_time_ms: t,
+      start_time_ms: startMs,
       end_time_ms: t,
-      duration_ms: 0,
+      duration_ms: traceDur,
       metadata: {
         note: "No llm_input for this turn (e.g. automation or template reply).",
       },

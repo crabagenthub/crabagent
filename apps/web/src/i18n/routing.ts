@@ -1,5 +1,8 @@
 import { defineRouting } from "next-intl/routing";
 
+/** 与下方 `locales` 数组保持一致。 */
+export type AppLocale = "en" | "zh-CN";
+
 export const routing = defineRouting({
   locales: ["en", "zh-CN"],
   defaultLocale: "zh-CN",

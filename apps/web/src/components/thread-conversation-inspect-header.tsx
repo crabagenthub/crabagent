@@ -17,7 +17,7 @@ function CopyIconButton({
   successLabel: string;
 }) {
   const [showOk, setShowOk] = useState(false);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimer = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {

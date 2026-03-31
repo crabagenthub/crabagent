@@ -4,7 +4,7 @@ import type { OpenClawPluginApi, PluginLogger, PluginServiceContext } from "open
 import plugin from "./index.js";
 
 describe("openclaw-trace-plugin register()", () => {
-  it("emits [CrabagentTrace] Plugin activated and Flush service started via logger.info", () => {
+  it("flush service start 打 logger.info（含插件 id）", () => {
     const infos: string[] = [];
     const logger: PluginLogger = {
       info: (m: string) => {
@@ -32,6 +32,6 @@ describe("openclaw-trace-plugin register()", () => {
     plugin.register(api);
 
     assert.ok(infos.some((w) => w.includes("[CrabagentTrace] Plugin activated")));
-    assert.ok(infos.some((w) => w.includes("[CrabagentTrace] Flush service started")));
+    assert.ok(infos.some((w) => w.includes("openclaw-trace-plugin: flush service started")));
   });
 });

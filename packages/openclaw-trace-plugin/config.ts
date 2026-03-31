@@ -20,9 +20,8 @@ export type CrabagentTracePluginConfig = {
   /** Opik project（默认 openclaw）。 */
   opikProjectName: string;
   /**
-   * 调试日志开关。**不要依赖 openclaw.json**：多数部署下该键无法传到插件或会被校验拒绝。
-   * 请用环境变量 `CRABAGENT_TRACE_DEBUG_HOOKS=1`（或 `true` / `yes`）开启；若配置里能合并进 `debugLogHooks: true` 也会生效。
-   * 开启后经 `api.logger.info` 打印 hook / queue / flush 等（见 openclaw.plugin.json）。
+   * 调试日志开关。默认开启；`debugLogHooks: false` 或 `CRABAGENT_TRACE_DEBUG_HOOKS=0`（或 `false` / `no`）可关闭。
+   * 开启后经 `console.warn` 打印 `[openclaw-trace-plugin]` hook / queue / flush 等摘要。
    */
   debugLogHooks: boolean;
   /**
@@ -45,6 +44,16 @@ export type CrabagentTracePluginConfig = {
    * 解决 OpenClaw 入站 hook 不带 `agentId` 时子 agent 与 LLM 键不一致。环境变量：`CRABAGENT_TRACE_MIRROR_AGENT_IDS=id1,id2`。
    */
   mirrorInboundPendingAgentIds: string[];
+  /**
+   * 用户 `message_received` 有正文后，若此时间内仍未因 `llm_input` / `agent_end` 消费 pending，则补发一条 non-LLM trace（避免仅工具/早退路径零上报）。
+   * `0` 关闭。默认 3000；环境变量 `CRABAGENT_TRACE_DEFERRED_USER_FLUSH_MS` 可覆盖（网关未合并 config 时可用）。
+   */
+  deferredUserMessageFlushMs: number;
+  /**
+   * 读 OpenClaw `agents/main/sessions/sessions.json`，按 `ctx.sessionId` 把 pending 同步 merge 到 store 里的 `sessionKey`（对齐 coze-openclaw-plugin 会话路径）。
+   * 缓解 `message_received` / LLM hook 使用不同键时 pending 取不到。环境变量 `CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE=1` 关闭。
+   */
+  bridgeOpenClawSessionStore: boolean;
 };
 
 export function resolvePluginConfig(raw: Record<string, unknown> | undefined): CrabagentTracePluginConfig {
@@ -76,21 +85,32 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     typeof c.opikProjectName === "string" && c.opikProjectName.trim().length > 0
       ? c.opikProjectName.trim()
       : "openclaw";
-  const debugFromEnv = (() => {
-    const v = process.env.CRABAGENT_TRACE_DEBUG_HOOKS?.trim().toLowerCase();
+  const envDebugTriState = (name: string): boolean | null => {
+    const v = process.env[name]?.trim().toLowerCase();
+    if (v === "0" || v === "false" || v === "no") {
+      return false;
+    }
     if (v === "1" || v === "true" || v === "yes") {
       return true;
     }
-    // 与 @cozeloop/openclaw-cozeloop-trace 的 COZELOOP_DEBUG 类习惯对齐（可选）
-    const v2 = process.env.CRABAGENT_TRACE_DEBUG?.trim().toLowerCase();
-    return v2 === "1" || v2 === "true" || v2 === "yes";
-  })();
-  /**
-   * `debugLogHooks` / `debug`（与 Cozeloop 插件的 `debug` 同名）任一为 true，或环境变量开启。
-   * `c.debugLogHooks` 仅在网关把该项合并进插件 config 时有效（openclaw.json 常不可靠）。
-   */
+    return null;
+  };
+  const envHooks = envDebugTriState("CRABAGENT_TRACE_DEBUG_HOOKS");
+  const envLegacy = envDebugTriState("CRABAGENT_TRACE_DEBUG");
+  /** 环境显式指定优先；否则与 Cozeloop `debug` 习惯对齐。 */
+  const debugFromEnv: boolean | null =
+    envHooks !== null ? envHooks : envLegacy !== null ? envLegacy : null;
+  /** 默认 true；仅配置或环境显式关闭时关。 */
   const debugLogHooks =
-    c.debugLogHooks === true || c.debug === true || debugFromEnv;
+    c.debugLogHooks === false || c.debug === false
+      ? false
+      : c.debugLogHooks === true || c.debug === true
+        ? true
+        : debugFromEnv === false
+          ? false
+          : debugFromEnv === true
+            ? true
+            : true;
   const persistPendingToDisk = c.persistPendingToDisk !== false;
   const traceBareAgentEnds = c.traceBareAgentEnds !== false;
   const truthyEnv = (name: string) => {
@@ -107,6 +127,17 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
       .map((s) => s.trim())
       .filter(Boolean) ?? [];
   const mirrorInboundPendingAgentIds = [...new Set([...fromCfgMirror, ...fromEnvMirror])];
+  const deferredEnvRaw = process.env.CRABAGENT_TRACE_DEFERRED_USER_FLUSH_MS?.trim();
+  const deferredFromEnv =
+    deferredEnvRaw !== undefined && deferredEnvRaw !== "" && Number.isFinite(Number(deferredEnvRaw))
+      ? Math.max(0, Math.floor(Number(deferredEnvRaw)))
+      : undefined;
+  const deferredUserMessageFlushMs =
+    typeof c.deferredUserMessageFlushMs === "number" && Number.isFinite(c.deferredUserMessageFlushMs)
+      ? Math.max(0, Math.floor(c.deferredUserMessageFlushMs))
+      : (deferredFromEnv ?? 3000);
+  const bridgeOpenClawSessionStore =
+    c.bridgeOpenClawSessionStore !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE");
   return {
     collectorBaseUrl: base,
     collectorApiKey: key,
@@ -120,5 +151,7 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     traceBareAgentEnds,
     inboundHookInfoLogs,
     mirrorInboundPendingAgentIds,
+    deferredUserMessageFlushMs,
+    bridgeOpenClawSessionStore,
   };
 }

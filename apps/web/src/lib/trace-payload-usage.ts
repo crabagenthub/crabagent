@@ -13,6 +13,7 @@ function pickNonNegativeNum(u: unknown): number {
 
 function promptFromUsageShape(u: Record<string, unknown>): number {
   return (
+    pickNonNegativeNum(u.input) ||
     pickNonNegativeNum(u.prompt_tokens) ||
     pickNonNegativeNum(u.promptTokens) ||
     pickNonNegativeNum(u.input_tokens) ||
@@ -25,6 +26,7 @@ function promptFromUsageShape(u: Record<string, unknown>): number {
 
 function completionFromUsageShape(u: Record<string, unknown>): number {
   return (
+    pickNonNegativeNum(u.output) ||
     pickNonNegativeNum(u.completion_tokens) ||
     pickNonNegativeNum(u.completionTokens) ||
     pickNonNegativeNum(u.output_tokens) ||
@@ -45,6 +47,7 @@ function totalFromUsageShape(u: Record<string, unknown>): number | null {
 
 function cacheReadFromUsageShape(u: Record<string, unknown>): number {
   const direct =
+    pickNonNegativeNum(u.cacheRead) ||
     pickNonNegativeNum(u.cache_read_tokens) ||
     pickNonNegativeNum(u.cacheReadTokens) ||
     pickNonNegativeNum(u.cached_prompt_tokens) ||

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type ObserveListKind = "threads" | "traces" | "spans";
@@ -24,21 +25,23 @@ export function ObserveListKindSwitcher({ value, onChange, options, className, "
         {options.map((opt) => {
           const selected = value === opt.id;
           return (
-            <button
+            <Button
               key={opt.id}
               type="button"
+              variant={selected ? "default" : "ghost"}
+              size="sm"
               role="radio"
               aria-checked={selected}
               onClick={() => onChange(opt.id)}
               className={cn(
-                "flex min-h-9 flex-1 items-center justify-center rounded-full px-3 py-1.5 text-sm font-medium transition-[color,box-shadow,background-color] sm:flex-initial sm:px-4",
+                "min-h-9 flex-1 rounded-full px-3 py-1.5 text-sm font-medium sm:flex-initial sm:px-4",
                 selected
                   ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-950 dark:text-neutral-50 dark:shadow-black/20"
                   : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200",
               )}
             >
               {opt.label}
-            </button>
+            </Button>
           );
         })}
       </div>

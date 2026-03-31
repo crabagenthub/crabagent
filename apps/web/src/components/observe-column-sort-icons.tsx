@@ -1,6 +1,8 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
+import { OBSERVE_TABLE_SORT_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
 
 type Props = {
   dimension: ObserveListSortParam;
@@ -37,11 +39,13 @@ export function ObserveColumnSortIcons({
     sortKey === dimension ? (listOrder === "asc" ? ascLabel : descLabel) : `${ascLabel}. ${descLabel}`;
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-sm"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="inline-flex h-7 shrink-0 items-center gap-0 rounded-md border border-transparent px-0.5 text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className={OBSERVE_TABLE_SORT_BUTTON_CLASSNAME}
     >
       <span className="inline-flex items-center gap-0" aria-hidden>
         <svg
@@ -63,6 +67,6 @@ export function ObserveColumnSortIcons({
           <path d="M12 19V5M8 15l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </span>
-    </button>
+    </Button>
   );
 }

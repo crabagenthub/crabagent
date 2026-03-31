@@ -1,6 +1,5 @@
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import {
@@ -152,7 +151,12 @@ export function TraceRecordInspectDialog({
       ? formatTraceDateTimeLocal(new Date(row.start_time).toISOString())
       : "—";
 
-  const tags = row && Array.isArray(row.tags) ? row.tags : [];
+  const tags = useMemo(() => {
+    if (!row || !Array.isArray(row.tags)) {
+      return [];
+    }
+    return row.tags;
+  }, [row]);
 
   const inspectChipTags = useMemo(() => {
     const out = [...tags];
@@ -178,9 +182,9 @@ export function TraceRecordInspectDialog({
               <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
                 <MessageSquare className="size-4 shrink-0" strokeWidth={2} aria-hidden />
               </span>
-              <Dialog.Title className="text-lg font-semibold leading-tight text-foreground">
+              <h2 className="text-lg font-semibold leading-tight text-foreground">
                 {t("traceInspectTitle")}
-              </Dialog.Title>
+              </h2>
             </div>
             <InspectDrawerMetaSection
               fields={[

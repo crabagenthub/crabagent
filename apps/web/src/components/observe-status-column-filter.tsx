@@ -1,10 +1,13 @@
 "use client";
 
+import "@/lib/arco-react19-setup";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Dropdown, Menu } from "@arco-design/web-react";
 import { Filter } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { OBSERVE_LIST_STATUS_OPTIONS, type ObserveListStatusParam } from "@/lib/observe-facets";
+import { OBSERVE_TABLE_ICON_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -35,53 +38,39 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
   return (
     <div className="flex items-center gap-1">
       <span className="whitespace-nowrap">{label}</span>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                value ? "text-primary" : "text-neutral-500",
-              )}
-              aria-label={t("statusColumnFilterAria")}
-              aria-expanded={open}
-            />
-          }
+      <Dropdown
+        popupVisible={open}
+        onVisibleChange={setOpen}
+        trigger="click"
+        droplist={
+          <Menu
+            selectedKeys={value ? [value] : ["__all__"]}
+            onClickMenuItem={(key) => {
+              pick(key === "__all__" ? "" : (key as ObserveListStatusParam));
+            }}
+            className="min-w-[9rem]"
+          >
+            <Menu.Item key="__all__">{t("filterAll")}</Menu.Item>
+            {OBSERVE_LIST_STATUS_OPTIONS.map((s) => (
+              <Menu.Item key={s}>{statusLabel(s)}</Menu.Item>
+            ))}
+          </Menu>
+        }
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
+            value ? "text-primary" : "text-neutral-500",
+          )}
+          aria-label={t("statusColumnFilterAria")}
+          aria-expanded={open}
         >
           <Filter className="size-3.5" strokeWidth={2} aria-hidden />
-        </PopoverTrigger>
-        <PopoverContent align="start" sideOffset={6} className="w-auto min-w-[9rem] p-1 shadow-md">
-          <ul className="m-0 list-none p-0">
-            <li>
-              <button
-                type="button"
-                onClick={() => pick("")}
-                className={cn(
-                  "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
-                  !value && "bg-neutral-100 font-medium",
-                )}
-              >
-                {t("filterAll")}
-              </button>
-            </li>
-            {OBSERVE_LIST_STATUS_OPTIONS.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  onClick={() => pick(s)}
-                  className={cn(
-                    "flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-neutral-100",
-                    value === s && "bg-neutral-100 font-medium",
-                  )}
-                >
-                  {statusLabel(s)}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </PopoverContent>
-      </Popover>
+        </Button>
+      </Dropdown>
     </div>
   );
 }

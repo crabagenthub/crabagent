@@ -1,65 +1,165 @@
 "use client"
 
-import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
+import "@/lib/arco-react19-setup"
+import { Tooltip as ArcoTooltip } from "@arco-design/web-react"
+import type { KeyboardEvent, MouseEvent, ReactElement, ReactNode } from "react"
+import {
+  Children,
+  cloneElement,
+  createContext,
+  isValidElement,
+  useContext,
+} from "react"
 
 import { cn } from "@/lib/utils"
 
-function TooltipProvider({
-  delay = 0,
-  ...props
-}: TooltipPrimitive.Provider.Props) {
+type Side = "top" | "bottom" | "left" | "right"
+
+/** 注入给 `TooltipTrigger` 的 `render` 回调，便于与 Arco / 旧 Base UI 形态对齐 */
+export type TooltipTriggerRenderProps = {
+  className?: string
+  onClick?: (e: MouseEvent<HTMLElement>) => void
+  onKeyDown?: (e: KeyboardEvent<HTMLElement>) => void
+}
+
+type TooltipContextValue = {
+  content: ReactNode
+  contentClassName?: string
+  side: Side
+  delay: number
+}
+
+const TooltipContext = createContext<TooltipContextValue>({
+  content: null,
+  side: "top",
+  delay: 0,
+})
+
+function TooltipProvider({ delay = 0, children }: { delay?: number; children?: ReactNode }) {
+  const inherited = useContext(TooltipContext)
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delay={delay}
-      {...props}
-    />
+    <TooltipContext.Provider
+      value={{
+        content: inherited.content,
+        contentClassName: inherited.contentClassName,
+        side: inherited.side,
+        delay,
+      }}
+    >
+      {children}
+    </TooltipContext.Provider>
   )
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-}
-
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
-
+/** 需在 `Tooltip` 之前声明，以便解析 `<TooltipContent />` 子节点时 `child.type === TooltipContent` 成立。 */
 function TooltipContent({
   className,
   side = "top",
-  sideOffset = 4,
-  align = "center",
-  alignOffset = 0,
   children,
-  ...props
-}: TooltipPrimitive.Popup.Props &
-  Pick<
-    TooltipPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset"
-  >) {
+}: {
+  className?: string
+  side?: Side
+  sideOffset?: number
+  align?: "center" | "start" | "end"
+  alignOffset?: number
+  children?: ReactNode
+}) {
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        side={side}
-        sideOffset={sideOffset}
-        className="isolate z-50"
-      >
-        <TooltipPrimitive.Popup
-          data-slot="tooltip-content"
-          className={cn(
-            "z-50 inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background has-data-[slot=kbd]:pr-1.5 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-sm data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className
-          )}
-          {...props}
-        >
-          {children}
-          <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground data-[side=bottom]:top-1 data-[side=inline-end]:top-1/2! data-[side=inline-end]:-left-1 data-[side=inline-end]:-translate-y-1/2 data-[side=inline-start]:top-1/2! data-[side=inline-start]:-right-1 data-[side=inline-start]:-translate-y-1/2 data-[side=left]:top-1/2! data-[side=left]:-right-1 data-[side=left]:-translate-y-1/2 data-[side=right]:top-1/2! data-[side=right]:-left-1 data-[side=right]:-translate-y-1/2 data-[side=top]:-bottom-2.5" />
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
-    </TooltipPrimitive.Portal>
+    <span data-slot="tooltip-content" data-side={side} className={cn(className)}>
+      {children}
+    </span>
+  )
+}
+
+function Tooltip({ children }: { children?: ReactNode }) {
+  const inherited = useContext(TooltipContext)
+  let content: ReactNode = null
+  let contentClassName: string | undefined
+  let side: Side = "top"
+
+  const triggerNodes = Children.map(children, (child) => {
+    if (!isValidElement(child)) {
+      return child
+    }
+    if (child.type === TooltipContent) {
+      const p = child.props as {
+        className?: string
+        side?: Side
+        children?: ReactNode
+      }
+      content = p.children ?? null
+      contentClassName = p.className
+      side = p.side ?? "top"
+      return null
+    }
+    const slot = (child.props as { ["data-slot"]?: string })["data-slot"]
+    if (slot === "tooltip-content") {
+      content = (child.props as { children?: ReactNode }).children ?? null
+      contentClassName = (child.props as { className?: string }).className
+      side = (child.props as { side?: Side }).side ?? "top"
+      return null
+    }
+    return child
+  })
+
+  return (
+    <TooltipContext.Provider
+      value={{
+        content,
+        contentClassName,
+        side,
+        delay: inherited.delay,
+      }}
+    >
+      {triggerNodes}
+    </TooltipContext.Provider>
+  )
+}
+
+function TooltipTrigger({
+  render,
+  children,
+  delay = 0,
+}: {
+  delay?: number
+  render?: ((triggerProps: TooltipTriggerRenderProps) => ReactElement) | ReactElement
+  children?: ReactNode
+}) {
+  const { content, contentClassName, side, delay: providerDelay } = useContext(TooltipContext)
+
+  const triggerProps: TooltipTriggerRenderProps = {}
+
+  const triggerNode =
+    typeof render === "function"
+      ? render(triggerProps)
+      : render && isValidElement(render)
+        ? cloneElement(render, {
+            ...(render.props as Record<string, unknown>),
+            ...triggerProps,
+          } as never)
+        : isValidElement(children)
+          ? cloneElement(children, triggerProps as never)
+          : (children as ReactNode)
+
+  if (!triggerNode) {
+    return null
+  }
+
+  return (
+    <ArcoTooltip
+      content={content}
+      position={side}
+      triggerProps={{
+        mouseEnterDelay: (delay || providerDelay) / 1000,
+      }}
+      className={cn(
+        "arco-tooltip arco-tooltip-light max-w-xs",
+        "[&_.arco-tooltip-content]:rounded-md [&_.arco-tooltip-content]:px-3 [&_.arco-tooltip-content]:py-1.5 [&_.arco-tooltip-content]:text-xs",
+        contentClassName,
+      )}
+    >
+      {triggerNode}
+    </ArcoTooltip>
   )
 }
 

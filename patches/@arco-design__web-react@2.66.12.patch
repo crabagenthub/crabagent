@@ -1,0 +1,64 @@
+diff --git a/es/_util/react-dom.js b/es/_util/react-dom.js
+index 8155d849d04f167f1ba559884aa9b474def1fe73..958683afb87516e9e8f6b9a3c346b5b101f210c1 100644
+--- a/es/_util/react-dom.js
++++ b/es/_util/react-dom.js
+@@ -94,14 +94,20 @@ export var findDOMNode = function (element, instance) {
+     return null;
+ };
+ // 回调children的原始 ref ，适配函数 ref or ref.current 场景
++// React 19：`element.ref` 访问会告警，ref 已在 `element.props.ref`（与 https://github.com/arco-design/arco-design 后续修复对齐）
+ export var callbackOriginRef = function (children, node) {
+-    if (children && children.ref) {
+-        if (isFunction(children.ref)) {
+-            children === null || children === void 0 ? void 0 : children.ref(node);
+-        }
+-        if ('current' in children.ref) {
+-            children.ref.current = node;
+-        }
++    if (!children) {
++        return;
++    }
++    var ref = children.props && children.props.ref;
++    if (ref == null) {
++        return;
++    }
++    if (isFunction(ref)) {
++        ref(node);
++    }
++    if (isObject(ref) && 'current' in ref) {
++        ref.current = node;
+     }
+ };
+ // 这个主要是给 polyfill 调用下。 因为 react 19 的 index.js 不会再导出 createRoot，必须从 react-dom/client 导入 createRoot
+diff --git a/lib/_util/react-dom.js b/lib/_util/react-dom.js
+index 994deffb8f90ef071501488ec60d14e953b2999f..527b4d4e1d8f395f3985498bfac618a1c4449cf2 100644
+--- a/lib/_util/react-dom.js
++++ b/lib/_util/react-dom.js
+@@ -101,14 +101,20 @@ var findDOMNode = function (element, instance) {
+ };
+ exports.findDOMNode = findDOMNode;
+ // 回调children的原始 ref ，适配函数 ref or ref.current 场景
++// React 19：`element.ref` 访问会告警，ref 已在 `element.props.ref`
+ var callbackOriginRef = function (children, node) {
+-    if (children && children.ref) {
+-        if ((0, is_1.isFunction)(children.ref)) {
+-            children === null || children === void 0 ? void 0 : children.ref(node);
+-        }
+-        if ('current' in children.ref) {
+-            children.ref.current = node;
+-        }
++    if (!children) {
++        return;
++    }
++    var ref = children.props && children.props.ref;
++    if (ref == null) {
++        return;
++    }
++    if ((0, is_1.isFunction)(ref)) {
++        ref(node);
++    }
++    if ((0, is_1.isObject)(ref) && 'current' in ref) {
++        ref.current = node;
+     }
+ };
+ exports.callbackOriginRef = callbackOriginRef;
