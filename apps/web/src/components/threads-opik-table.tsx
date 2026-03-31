@@ -15,7 +15,7 @@ import { toast } from "@/components/ui/feedback";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
-import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
+import { OBSERVE_TABLE_COMPACT_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
 import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import {
@@ -156,7 +156,7 @@ function ThreadMessageCell({
     asLastMessageBadge ? <Badge className={lastMessageBadgeCls}>{node}</Badge> : node;
 
   if (!needsHoverPreview) {
-    return wrapBadge(<div className="max-w-[18rem] min-w-0">{preview}</div>);
+    return wrapBadge(<div className="max-w-[8rem] min-w-0">{preview}</div>);
   }
 
   return (
@@ -166,7 +166,7 @@ function ThreadMessageCell({
           <span
             aria-label={ariaLabel}
             className={cn(
-              "inline-flex max-w-[18rem] min-w-0 w-full cursor-default rounded-md border border-transparent bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "inline-flex max-w-[8rem] min-w-0 w-full cursor-default rounded-md border border-transparent bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               asLastMessageBadge ? "hover:opacity-90" : "hover:bg-neutral-50/80",
             )}
           >
@@ -218,18 +218,18 @@ export function ThreadsOpikTable({
         title: <span className={headerCellClass}>{t("colTableSessionId")}</span>,
         dataIndex: "thread_id",
         key: "thread_id",
-        width: 200,
+        width: 108,
         render: (_, row) => <ThreadIdCell threadId={row.thread_id} />,
       },
       {
         title: <span className={headerCellClass}>{t("colStatus")}</span>,
         dataIndex: "status",
         key: "status",
-        width: 120,
+        width: 58,
         render: (_, row) => {
           const statusBand = traceListStatusBandFromApiStatus(row.status ?? null);
           return row.status ? (
-            <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(statusBand)}`}>
+            <span className={`inline-flex rounded-md px-1.5 py-0.5 text-xs font-medium leading-tight ${statusBandPillClass(statusBand)}`}>
               {statusBandLabel(statusBand, row.status ?? "", t)}
             </span>
           ) : (
@@ -255,7 +255,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "first_seen_ms",
         key: "first_seen_ms",
-        width: 180,
+        width: 118,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs text-neutral-700">
             {formatTraceDateTimeFromMs(row.first_seen_ms)}
@@ -280,7 +280,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "agent_name",
         key: "agent_name",
-        width: 140,
+        width: 84,
         render: (_, row) =>
           row.agent_name ? (
             <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={row.agent_name}>
@@ -308,7 +308,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "channel_name",
         key: "channel_name",
-        width: 140,
+        width: 72,
         render: (_, row) =>
           row.channel_name ? (
             <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={row.channel_name}>
@@ -322,7 +322,7 @@ export function ThreadsOpikTable({
         title: <span className={headerCellClass}>{t("threadsColFirstMessage")}</span>,
         dataIndex: "first_message_preview",
         key: "first_message_preview",
-        width: 220,
+        width: 108,
         render: (_, row) => (
           <ThreadMessageCell
             raw={row.first_message_preview}
@@ -335,7 +335,7 @@ export function ThreadsOpikTable({
         title: <span className={headerCellClass}>{t("threadsColLastMessage")}</span>,
         dataIndex: "last_message_preview",
         key: "last_message_preview",
-        width: 220,
+        width: 108,
         render: (_, row) => (
           <ThreadMessageCell
             raw={row.last_message_preview}
@@ -349,7 +349,7 @@ export function ThreadsOpikTable({
         title: <span className={headerCellClass}>{t("threadsColMessageCount")}</span>,
         dataIndex: "trace_count",
         key: "trace_count",
-        width: 96,
+        width: 48,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-700">{row.trace_count}</span>
         ),
@@ -358,7 +358,7 @@ export function ThreadsOpikTable({
         title: <span className={headerCellClass}>{t("colDuration")}</span>,
         dataIndex: "duration_ms",
         key: "duration_ms",
-        width: 112,
+        width: 56,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-800">
             {row.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—"}
@@ -383,7 +383,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "total_tokens",
         key: "total_tokens",
-        width: 128,
+        width: 72,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-800">
             {row.total_tokens > 0 ? row.total_tokens.toLocaleString() : "—"}
@@ -398,7 +398,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "total_cost",
         key: "total_cost",
-        width: 112,
+        width: 64,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-600">
             {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
@@ -423,9 +423,9 @@ export function ThreadsOpikTable({
   return (
     <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
       <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
-        <div className="min-w-[1240px]">
+        <div className="min-w-[900px]">
           <Table<ThreadRecordRow>
-            className={OBSERVE_TABLE_CLASSNAME}
+            className={OBSERVE_TABLE_COMPACT_CLASSNAME}
             size="small"
             border={false}
             columns={columns}
