@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Info } from "lucide-react";
+import { IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +20,7 @@ function CopyIconButton({ text, ariaLabel }: { text: string; ariaLabel: string }
       className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
       aria-label={ariaLabel}
     >
-      <Copy className="size-3.5" strokeWidth={2} />
+      <IconCopy className="size-3.5" />
     </button>
   );
 }
@@ -54,9 +54,12 @@ type Props = {
   };
   footerItems?: InspectDrawerMetaFooterItem[];
   className?: string;
+  variant?: "default" | "sidebar";
 };
 
-export function InspectDrawerMetaSection({ title, fields, highlight, footerItems, className }: Props) {
+export function InspectDrawerMetaSection({ title, fields, highlight, footerItems, className, variant = "default" }: Props) {
+  const isSidebar = variant === "sidebar";
+
   return (
     <div className={cn("pt-1", className)}>
       {title ? (
@@ -65,7 +68,8 @@ export function InspectDrawerMetaSection({ title, fields, highlight, footerItems
 
       <div
         className={cn(
-          "grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-4",
+          "grid grid-cols-1 gap-x-6 gap-y-4",
+          isSidebar ? "md:grid-cols-1" : "md:grid-cols-4",
           title ? "mt-3" : "mt-0",
         )}
       >
@@ -74,9 +78,9 @@ export function InspectDrawerMetaSection({ title, fields, highlight, footerItems
             key={i}
             className={cn(
               "min-w-0",
-              f.colSpan === 2 && "md:col-span-2",
-              f.colSpan === 3 && "md:col-span-3",
-              f.colSpan === 4 && "md:col-span-4",
+              !isSidebar && f.colSpan === 2 && "md:col-span-2",
+              !isSidebar && f.colSpan === 3 && "md:col-span-3",
+              !isSidebar && f.colSpan === 4 && "md:col-span-4",
             )}
           >
             <div className="text-xs text-neutral-500 dark:text-neutral-400">{f.label}</div>
@@ -108,8 +112,8 @@ export function InspectDrawerMetaSection({ title, fields, highlight, footerItems
               </span>
               <span className="text-neutral-600 dark:text-neutral-400">{highlight.subtitle}</span>
               {!highlight.hideInfoIcon ? (
-                <Info className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-              ) : null}
+                  <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
+                ) : null}
             </>
           ) : null}
           <span className="ml-auto flex flex-wrap items-baseline gap-x-4 gap-y-1">{highlight.metrics}</span>

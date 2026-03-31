@@ -1,9 +1,9 @@
 "use client";
 
 import "@/lib/arco-react19-setup";
+import { IconCalendar, IconDown } from "@arco-design/web-react/icon";
 import DatePicker from "@arco-design/web-react/es/DatePicker";
 import { Dropdown, Menu } from "@arco-design/web-react";
-import { CalendarIcon, ChevronDown } from "lucide-react";
 import dayjs, { type Dayjs } from "dayjs";
 import { endOfDay, format, startOfDay } from "date-fns";
 import { enUS, zhCN } from "date-fns/locale";
@@ -128,7 +128,7 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
                 onClick={openCustom}
               >
                 <span>{t("dateRangeCustom")}</span>
-                <CalendarIcon className="size-4 text-muted-foreground" aria-hidden />
+                <IconCalendar className="size-4 text-muted-foreground" aria-hidden />
               </Button>
             </div>
           ) : (
@@ -167,10 +167,19 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
         </div>
       }
     >
-      <Button type="button" variant="outline" size="lg" className={cn("h-9 gap-2 px-3 font-medium shadow-sm", className)} aria-label={t("dateRangeLabel")}>
-        <CalendarIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className={cn(
+          "h-9 gap-2 bg-background/50 px-3 font-medium text-foreground/80 shadow-sm transition-all hover:bg-muted hover:text-foreground active:scale-[0.98]",
+          className
+        )}
+        aria-label={t("dateRangeLabel")}
+      >
+        <IconCalendar className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
         <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{triggerLabel}</span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <IconDown className="size-4 shrink-0 text-muted-foreground/50" aria-hidden />
       </Button>
     </Dropdown>
   );

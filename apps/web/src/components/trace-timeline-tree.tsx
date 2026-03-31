@@ -8,6 +8,7 @@ import { TraceCrabagentLayersPanel } from "@/components/trace-crabagent-layers-p
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { eventRunId } from "@/lib/trace-event-run-id";
 import { parseCrabagentPayload } from "@/lib/trace-crabagent-layers";
+import { cn, formatShortId } from "@/lib/utils";
 
 export type TraceTimelineEvent = {
   id?: number;
@@ -58,19 +59,11 @@ function firstEventId(list: TraceTimelineEvent[]): number {
 }
 
 function shortRunLabel(runId: string): string {
-  const t = runId.trim();
-  if (t.length <= 18) {
-    return t;
-  }
-  return `${t.slice(0, 10)}…${t.slice(-6)}`;
+  return formatShortId(runId);
 }
 
-function shortKeyLabel(s: string, head = 12, tail = 6): string {
-  const t = s.trim();
-  if (t.length <= head + tail + 1) {
-    return t;
-  }
-  return `${t.slice(0, head)}…${t.slice(-tail)}`;
+function shortKeyLabel(s: string): string {
+  return formatShortId(s);
 }
 
 function formatRoleCounts(roles: Record<string, number>): string {
@@ -132,7 +125,7 @@ function formatCharDelta(d: number): string {
   return String(d);
 }
 
-const CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD = 12;
+const CONTEXT_PRUNE_DETAILS_EXPAND_THRESHOLD = 8;
 
 function contextPruneDetailLevel(p: Record<string, unknown>): string | undefined {
   const tp = p.tracePlugin;
@@ -204,7 +197,7 @@ function ContextPruneAppliedPipelineBlock({ p }: { p: Record<string, unknown> })
               </div>
             ) : null}
             <div className="max-h-[min(14rem,35vh)] overflow-auto rounded-md border border-border/50 bg-white/90">
-              <table className="w-full border-collapse text-left font-mono text-[10px] leading-tight">
+              <table className="w-full border-collapse text-left text-[10px] leading-tight">
                 <thead className="sticky top-0 z-[1] bg-neutral-100/95 text-[9px] uppercase tracking-wide text-ca-muted">
                   <tr>
                     <th className="whitespace-nowrap px-1.5 py-1 font-semibold">{t("contextPruneColIndex")}</th>
@@ -497,7 +490,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                 >
                   <div className="space-y-2 border-b border-border/80 bg-white/90 px-3 py-2.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[11px] text-ca-muted">{when}</span>
+                      <span className="text-[11px] text-ca-muted">{when}</span>
                       {(() => {
                         const pk = pipelinePhaseKey(row.type);
                         return pk ? (
@@ -510,7 +503,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                         ) : null;
                       })()}
                       {row.channel ? (
-                        <span className="ca-pill-muted font-mono text-[10px]">{row.channel}</span>
+                        <span className="ca-pill-muted text-[10px]">{row.channel}</span>
                       ) : null}
                       {row.agent_name?.trim() || row.agent_id?.trim() ? (
                         <span
@@ -520,7 +513,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                           {row.agent_name?.trim() || row.agent_id?.trim()}
                         </span>
                       ) : null}
-                      <span className="ca-pill-muted font-mono text-[11px] font-semibold">
+                      <span className="ca-pill-muted text-[11px] font-semibold">
                         {row.type ?? "—"}
                       </span>
                     </div>
@@ -532,9 +525,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                         <IdLabeledCopy
                           kind="event_id"
                           value={row.event_id}
-                          displayText={
-                            row.event_id.length > 12 ? `…${row.event_id.slice(-8)}` : row.event_id
-                          }
+                          displayText={formatShortId(row.event_id)}
                           variant="compact"
                         />
                       ) : null}
@@ -550,7 +541,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                         <IdLabeledCopy
                           kind="msg_id"
                           value={row.msg_id.trim()}
-                          displayText={shortKeyLabel(row.msg_id.trim(), 8, 6)}
+                          displayText={shortKeyLabel(row.msg_id.trim())}
                           variant="compact"
                         />
                       ) : null}
@@ -566,11 +557,7 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
                         <IdLabeledCopy
                           kind="session_id"
                           value={row.session_id}
-                          displayText={
-                            row.session_id.length > 14
-                              ? `…${row.session_id.slice(-10)}`
-                              : row.session_id
-                          }
+                          displayText={formatShortId(row.session_id)}
                           variant="compact"
                         />
                       ) : null}

@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
-import { Copy } from "lucide-react";
+import { IconCopy } from "@arco-design/web-react/icon";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -26,7 +26,7 @@ import {
 } from "@/lib/trace-records";
 import { extractThreadListLastMessageText, extractThreadListMessageText } from "@/lib/strip-inbound-meta";
 import { threadRowStableId, type ThreadRecordRow } from "@/lib/thread-records";
-import { cn } from "@/lib/utils";
+import { cn, formatShortId } from "@/lib/utils";
 
 function clipOneLine(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -37,7 +37,7 @@ function clipOneLine(s: string | null | undefined, max: number): string {
 }
 
 const lastMessageBadgeCls =
-  "h-auto min-h-5 max-w-full min-w-0 border-transparent bg-blue-50 py-0.5 font-mono font-normal text-blue-700 dark:bg-blue-950 dark:text-blue-300";
+  "h-auto min-h-5 max-w-full min-w-0 border-transparent bg-blue-50 py-0.5 font-normal text-blue-700 dark:bg-blue-950 dark:text-blue-300";
 
 const headerCellClass =
   "text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:text-neutral-600";
@@ -51,9 +51,9 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block min-w-0 truncate" title={threadId}>
-        {threadId}
-      </span>
+       <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={threadId}>
+              {formatShortId(threadId)}
+       </span>
       <Tooltip>
         <TooltipTrigger
           render={(triggerProps) => (
@@ -80,7 +80,7 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
               }}
               aria-label={t("threadDrawerCopyThreadId")}
             >
-              <Copy className="size-3.5" strokeWidth={2} />
+              <IconCopy className="size-3.5" />
             </Button>
           )}
         />
@@ -144,7 +144,7 @@ function ThreadMessageCell({
     <span
       ref={spanRef}
       className={cn(
-        "block max-w-full min-w-0 truncate whitespace-nowrap font-mono text-xs",
+        "block max-w-full min-w-0 truncate whitespace-nowrap text-xs",
         asLastMessageBadge ? "text-inherit" : "text-neutral-800",
       )}
     >
@@ -175,7 +175,7 @@ function ThreadMessageCell({
         }
       />
       <TooltipContent side="top" className="w-[min(100vw-1rem,20rem)] max-w-[min(100vw-1rem,20rem)]">
-        <p className="m-0 max-h-[min(70vh,28rem)] overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs text-neutral-800">
+        <p className="m-0 max-h-[min(70vh,28rem)] overflow-y-auto whitespace-pre-wrap break-words text-xs text-neutral-800">
           {full}
         </p>
       </TooltipContent>
@@ -257,7 +257,7 @@ export function ThreadsOpikTable({
         key: "first_seen_ms",
         width: 180,
         render: (_, row) => (
-          <span className="whitespace-nowrap font-mono text-xs text-neutral-700">
+          <span className="whitespace-nowrap text-xs text-neutral-700">
             {formatTraceDateTimeFromMs(row.first_seen_ms)}
           </span>
         ),
@@ -351,7 +351,7 @@ export function ThreadsOpikTable({
         key: "trace_count",
         width: 96,
         render: (_, row) => (
-          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-700">{row.trace_count}</span>
+          <span className="whitespace-nowrap text-xs tabular-nums text-neutral-700">{row.trace_count}</span>
         ),
       },
       {
@@ -360,7 +360,7 @@ export function ThreadsOpikTable({
         key: "duration_ms",
         width: 112,
         render: (_, row) => (
-          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-800">
+          <span className="whitespace-nowrap text-xs tabular-nums text-neutral-800">
             {row.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—"}
           </span>
         ),
@@ -385,7 +385,7 @@ export function ThreadsOpikTable({
         key: "total_tokens",
         width: 128,
         render: (_, row) => (
-          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-800">
+          <span className="whitespace-nowrap text-xs tabular-nums text-neutral-800">
             {row.total_tokens > 0 ? row.total_tokens.toLocaleString() : "—"}
           </span>
         ),
@@ -400,7 +400,7 @@ export function ThreadsOpikTable({
         key: "total_cost",
         width: 112,
         render: (_, row) => (
-          <span className="whitespace-nowrap font-mono text-xs tabular-nums text-neutral-600">
+          <span className="whitespace-nowrap text-xs tabular-nums text-neutral-600">
             {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
           </span>
         ),

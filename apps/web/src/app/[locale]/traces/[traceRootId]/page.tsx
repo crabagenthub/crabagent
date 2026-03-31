@@ -27,6 +27,7 @@ import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { loadTraceEvents } from "@/lib/trace-events";
+import { cn, formatShortId } from "@/lib/utils";
 import {
   buildDetailEventList,
   buildUserTurnList,
@@ -63,11 +64,7 @@ function firstSessionIdInEvents(events: TraceEvent[]): string | null {
 }
 
 function shortTraceRootLabel(id: string): string {
-  const t = id.trim();
-  if (t.length <= 22) {
-    return t;
-  }
-  return `${t.slice(0, 8)}…${t.slice(-6)}`;
+  return formatShortId(id);
 }
 
 function pickBackfillFromEvents(
@@ -358,8 +355,7 @@ function TraceDetailContent() {
     await eventsQuery.refetch();
   };
 
-  const threadShort =
-    threadKey.length > 24 ? `${threadKey.slice(0, 12)}…${threadKey.slice(-8)}` : threadKey;
+  const threadShort = formatShortId(threadKey);
 
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
@@ -558,7 +554,7 @@ function TraceDetailContent() {
                           <span className="font-mono">{u.whenLabel}</span>
                           {u.msgId ? (
                             <span className="font-mono text-[10px] text-sky-800" title={u.msgId}>
-                              msg {u.msgId.length > 16 ? `…${u.msgId.slice(-8)}` : u.msgId}
+                              msg {formatShortId(u.msgId)}
                             </span>
                           ) : null}
                           {u.source === "llm_input" ? (
@@ -570,7 +566,7 @@ function TraceDetailContent() {
                             const rid = resolveLinkedRunIdForTurn(u, merged);
                             return rid ? (
                               <span className="font-mono text-[10px] text-violet-700">
-                                run {rid.length > 14 ? `…${rid.slice(-8)}` : rid}
+                                run {formatShortId(rid)}
                               </span>
                             ) : (
                               <span className="text-amber-800/90">{t("noLinkedRunShort")}</span>
@@ -715,9 +711,9 @@ function TraceDetailContent() {
                         kind="msg_id"
                         value={detailHeader.msgId}
                         displayText={
-                          detailHeader.msgId.length > 22
-                            ? `${detailHeader.msgId.slice(0, 8)}…${detailHeader.msgId.slice(-6)}`
-                            : detailHeader.msgId
+                          detailHeader.msgId
+                            ? formatShortId(detailHeader.msgId)
+                            : undefined
                         }
                         variant="compact"
                       />

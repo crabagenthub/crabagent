@@ -1,8 +1,8 @@
 "use client";
 
+import { IconRefresh } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Area,
@@ -291,11 +291,11 @@ export function OverviewDashboard() {
               type="button"
               variant="outline"
               size="sm"
-              className="gap-1.5"
+              className="h-8 gap-1.5"
               disabled={q.isFetching}
               onClick={() => void q.refetch()}
             >
-              <RefreshCw className={cn("size-4", q.isFetching && "animate-spin")} aria-hidden />
+              <IconRefresh className={cn("size-3.5", q.isFetching && "animate-spin")} aria-hidden />
               {t("refresh")}
             </Button>
           </div>
@@ -808,7 +808,7 @@ export function OverviewDashboard() {
           </>
         ) : q.isFetching ? (
           <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
-            <RefreshCw className="size-4 animate-spin" aria-hidden />
+            <IconRefresh className="size-4 animate-spin" aria-hidden />
             {t("loading")}
           </div>
         ) : null}

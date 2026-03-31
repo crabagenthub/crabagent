@@ -18,6 +18,7 @@ import {
   traceRecordTaskSummary,
   type TraceRecordRow,
 } from "@/lib/trace-records";
+import { formatShortId } from "@/lib/utils";
 
 function detailHref(row: TraceRecordRow): string {
   return `/traces/${encodeURIComponent(row.thread_key)}`;
@@ -37,9 +38,9 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
     <li className="list-none">
       <article className="rounded-2xl border border-border bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="min-w-0 flex-1 space-y-2">
-            <p className="font-mono text-[11px] text-neutral-500" title={row.session_id ?? row.thread_key}>
-              {sessionShown}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <p className="text-[11px] text-neutral-500" title={row.session_id ?? row.thread_key}>
+              {row.session_id ? t("cardSession") : t("cardThread")} {formatTraceRecordSessionLine(row)}
             </p>
             <p className="whitespace-pre-wrap break-words text-sm font-medium leading-snug text-neutral-900">
               {traceRecordTaskSummary(row, 2000)}
@@ -64,12 +65,12 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
           >
             {statusBandLabel(band, rawStatus, t)}
           </span>
-          <span className="inline-flex items-center rounded-full bg-neutral-100/90 px-2.5 py-1 font-mono text-[11px] tabular-nums text-neutral-800 ring-1 ring-neutral-200/80">
+          <span className="inline-flex items-center rounded-full bg-neutral-100/90 px-2.5 py-1 text-[11px] tabular-nums text-neutral-800 ring-1 ring-neutral-200/80">
             <span className="mr-1 text-[10px] font-semibold uppercase text-neutral-500">{t("tokensColumn")}</span>
             {typeof row.total_tokens === "number" ? row.total_tokens.toLocaleString() : "—"}
           </span>
           <span
-            className="inline-flex items-center rounded-full bg-emerald-50/95 px-2.5 py-1 font-mono text-[11px] tabular-nums text-emerald-900 ring-1 ring-emerald-200/70"
+            className="inline-flex items-center rounded-full bg-emerald-50/95 px-2.5 py-1 text-[11px] tabular-nums text-emerald-900 ring-1 ring-emerald-200/70"
             title={t("columnOptimizationHint")}
           >
             <span className="mr-1 text-[10px] font-semibold uppercase text-emerald-800/90">{t("columnOptimization")}</span>
@@ -78,11 +79,11 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
               <span className="ml-1 text-[10px] text-emerald-700/90">(−{row.saved_tokens_total.toLocaleString()})</span>
             ) : null}
           </span>
-          <span className="inline-flex items-center rounded-full bg-neutral-50 px-2.5 py-1 font-mono text-[11px] text-neutral-700 ring-1 ring-neutral-200/80">
+          <span className="inline-flex items-center rounded-full bg-neutral-50 px-2.5 py-1 text-[11px] text-neutral-700 ring-1 ring-neutral-200/80">
             <span className="mr-1 text-[10px] font-semibold uppercase text-neutral-500">{t("durationColumn")}</span>
             {formatDurationMs(dur)}
           </span>
-          <span className="inline-flex items-center rounded-full bg-violet-50/90 px-2.5 py-1 font-mono text-[11px] tabular-nums text-violet-950 ring-1 ring-violet-200/70">
+          <span className="inline-flex items-center rounded-full bg-violet-50/90 px-2.5 py-1 text-[11px] tabular-nums text-violet-950 ring-1 ring-violet-200/70">
             <span className="mr-1 text-[10px] font-semibold uppercase text-violet-900/80">{t("columnLoopsTools")}</span>
             <span title={t("loopsHint")}>{row.loop_count}</span>
             <span className="mx-0.5 text-violet-300">/</span>
@@ -97,14 +98,12 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
               <IdLabeledCopy
                 kind="thread_key"
                 value={row.thread_key}
-                displayText={
-                  row.thread_key.length > 36 ? `${row.thread_key.slice(0, 16)}…${row.thread_key.slice(-10)}` : row.thread_key
-                }
+                displayText={formatShortId(row.thread_key)}
                 variant="compact"
               />
             </div>
           </div>
-          <p className="shrink-0 font-mono text-xs text-ca-muted">
+          <p className="shrink-0 text-xs text-ca-muted">
             <span className="text-[10px] font-semibold uppercase text-neutral-400">{t("time")}</span>{" "}
             {formatTraceDateTimeLocal(new Date(row.start_time).toISOString())}
           </p>

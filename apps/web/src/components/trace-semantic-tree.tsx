@@ -1,7 +1,8 @@
 "use client";
 
+import { Popover } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, ArrowLeftRight, Clock, Hash, Tag } from "lucide-react";
+import { IconExclamationCircle, IconSwap, IconClockCircle, IconCommon, IconTag } from "@arco-design/web-react/icon";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import type { SpanTreeNode } from "@/lib/build-span-tree";
 import {
@@ -12,7 +13,6 @@ import {
   spanLargeFileWarning,
   spanToolOversizedResult,
 } from "@/lib/span-insights";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function typeBadgeClass(spanType: string): string {
@@ -98,39 +98,54 @@ function hasTokenMetrics(node: SpanTreeNode): boolean {
   );
 }
 
-function InspectTokenUsageTooltip({ node }: { node: SpanTreeNode }) {
+function InspectTokenUsagePopover({ node }: { node: SpanTreeNode }) {
   const t = useTranslations("Traces");
-  const pt = node.prompt_tokens ?? 0;
-  const ct = node.completion_tokens ?? 0;
-  const cache = node.cache_read_tokens ?? 0;
-  const total = node.total_tokens ?? pt + ct + cache;
-  const summary = t("semanticTokenUsageSummary", {
-    input: String(pt),
-    output: String(ct),
-    total: String(total),
-  });
   const obj = mergeTokenDisplay(node);
   const canon = ["prompt_tokens", "completion_tokens", "cache_read_tokens", "total_tokens"];
+
   const keys = Object.keys(obj).sort((a, b) => {
     const ia = canon.indexOf(a);
     const ib = canon.indexOf(b);
-    if (ia >= 0 && ib >= 0) {
-      return ia - ib;
-    }
-    if (ia >= 0) {
-      return -1;
-    }
-    if (ib >= 0) {
-      return 1;
-    }
+    if (ia >= 0 && ib >= 0) return ia - ib;
+    if (ia >= 0) return -1;
+    if (ib >= 0) return 1;
     return a.localeCompare(b);
   });
-  const jsonBody = keys.map((k) => `  "${k}": ${obj[k]}`).join("\n");
+
+  const getLabel = (key: string) => {
+    switch (key) {
+      case "prompt_tokens":
+        return t("detailAttrTokenPrompt");
+      case "completion_tokens":
+        return t("detailAttrTokenCompletion");
+      case "cache_read_tokens":
+        return t("detailAttrTokenCacheRead");
+      case "total_tokens":
+        return t("colTotalTokens");
+      default:
+        return key;
+    }
+  };
+
   return (
-    <div className="space-y-2 text-left">
-      <p className="text-xs font-semibold">{t("semanticTokenUsageTitle")}</p>
-      <p className="text-[11px] leading-snug text-muted-foreground">{summary}</p>
-      <pre className="max-h-52 overflow-auto rounded-md border border-border/60 bg-muted/40 p-2 font-mono text-[10px] leading-relaxed text-foreground">{`{\n${jsonBody}\n}`}</pre>
+    <div className="min-w-[14rem] space-y-3 py-1 text-left">
+      <div className="flex items-center gap-2 border-b border-neutral-100 pb-2">
+        <IconCommon className="size-4 text-violet-500" />
+        <span className="text-sm font-bold text-neutral-800">{t("semanticTokenUsageTitle")}</span>
+      </div>
+      <div className="grid grid-cols-1 gap-y-2.5">
+        {keys.map((k) => {
+          const isTotal = k === "total_tokens";
+          return (
+            <div key={k} className={cn("flex items-center justify-between gap-4 text-xs", isTotal && "mt-1 border-t border-neutral-100 pt-2 font-bold")}>
+              <span className={cn("text-neutral-500", isTotal && "text-neutral-700")}>{getLabel(k)}</span>
+              <span className={cn("tabular-nums text-neutral-800", isTotal && "text-violet-600")}>
+                {obj[k].toLocaleString()}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -252,59 +267,44 @@ function TreeNodeRow({
                   {titleLine}
                 </span>
                 {node.error ? (
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" strokeWidth={2} aria-label={t("semanticErrorBadge")} />
+                  <IconExclamationCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-label={t("semanticErrorBadge")} />
                 ) : null}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px] tabular-nums text-neutral-600">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums text-neutral-600">
                 <span className="inline-flex items-center gap-0.5" title={t("semanticTreeDurHint")}>
-                  <Clock className="size-3 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden />
-                  {formatDurSeconds(dur)}
-                </span>
+                   <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                   {formatDurSeconds(dur)}
+                 </span>
                 {showTokens && totalTok != null ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={(triggerProps) => (
-                        <span
-                          {...triggerProps}
-                          className={cn(
-                            "inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900",
-                            triggerProps.className,
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            triggerProps.onClick?.(e);
-                          }}
-                        >
-                          <Hash className="size-3 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden />
-                          <span>{totalTok.toLocaleString()}</span>
-                          {typeof pt === "number" && typeof ct === "number" ? (
-                            <>
-                              <span className="mx-0.5 text-neutral-300">·</span>
-                              <ArrowLeftRight className="size-3 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden />
-                              <span>
-                                {pt.toLocaleString()}/{ct.toLocaleString()}
-                              </span>
-                            </>
-                          ) : null}
-                        </span>
-                      )}
-                    />
-                    <TooltipContent
-                      side="right"
-                      align="start"
-                      sideOffset={8}
-                      className="max-w-[min(92vw,24rem)] border border-border bg-popover px-3 py-2.5 text-popover-foreground shadow-lg"
+                  <Popover
+                    position="rt"
+                    trigger="hover"
+                    content={<InspectTokenUsagePopover node={node} />}
+                  >
+                    <span
+                      className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <InspectTokenUsageTooltip node={node} />
-                    </TooltipContent>
-                  </Tooltip>
+                      <IconCommon className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                      <span>{totalTok.toLocaleString()}</span>
+                      {typeof pt === "number" && typeof ct === "number" ? (
+                        <>
+                          <span className="mx-0.5 text-neutral-300">·</span>
+                          <IconSwap className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                          <span>
+                            {pt.toLocaleString()}/{ct.toLocaleString()}
+                          </span>
+                        </>
+                      ) : null}
+                    </span>
+                  </Popover>
                 ) : null}
                 {tagsN > 0 ? (
                   <span
                     className="inline-flex items-center gap-0.5 text-neutral-500"
                     title={t("semanticTreeTagCountHint", { n: String(tagsN) })}
                   >
-                    <Tag className="size-3 shrink-0 text-neutral-400" strokeWidth={2} aria-hidden />
+                    <IconTag className="size-3 shrink-0 text-neutral-400" aria-hidden />
                     {tagsN}
                   </span>
                 ) : null}
@@ -365,9 +365,9 @@ function TreeNodeRow({
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${typeBadgeClass(node.type)}`}>
             {node.type}
           </span>
-          <span className="font-mono text-[10px] text-ca-muted">{when}</span>
+          <span className="text-[10px] text-ca-muted">{when}</span>
           {dur != null ? (
-            <span className="font-mono text-[10px] tabular-nums text-neutral-500">{dur}ms</span>
+            <span className="text-[10px] tabular-nums text-neutral-500">{dur}ms</span>
           ) : null}
           {node.error ? (
             <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
@@ -391,7 +391,7 @@ function TreeNodeRow({
         </div>
         {memMeta.path != null || memMeta.score != null ? (
           <p className="text-[10px] text-fuchsia-900/90">
-            {memMeta.path ? <span className="font-mono">{memMeta.path}</span> : null}
+            {memMeta.path ? <span>{memMeta.path}</span> : null}
             {memMeta.score != null ? (
               <span className="ml-2 tabular-nums">score {memMeta.score.toFixed(4)}</span>
             ) : null}
@@ -467,11 +467,7 @@ export function TraceSemanticTree({
 
   return (
     <div className={cn("space-y-3", variant === "default" ? "p-3 sm:p-4" : "px-2 py-2 sm:px-3")}>
-      {variant === "inspect" ? (
-        <TooltipProvider delay={200}>{treeBody}</TooltipProvider>
-      ) : (
-        treeBody
-      )}
+      {treeBody}
     </div>
   );
 }

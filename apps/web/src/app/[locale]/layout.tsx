@@ -7,7 +7,7 @@ import { ArcoProvider } from "@/components/arco-provider";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { DocumentLang } from "@/components/document-lang";
 import { QueryProvider } from "@/components/query-provider";
-import { SiteNav } from "@/components/site-nav";
+import { SiteNavNoSSR } from "@/components/site-nav-no-ssr";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { type AppLocale, routing } from "@/i18n/routing";
 import "../globals.css";
@@ -47,7 +47,7 @@ export default async function LocaleLayout({
             <div
               className={`${inter.variable} ${inter.className} flex h-dvh min-h-0 w-full overflow-hidden antialiased`}
             >
-              <SiteNav />
+              <SiteNavNoSSR />
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
                 <AppBreadcrumb />
                 <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>

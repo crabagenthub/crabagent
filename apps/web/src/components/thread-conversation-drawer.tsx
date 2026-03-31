@@ -5,7 +5,6 @@ import { useTranslations } from "next-intl";
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThreadDrawerMessageTranscript } from "@/components/thread-drawer-message-transcript";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
 import { loadTraceEvents } from "@/lib/trace-events";
@@ -20,8 +19,9 @@ import {
   type TurnListStatus,
 } from "@/lib/user-turn-list";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
-import { cn } from "@/lib/utils";
-import { Binary, GaugeCircle, MessagesSquare } from "lucide-react";
+import { IconCode, IconDashboard, IconMessage, IconClose, IconCommon } from "@arco-design/web-react/icon";
+import { Popover } from "@arco-design/web-react";
+import { cn, formatShortId } from "@/lib/utils";
 
 function turnStatusLabelKey(st: TurnListStatus): string {
   switch (st) {
@@ -204,8 +204,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     });
   }, [userTurns]);
 
-  const threadShort =
-    threadKey.length > 28 ? `${threadKey.slice(0, 14)}…${threadKey.slice(-10)}` : threadKey;
+  const threadShort = formatShortId(threadKey);
 
   const metaStart =
     row && row.first_seen_ms > 0 ? formatTraceDateTimeFromMs(row.first_seen_ms) : "—";
@@ -251,7 +250,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
               : "border-transparent bg-transparent hover:bg-muted/50",
           )}
         >
-          <span className="block font-mono text-[11px] leading-5 text-muted-foreground">{u.whenLabel}</span>
+          <span className="block text-[11px] leading-5 text-muted-foreground">{u.whenLabel}</span>
           <span className="mt-0.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
             {u.preview || "—"}
           </span>
@@ -260,51 +259,50 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
               className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400/90"
               title={t("threadDrawerTurnExecTime")}
             >
-              <GaugeCircle className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+              <IconDashboard className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
               {durLabel}
             </span>
             {tokBreakdown ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={(triggerProps) => (
-                    <span
-                      {...triggerProps}
-                      className={cn(
-                        "inline-flex cursor-default items-center gap-0.5 font-medium text-violet-700 dark:text-violet-400/90",
-                        triggerProps.className,
-                      )}
-                      title={t("threadDrawerTurnTokensTotal")}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        triggerProps.onClick?.(e);
-                      }}
-                    >
-                      <Binary className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-                      {tokShow}
-                    </span>
-                  )}
-                />
-                <TooltipContent
-                  side="top"
-                  sideOffset={6}
-                  className="max-w-xs border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md"
-                >
-                  <div className="flex flex-col gap-1">
-                    <span className="text-left">
-                      {t("threadDrawerTurnTokensIn", { count: String(metrics?.promptTokens ?? 0) })}
-                    </span>
-                    <span className="text-left">
-                      {t("threadDrawerTurnTokensOut", { count: String(metrics?.completionTokens ?? 0) })}
-                    </span>
+              <Popover
+                position="top"
+                trigger="hover"
+                content={
+                  <div className="min-w-[12rem] space-y-2.5 py-1 text-left">
+                    <div className="flex items-center gap-1.5 border-b border-neutral-100 pb-2">
+                      <IconCommon className="size-3.5 text-violet-500" />
+                      <span className="text-xs font-bold text-neutral-800">{t("semanticTokenUsageTitle")}</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-neutral-500">{t("detailAttrTokenPrompt")}</span>
+                        <span className="tabular-nums text-neutral-800">{(metrics?.promptTokens ?? 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-neutral-500">{t("detailAttrTokenCompletion")}</span>
+                        <span className="tabular-nums text-neutral-800">{(metrics?.completionTokens ?? 0).toLocaleString()}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-4 border-t border-neutral-100 pt-2 font-bold">
+                        <span className="text-neutral-700">{t("colTotalTokens")}</span>
+                        <span className="tabular-nums text-violet-600">{(metrics?.displayTotal ?? 0).toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
-                </TooltipContent>
-              </Tooltip>
+                }
+              >
+                <span
+                  className="inline-flex cursor-default items-center gap-0.5 font-medium text-violet-700 dark:text-violet-400/90"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <IconCode className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
+                  {tokShow}
+                </span>
+              </Popover>
             ) : (
               <span
                 className="inline-flex items-center gap-0.5 font-medium text-muted-foreground/80"
                 title={t("threadDrawerTurnTokensTotal")}
               >
-                <Binary className="size-3 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
+                <IconCode className="size-3 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
                 {tokShow}
               </span>
             )}
@@ -320,7 +318,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
             <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
-              <MessagesSquare className="size-4 shrink-0" strokeWidth={2} aria-hidden />
+              <IconMessage className="size-4 shrink-0" strokeWidth={2} aria-hidden />
             </span>
             <h2 className="truncate text-lg font-semibold leading-tight text-foreground">
               {t("threadDrawerTitle")}
@@ -330,9 +328,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
             className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("threadDrawerCloseAria")}
           >
-            <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-            </svg>
+            <IconClose className="size-5" aria-hidden />
           </DrawerClose>
         </div>
 

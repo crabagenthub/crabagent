@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
-import { Copy } from "lucide-react";
+import { IconCopy } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useMemo } from "react";
@@ -19,7 +19,7 @@ import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/ob
 import { formatSpanDuration, type SpanRecordRow } from "@/lib/span-records";
 import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
-import { cn } from "@/lib/utils";
+import { cn, formatShortId } from "@/lib/utils";
 
 function clip(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -72,8 +72,8 @@ function SpanIdCell({ spanId }: { spanId: string }) {
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block min-w-0 truncate" title={spanId}>
-        {spanId}
+      <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={spanId}>
+        {formatShortId(spanId)}
       </span>
       <Tooltip>
         <TooltipTrigger
@@ -102,7 +102,7 @@ function SpanIdCell({ spanId }: { spanId: string }) {
               }}
               aria-label={t("traceInspectCopySpanId")}
             >
-              <Copy className="size-3.5" strokeWidth={2} />
+              <IconCopy className="size-3.5" />
             </Button>
           )}
         />
@@ -297,7 +297,7 @@ export function SpansDataTable({
         key: "start_time_ms",
         width: 200,
         render: (_, r) => (
-          <span className="whitespace-nowrap font-mono text-xs text-neutral-600">
+          <span className="whitespace-nowrap text-xs text-neutral-600">
             {r.start_time_ms != null
               ? formatTraceDateTimeLocal(new Date(r.start_time_ms).toISOString())
               : "—"}
@@ -310,7 +310,7 @@ export function SpansDataTable({
         key: "end_time_ms",
         width: 200,
         render: (_, r) => (
-          <span className="whitespace-nowrap font-mono text-xs text-neutral-600">
+          <span className="whitespace-nowrap text-xs text-neutral-600">
             {r.end_time_ms != null ? formatTraceDateTimeLocal(new Date(r.end_time_ms).toISOString()) : "—"}
           </span>
         ),
@@ -321,7 +321,7 @@ export function SpansDataTable({
         key: "duration_ms",
         width: 96,
         render: (_, r) => (
-          <span className="font-mono text-xs tabular-nums text-neutral-700">{formatSpanDuration(r.duration_ms)}</span>
+          <span className="text-xs tabular-nums text-neutral-700">{formatSpanDuration(r.duration_ms)}</span>
         ),
       },
       {
@@ -331,7 +331,7 @@ export function SpansDataTable({
         width: 112,
         align: "right",
         render: (_, r) => (
-          <span className="font-mono text-xs tabular-nums text-neutral-700">{String(r.total_tokens)}</span>
+          <span className="text-xs tabular-nums text-neutral-700">{String(r.total_tokens)}</span>
         ),
       },
     ],

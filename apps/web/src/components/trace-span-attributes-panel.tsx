@@ -104,8 +104,8 @@ export function TraceSpanAttributesPanel({ span }: { span: SemanticSpanRow | nul
           </span>
         </AttrRow>
         <AttrRow label={t("detailAttrSpanId")}>
-          <div className="flex items-start gap-1.5">
-            <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-neutral-900">{span.span_id}</span>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 break-all text-[11px] text-neutral-900">{span.span_id}</span>
             <button
               type="button"
               onClick={copyId}

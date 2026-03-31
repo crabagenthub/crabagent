@@ -4,7 +4,7 @@ import "@/lib/arco-react19-setup";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Dropdown, Menu } from "@arco-design/web-react";
-import { Filter } from "lucide-react";
+import { IconFilter } from "@arco-design/web-react/icon";
 import { Button } from "@/components/ui/button";
 import { OBSERVE_LIST_STATUS_OPTIONS, type ObserveListStatusParam } from "@/lib/observe-facets";
 import { OBSERVE_TABLE_ICON_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
@@ -68,7 +68,7 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
           aria-label={t("statusColumnFilterAria")}
           aria-expanded={open}
         >
-          <Filter className="size-3.5" strokeWidth={2} aria-hidden />
+          <IconFilter className="size-3.5" strokeWidth={2} aria-hidden />
         </Button>
       </Dropdown>
     </div>

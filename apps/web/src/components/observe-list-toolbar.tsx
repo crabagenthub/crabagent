@@ -1,5 +1,6 @@
 "use client";
 
+import { IconSearch, IconRefresh } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -44,21 +45,34 @@ export function ObserveListToolbar({
     <section className="mb-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2 gap-y-3">
         {toolbarTop ? <div className="min-w-0 shrink-0 max-sm:w-full">{toolbarTop}</div> : null}
-        <div className="relative min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink-0 flex-1 basis-[min(100%,44rem)] sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
-          <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground">
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <circle cx="11" cy="11" r="7" />
-              <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
-            </svg>
-          </span>
-          <input
-            type="search"
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full rounded-lg border border-input bg-muted/50 py-2 pl-9 pr-3 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            autoComplete="off"
-          />
+        <div className="flex min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink-0 flex-1 basis-[min(100%,44rem)] items-center gap-2 sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
+          <div className="relative flex-1">
+            <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground/60">
+              <IconSearch className="h-4 w-4" aria-hidden />
+            </span>
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onRefresh();
+                }
+              }}
+              placeholder={searchPlaceholder}
+              className="h-9 w-full rounded-lg border border-input bg-muted/50 py-2 pl-9 pr-3 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              autoComplete="off"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            className="h-9 gap-1.5 px-4 font-semibold shadow-sm transition-all hover:opacity-90 active:scale-[0.98]"
+            onClick={() => onRefresh()}
+          >
+            {t("searchLabel")}
+          </Button>
         </div>
         {filtersSlot ? <div className="shrink-0">{filtersSlot}</div> : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -74,20 +88,13 @@ export function ObserveListToolbar({
             aria-busy={isFetching}
             className={cn(isFetching && "disabled:!opacity-100")}
           >
-            <svg
+            <IconRefresh
               className={cn(
                 "h-4 w-4 origin-center will-change-transform",
                 isFetching && "motion-reduce:animate-none motion-reduce:opacity-80 animate-spin",
               )}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
               aria-hidden
-            >
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" strokeLinecap="round" />
-              <path d="M21 3v6h-6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            />
           </Button>
         </div>
       </div>

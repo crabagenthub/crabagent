@@ -3,18 +3,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import {
-  ArrowUp,
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-  Filter,
-  Info,
-  ListOrdered,
-  Radio,
-  Search,
-  Sparkles,
-  SquarePen,
-} from "lucide-react";
+  IconArrowUp,
+  IconRobot,
+  IconLeft,
+  IconRight,
+  IconFilter,
+  IconInfoCircle,
+  IconList,
+  IconLanguage,
+  IconSearch,
+  IconThunderbolt,
+  IconEdit,
+  IconClose,
+} from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InspectDrawerMetaSection } from "@/components/inspect-drawer-meta-section";
 import { MessageHint } from "@/components/message-hint";
@@ -29,6 +30,7 @@ import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatDurationMs } from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
+import { formatShortId } from "@/lib/utils";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -168,8 +170,7 @@ export function SpanRecordInspectDrawer({
       ? `${spanStartLabel} – ${spanEndLabel}`
       : spanStartLabel;
 
-  const traceShort =
-    traceId.length > 28 ? `${traceId.slice(0, 14)}…${traceId.slice(-10)}` : traceId;
+  const traceShort = formatShortId(traceId);
   const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
 
   const contextTags = useMemo(() => {
@@ -205,7 +206,7 @@ export function SpanRecordInspectDrawer({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
-                <ListOrdered className="size-4 shrink-0" strokeWidth={2} aria-hidden />
+                <IconList className="size-4 shrink-0" strokeWidth={2} aria-hidden />
               </span>
               <h2 className="text-lg font-semibold leading-tight text-foreground">
                 {t("spanInspectDrawerTitle")}
@@ -217,7 +218,6 @@ export function SpanRecordInspectDrawer({
                   label: t("drawerMetaTraceIdLabel"),
                   value: traceId ? traceShort : "—",
                   title: traceId || undefined,
-                  mono: true,
                   copyText: traceId || undefined,
                   copyAriaLabel: t("inspectCopyTraceIdAria"),
                 },
@@ -234,7 +234,7 @@ export function SpanRecordInspectDrawer({
                   label: t("drawerMetaAgentLabel"),
                   value: (
                     <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <Bot className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                      <IconRobot className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
                       <span className="truncate">{row.agent_name?.trim() || "—"}</span>
                     </span>
                   ),
@@ -244,7 +244,7 @@ export function SpanRecordInspectDrawer({
                   label: t("drawerMetaChannelLabel"),
                   value: (
                     <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <Radio className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                      <IconLanguage className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
                       <span className="truncate">{row.channel_name?.trim() || "—"}</span>
                     </span>
                   ),
@@ -292,9 +292,7 @@ export function SpanRecordInspectDrawer({
             className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("threadDrawerCloseAria")}
           >
-            <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-            </svg>
+            <IconClose className="size-5" aria-hidden />
           </DrawerClose>
         </div>
 
@@ -307,7 +305,7 @@ export function SpanRecordInspectDrawer({
             aria-label={t("traceInspectNavPrev")}
             title={t("traceInspectNavPrev")}
           >
-            <ChevronLeft className="size-5" strokeWidth={1.75} />
+            <IconLeft className="size-5" strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -317,7 +315,7 @@ export function SpanRecordInspectDrawer({
             aria-label={t("traceInspectNavNext")}
             title={t("traceInspectNavNext")}
           >
-            <ChevronRight className="size-5" strokeWidth={1.75} />
+            <IconRight className="size-5" strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -326,17 +324,18 @@ export function SpanRecordInspectDrawer({
             aria-label={t("traceInspectNavUp")}
             title={t("traceInspectNavUp")}
           >
-            <ArrowUp className="size-5" strokeWidth={1.75} />
+            <IconArrowUp className="size-5" strokeWidth={1.75} />
           </button>
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
           <button
             type="button"
             onClick={() => treeSearchRef.current?.focus()}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1.5 text-muted-foreground transition-all hover:border-border hover:bg-muted hover:text-foreground active:scale-95"
             aria-label={t("detailTreeSearchPlaceholder")}
             title={t("detailTreeSearchPlaceholder")}
           >
-            <Search className="size-5" strokeWidth={1.75} />
+            <IconSearch className="size-4" strokeWidth={2} />
+            <span className="hidden text-xs font-semibold sm:inline">{t("searchLabel")}</span>
           </button>
           <button
             type="button"
@@ -345,7 +344,7 @@ export function SpanRecordInspectDrawer({
             aria-label={t("traceInspectFilterSoon")}
             title={t("traceInspectFilterSoon")}
           >
-            <Filter className="size-5" strokeWidth={1.75} />
+            <IconFilter className="size-5" strokeWidth={1.75} />
           </button>
           <div className="ml-auto flex items-center gap-2">
             <button
@@ -354,7 +353,7 @@ export function SpanRecordInspectDrawer({
               className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
               title={t("traceInspectDebugSoon")}
             >
-              <Sparkles className="size-4" strokeWidth={1.75} />
+              <IconThunderbolt className="size-4" strokeWidth={1.75} />
               {t("traceInspectDebugAi")}
             </button>
           </div>
@@ -365,25 +364,28 @@ export function SpanRecordInspectDrawer({
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2.5">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-sm font-semibold text-foreground">
-                  {t("spanInspectTreeHeading", { count: String(items.length) })}
-                </h3>
-                <Info className="size-4 shrink-0 text-neutral-400" aria-hidden />
-              </div>
-              <div className="flex items-center gap-0.5 text-neutral-400">
-                <SquarePen className="size-4" strokeWidth={1.25} aria-hidden />
-              </div>
-            </div>
-            <div className="shrink-0 border-b border-border bg-background px-2 py-2">
-              <input
-                ref={treeSearchRef}
-                type="search"
-                value={treeFilter}
-                onChange={(e) => setTreeFilter(e.target.value)}
-                placeholder={t("detailTreeSearchPlaceholder")}
-                className="w-full rounded-lg border border-input bg-muted/50 px-2.5 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                aria-label={t("detailTreeSearchPlaceholder")}
-              />
-            </div>
+                      {t("spanInspectTreeHeading", { count: String(items.length) })}
+                    </h3>
+                    <IconInfoCircle className="size-4 shrink-0 text-neutral-400" aria-hidden />
+                  </div>
+                  <div className="flex items-center gap-0.5 text-neutral-400">
+                    <IconEdit className="size-4" strokeWidth={1.25} aria-hidden />
+                  </div>
+                </div>
+                <div className="shrink-0 border-b border-border bg-background px-3 py-2.5">
+                   <div className="relative">
+                     <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" strokeWidth={2} />
+                     <input
+                       ref={treeSearchRef}
+                       type="search"
+                       value={treeFilter}
+                       onChange={(e) => setTreeFilter(e.target.value)}
+                       placeholder={t("detailTreeSearchPlaceholder")}
+                       className="w-full rounded-lg border border-input bg-muted/50 py-1.5 pl-8 pr-2.5 text-xs text-foreground shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                       aria-label={t("detailTreeSearchPlaceholder")}
+                     />
+                   </div>
+                 </div>
             <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/20">
               {spansQuery.isError ? (
                 <p className="p-4 text-sm text-red-600">{String(spansQuery.error)}</p>

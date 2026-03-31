@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { ListTree } from "lucide-react";
+import { IconBranch } from "@arco-design/web-react/icon";
 import { LocalizedLink } from "@/components/localized-link";
 import {
   ChatContainerContent,
@@ -353,7 +353,7 @@ function AssistantBubble({
             href={traceHref}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
           >
-            <ListTree className="size-4 shrink-0" strokeWidth={1.75} />
+            <IconBranch className="size-4 shrink-0" />
             {t("convViewTrace")}
           </LocalizedLink>
         </div>

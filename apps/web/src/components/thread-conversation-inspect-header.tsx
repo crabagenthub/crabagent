@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Info } from "lucide-react";
+import { IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import type { ThreadLlmUsageAggregate } from "@/lib/trace-payload-usage";
@@ -48,7 +48,7 @@ function CopyIconButton({
         className="inline-flex rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
         aria-label={ariaLabel}
       >
-        <Copy className="size-3.5" strokeWidth={2} />
+        <IconCopy className="size-3.5" />
       </button>
       {showOk ? (
         <span
@@ -171,7 +171,7 @@ export function ThreadConversationInspectHeader({
     <div className={cn("min-w-0", variant === "sidebar" ? "col-span-2" : "md:col-span-3")}>
       <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaSessionIdLabel")}</div>
       <div className="mt-1 flex min-w-0 items-center gap-1">
-        <span className="truncate font-mono text-sm text-neutral-900 dark:text-neutral-100" title={threadKey || undefined}>
+        <span className="truncate text-sm text-neutral-900 dark:text-neutral-100" title={threadKey || undefined}>
           {threadKey ? threadShort : "—"}
         </span>
         {threadKey ? (
@@ -284,7 +284,7 @@ export function ThreadConversationInspectHeader({
               |
             </span>
             <span className="text-neutral-600 dark:text-neutral-400">{t("inspectTokenUsageSubtitle")}</span>
-            <Info className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
+            <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
           </div>
         </div>
 

@@ -111,7 +111,7 @@ export function IdLabeledCopy({
 
   const typeTag = (
     <span
-      className="shrink-0 rounded bg-violet-100/90 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-900"
+      className="shrink-0 rounded bg-violet-100/90 px-1.5 py-0.5 text-[10px] font-semibold text-violet-900"
       title={kindLabel}
     >
       {kindLabel}
@@ -136,7 +136,7 @@ export function IdLabeledCopy({
         title={text}
       >
         <span
-          className={`min-w-0 truncate font-mono text-[11px] text-neutral-800 ${valueClassName ?? ""}`}
+          className={`min-w-0 truncate text-[11px] text-neutral-800 ${valueClassName ?? ""}`}
         >
           {shown}
         </span>
@@ -149,7 +149,7 @@ export function IdLabeledCopy({
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
       <span
-        className={`min-w-0 break-all font-mono text-sm text-neutral-900 ${valueClassName ?? ""}`}
+        className={`min-w-0 break-all text-sm text-neutral-900 ${valueClassName ?? ""}`}
         title={text}
       >
         {shown}

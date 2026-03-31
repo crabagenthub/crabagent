@@ -1,34 +1,12 @@
 "use client";
 
+import { IconMessage, IconQuestionCircle } from "@arco-design/web-react/icon";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 function ChatBubbleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M7 9.5h10M7 13h6.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M5.5 18.5 4 21l2.2-.6c.9-.25 1.85-.4 2.8-.4h8.5a3 3 0 0 0 3-3V8a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7.5c0 1.1.7 2.1 1.75 2.45Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <IconMessage className={className} />;
 }
 
 /** “?” in a small pill — reads as help, scales with `iconClassName` (default 28×28px). */

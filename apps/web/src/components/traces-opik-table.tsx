@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
-import { Copy } from "lucide-react";
+import { IconCopy } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
@@ -29,6 +29,7 @@ import {
   traceRecordDurationMs,
   type TraceRecordRow,
 } from "@/lib/trace-records";
+import { formatShortId } from "@/lib/utils";
 
 function clipOneLine(s: string | null | undefined, max: number): string {
   const raw = (s ?? "").trim().replace(/\s+/g, " ");
@@ -80,8 +81,8 @@ function TraceIdCell({ traceId }: { traceId: string }) {
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block min-w-0 truncate" title={traceId}>
-        {traceId}
+      <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={traceId}>
+        {formatShortId(traceId)}
       </span>
       <TooltipProvider delay={80}>
         <Tooltip>
@@ -106,9 +107,10 @@ function TraceIdCell({ traceId }: { traceId: string }) {
                   e.stopPropagation();
                   triggerProps.onKeyDown?.(e);
                 }}
-                aria-label={t("inspectCopyTraceIdAria")}
+                aria-label={t("copyIdAria", { kind: t("idKinds.trace_id") })}
+                title={t("copyIdAria", { kind: t("idKinds.trace_id") })}
               >
-                <Copy className="size-3.5" strokeWidth={2} />
+                <IconCopy className="size-3.5" />
               </Button>
             )}
           />
@@ -312,7 +314,7 @@ export function TracesOpikTable({
         key: "start_time",
         width: 160,
         render: (_, row) => (
-          <span className="font-mono text-xs text-neutral-700">
+          <span className="text-xs text-neutral-700">
             {formatTraceDateTimeLocal(new Date(row.start_time).toISOString())}
           </span>
         ),
@@ -331,7 +333,7 @@ export function TracesOpikTable({
           const inPrev = rowInputSnippet(row, 200);
           return (
             <p
-              className="m-0 line-clamp-2 break-words font-mono text-xs leading-snug text-neutral-800"
+              className="m-0 line-clamp-2 break-words text-xs leading-snug text-neutral-800"
               title={inPrev}
             >
               {inPrev || "—"}
@@ -353,7 +355,7 @@ export function TracesOpikTable({
           const outPrev = rowOutputSnippet(row, 200);
           return (
             <p
-              className="m-0 line-clamp-2 break-words font-mono text-xs leading-snug text-neutral-800"
+              className="m-0 line-clamp-2 break-words text-xs leading-snug text-neutral-800"
               title={outPrev}
             >
               {outPrev || "—"}
@@ -374,7 +376,7 @@ export function TracesOpikTable({
         align: "left",
         render: (_, row) => {
           const fail = ["error", "timeout"].includes(String(row.status).toLowerCase());
-          return <span className="font-mono text-xs tabular-nums text-neutral-700">{fail ? 1 : 0}</span>;
+          return <span className="text-xs tabular-nums text-neutral-700">{fail ? 1 : 0}</span>;
         },
       },
       {
@@ -388,7 +390,7 @@ export function TracesOpikTable({
         key: "duration",
         width: 112,
         render: (_, row) => (
-          <span className="font-mono text-xs tabular-nums text-neutral-800">
+          <span className="text-xs tabular-nums text-neutral-800">
             {formatDurationMs(traceRecordDurationMs(row))}
           </span>
         ),
@@ -421,7 +423,7 @@ export function TracesOpikTable({
         key: "total_tokens",
         width: 128,
         render: (_, row) => (
-          <span className="font-mono text-xs tabular-nums text-neutral-800">
+          <span className="text-xs tabular-nums text-neutral-800">
             {typeof row.total_tokens === "number" ? row.total_tokens.toLocaleString() : "—"}
           </span>
         ),
@@ -437,7 +439,7 @@ export function TracesOpikTable({
         key: "total_cost",
         width: 112,
         render: (_, row) => (
-          <span className="font-mono text-xs tabular-nums text-neutral-600">
+          <span className="text-xs tabular-nums text-neutral-600">
             {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
           </span>
         ),

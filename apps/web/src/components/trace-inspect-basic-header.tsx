@@ -1,11 +1,11 @@
 "use client";
 
-import { Copy, Hash, Info, Layers, Timer } from "lucide-react";
+import { IconCopy, IconLanguage, IconInfoCircle, IconApps, IconClockCircle, IconCommon } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { spanTokenTotals } from "@/lib/span-token-display";
 import { formatDurationMs } from "@/lib/trace-records";
-import { cn } from "@/lib/utils";
+import { cn, formatShortId } from "@/lib/utils";
 
 async function copyText(text: string): Promise<void> {
   try {
@@ -58,7 +58,7 @@ function CopyIconButton({ text, ariaLabel }: { text: string; ariaLabel: string }
       className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700"
       aria-label={ariaLabel}
     >
-      <Copy className="size-3.5" strokeWidth={2} />
+      <IconCopy className="size-3.5" />
     </button>
   );
 }
@@ -95,8 +95,7 @@ export function TraceInspectBasicHeader({
     inDisplay = rowTokens.toLocaleString();
   }
 
-  const traceShort =
-    traceId.length > 22 ? `${traceId.slice(0, 10)}…${traceId.slice(-8)}` : traceId || "—";
+  const traceShort = formatShortId(traceId) || "—";
 
   const statusError = selectedSpan != null && selectedSpan.error != null;
   const statusLabel =
@@ -122,9 +121,9 @@ export function TraceInspectBasicHeader({
           </div>
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-neutral-500">{t("inspectServiceIdLabel")}</div>
+          <div className="text-xs text-neutral-500">{t("inspectDetailServiceId")}</div>
           <div className="mt-1 flex min-w-0 items-center gap-1">
-            <span className="truncate font-mono text-sm text-neutral-900" title={serviceIdDisplay}>
+            <span className="truncate text-sm text-neutral-900" title={serviceIdDisplay}>
               {serviceIdDisplay}
             </span>
             {spanId ? (
@@ -135,7 +134,7 @@ export function TraceInspectBasicHeader({
         <div className="min-w-0">
           <div className="text-xs text-neutral-500">{t("inspectModelEndpointLabel")}</div>
           <div className="mt-1 flex min-w-0 items-center gap-1">
-            <span className="truncate font-mono text-sm text-neutral-900" title={endpointId}>
+            <span className="truncate text-sm text-neutral-900" title={endpointId}>
               {endpointId}
             </span>
             {endpointId !== "—" ? (
@@ -151,7 +150,7 @@ export function TraceInspectBasicHeader({
           |
         </span>
         <span className="text-neutral-600">{t("inspectTokenUsageSubtitle")}</span>
-        <Info className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
+        <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
         <span className="ml-auto flex flex-wrap items-baseline gap-x-4 gap-y-1 tabular-nums">
           <span className="text-neutral-900">
             <span className="font-bold text-amber-600">{t("inspectTokenInShort")}</span>{" "}
@@ -172,17 +171,17 @@ export function TraceInspectBasicHeader({
       <div className="mt-3 rounded-lg bg-[#f4f5f9] px-3 py-2.5 text-xs leading-relaxed text-neutral-600 dark:bg-neutral-900/55 dark:text-neutral-400">
         <ul className="m-0 list-none space-y-2 p-0">
           <li className="flex gap-2">
-            <Timer className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
+            <IconClockCircle className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
             <span>
               <span className="text-neutral-700">{t("inspectDetailDuration")}</span>
               <span className="text-neutral-900"> {durationLabel}</span>
             </span>
           </li>
           <li className="flex gap-2">
-            <Hash className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
+            <IconCommon className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
             <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
               <span className="text-neutral-700">{t("inspectDetailTrace")}</span>
-              <span className="font-mono text-neutral-900" title={traceId || undefined}>
+              <span className="text-neutral-900" title={traceId || undefined}>
                 {traceShort}
               </span>
               {traceId ? (
@@ -191,7 +190,7 @@ export function TraceInspectBasicHeader({
             </span>
           </li>
           <li className="flex gap-2">
-            <Layers className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
+            <IconApps className="mt-0.5 size-3.5 shrink-0 text-neutral-400" aria-hidden />
             <span>
               <span className="text-neutral-700">{t("inspectDetailSpanKind")}</span>
               <span className="text-neutral-900"> {typeModuleLine}</span>

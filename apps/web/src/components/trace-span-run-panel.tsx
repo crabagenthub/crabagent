@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Copy } from "lucide-react";
+import { IconRight, IconCopy, IconSearch } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { MessageHint } from "@/components/message-hint";
@@ -123,7 +123,7 @@ function SpanInspectSection(props: {
           onClick={onToggle}
           className="flex min-w-0 items-center gap-2 text-left text-sm font-medium text-foreground"
         >
-          <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
+          <IconRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
           <span className="truncate">{title}</span>
         </button>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
@@ -145,7 +145,7 @@ function SpanInspectSection(props: {
             aria-label={t("spanInspectCopyAria")}
             onClick={() => void navigator.clipboard.writeText(copyPayload)}
           >
-            <Copy className="size-4" strokeWidth={2} />
+            <IconCopy className="size-4" />
           </button>
         </div>
       </div>
@@ -334,7 +334,7 @@ export function TraceSpanRunPanel({
       {embedded ? (
         <div className="shrink-0 space-y-1.5 border-b border-border bg-muted/25 px-4 py-2.5">
           {span.model_name ? (
-            <p className="truncate font-mono text-xs font-medium text-neutral-900" title={span.model_name}>
+            <p className="truncate text-xs font-medium text-neutral-900" title={span.model_name}>
               {span.model_name}
             </p>
           ) : null}

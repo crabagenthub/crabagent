@@ -2,6 +2,7 @@ import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
+import { formatShortId } from "@/lib/utils";
 
 export type TraceRecordRow = {
   trace_id: string;
@@ -186,11 +187,11 @@ function strMeta(m: Record<string, unknown>, key: string): string | null {
 export function formatTraceRecordSessionLine(row: TraceRecordRow): string {
   const sid = row.session_id?.trim();
   if (sid) {
-    return sid.length > 40 ? `${sid.slice(0, 18)}…${sid.slice(-10)}` : sid;
+    return formatShortId(sid);
   }
   const tk = row.thread_key?.trim();
   if (tk) {
-    return tk.length > 44 ? `${tk.slice(0, 20)}…${tk.slice(-12)}` : tk;
+    return formatShortId(tk);
   }
   return "—";
 }

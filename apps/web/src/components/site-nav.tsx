@@ -1,6 +1,17 @@
 "use client";
 
 import "@/lib/arco-react19-setup";
+import {
+  IconMenuFold,
+  IconMenuUnfold,
+  IconSettings,
+  IconExport,
+  IconUp,
+  IconDown,
+  IconUser,
+  IconCaretUp,
+  IconCaretDown,
+} from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import Image from "next/image";
 import { useLocale, useTranslations } from "next-intl";
@@ -10,6 +21,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } 
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { AppLocale } from "@/i18n/routing";
 import { clearApiKey } from "@/lib/collector";
 import {
@@ -36,66 +48,19 @@ const CLAWD_LOGO_URL = "https://clawhub.ai/clawd-logo.png";
 
 /** 折叠按钮：方框 + 竖线（侧栏收拢 / 展开） */
 function SidebarRailIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      className="shrink-0 text-sidebar-foreground"
-      aria-hidden
-    >
-      <rect
-        x="4.25"
-        y="5.25"
-        width="15.5"
-        height="13.5"
-        rx="2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      {collapsed ? (
-        <path d="M9 5v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      ) : (
-        <path d="M15 5v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      )}
-    </svg>
+  return collapsed ? (
+    <IconMenuUnfold className="shrink-0 text-sidebar-foreground" />
+  ) : (
+    <IconMenuFold className="shrink-0 text-sidebar-foreground" />
   );
 }
 
 function IconGear({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-    </svg>
-  );
+  return <IconSettings className={className} />;
 }
 
 function IconLogout({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-    </svg>
-  );
+  return <IconExport className={className} />;
 }
 
 /** Locale switcher shown at the bottom of the user panel only. */
@@ -145,47 +110,24 @@ function UserPanelLocale({ onAfterChange }: { onAfterChange?: () => void }) {
 const STORAGE_KEY_BOTTOM = "crabagent-sidebar-bottom-expanded";
 
 function ChevronUpThin({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <IconUp className={className} />;
 }
 
 function ChevronDownThin({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M6 10l6 6 6-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <IconDown className={className} />;
 }
 
 function UserAvatarSilhouette({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="9" r="3.25" fill="currentColor" />
-      <path
-        d="M6.5 19.25c.85-2.8 3.2-4.5 5.5-4.5s4.65 1.7 5.5 4.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  return <IconUser className={className} />;
 }
 
 /** 双尖角：收起底部用户条（与参考产品一致） */
 function UserStripCollapseChevrons({ className }: { className?: string }) {
   return (
-    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M8 7l4-3 4 3M8 17l4 3 4-3"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className={cn("flex flex-col -space-y-1.5", className)}>
+      <IconCaretUp className="size-3" />
+      <IconCaretDown className="size-3" />
+    </div>
   );
 }
 
@@ -346,10 +288,15 @@ function NavSectionLabel({ children, first }: { children: ReactNode; first?: boo
 export function SiteNav() {
   const t = useTranslations("Nav");
   const pathname = usePathname();
+  
+  // 使用 useState 懒加载避免 SSR 不匹配
   const [collapsed, setCollapsed] = useState(false);
   const [bottomExpanded, setBottomExpanded] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
+  // 组件挂载后读取 localStorage
   useEffect(() => {
+    setMounted(true);
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw === "1") {
@@ -364,9 +311,12 @@ export function SiteNav() {
     }
   }, []);
 
+  // 使用 useLayoutEffect 立即设置 DOM 属性，避免闪烁
   useLayoutEffect(() => {
-    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
-  }, [collapsed]);
+    if (mounted) {
+      document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
+    }
+  }, [collapsed, mounted]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {

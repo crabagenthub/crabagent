@@ -1,8 +1,8 @@
 "use client";
 
+import { IconEmpty } from "@arco-design/web-react/icon";
 import ArcoEmpty from "@arco-design/web-react/es/Empty";
 import type { ReactNode } from "react";
-import { Inbox } from "lucide-react";
 
 import "@/lib/arco-react19-setup";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,7 @@ export function ListEmptyState(props: {
         variant === "card" && "border-0 bg-transparent",
         hideMedia && "[&_.arco-empty-image]:hidden",
       )}
-      icon={hideMedia ? undefined : (media ?? <Inbox aria-hidden className="size-8 text-muted-foreground" />)}
+      icon={hideMedia ? undefined : (media ?? <IconEmpty aria-hidden className="size-8 text-muted-foreground" />)}
       description={descriptionNode}
     />
   );

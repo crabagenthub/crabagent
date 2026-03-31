@@ -1,5 +1,6 @@
 "use client";
 
+import { IconArrowUp, IconArrowDown } from "@arco-design/web-react/icon";
 import { Button } from "@/components/ui/button";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import { OBSERVE_TABLE_SORT_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
@@ -48,24 +49,8 @@ export function ObserveColumnSortIcons({
       className={OBSERVE_TABLE_SORT_BUTTON_CLASSNAME}
     >
       <span className="inline-flex items-center gap-0" aria-hidden>
-        <svg
-          className={`size-3.5 ${ascEmph ? emph : muted}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M12 5v14M8 9l4-4 4 4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <svg
-          className={`-ml-1.5 size-3.5 ${descEmph ? emph : muted}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M12 19V5M8 15l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <IconArrowUp className={`size-3.5 ${ascEmph ? emph : muted}`} />
+        <IconArrowDown className={`-ml-1.5 size-3.5 ${descEmph ? emph : muted}`} />
       </span>
     </Button>
   );
