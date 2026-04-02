@@ -95,6 +95,30 @@ describe("OpikOpenClawRuntime — 无 LLM 回合上报", () => {
     assert.equal(patch?.spans?.length, 1);
   });
 
+  it("llm_input 将 openclaw_routing.kind 写入 trace（从 sessionKey 解析）", () => {
+    const rt = new OpikOpenClawRuntime("default", "openclaw");
+    const sk = "agent:email_automatic:feishu:group:oc_x";
+    const ctx = { agentId: "email_automatic", sessionKey: sk };
+    rt.mergePendingContext(sk, { message_received: { from: "feishu/oc_x", content: "ping" } });
+    rt.onLlmInput(sk, { provider: "p", model: "m", prompt: "pong" }, ctx, 10_000, [sk]);
+    const batch = rt.onAgentEnd(sk, { success: true, messages: [{ role: "assistant", content: "ok" }] }, ctx, [sk]);
+    assert.ok(batch?.traces?.length);
+    const meta = batch?.traces?.[0]?.metadata as Record<string, unknown> | undefined;
+    const rout = meta?.openclaw_routing as Record<string, unknown> | undefined;
+    assert.equal(rout?.kind, "group");
+    assert.equal(rout?.thinking, "inherit");
+    assert.equal(rout?.fast, "inherit");
+    assert.equal(rout?.verbose, "inherit");
+    assert.equal(rout?.reasoning, "inherit");
+    const span = batch?.spans?.find((s) => (s as Record<string, unknown>).type === "llm") as
+      | Record<string, unknown>
+      | undefined;
+    const sm = span?.metadata as Record<string, unknown> | undefined;
+    const sr = sm?.openclaw_routing as Record<string, unknown> | undefined;
+    assert.equal(sr?.kind, "group");
+    assert.equal(sr?.thinking, "inherit");
+  });
+
   it("飞书单聊 feishu/ou pending 与 agent:…:feishu:user:ou LLM 键对齐", () => {
     const rt = new OpikOpenClawRuntime("default", "openclaw");
     rt.mergePendingContext("feishu/ou_abc", {

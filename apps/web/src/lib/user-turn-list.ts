@@ -606,6 +606,8 @@ function parseEventTimeMs(e: TraceTimelineEvent): number | null {
 /** 单轮对话窗口（与 `buildConversationTurnWindowEvents` 切片一致）内的耗时与 Token 汇总。 */
 export type TurnWindowMetrics = {
   durationMs: number | null;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
   promptTokens: number;
   completionTokens: number;
   /** 优先 prompt+completion+cacheRead；仅有 API `total_tokens` 时为各轮之和。 */
@@ -613,11 +615,13 @@ export type TurnWindowMetrics = {
 };
 
 /**
- * 从已切好的回合事件窗口汇总：执行耗时（首条锚点事件 → 最后一条 `llm_output` / `agent_end`）与所有 `llm_output` 的 usage。
+ * 从已切好的回合事件窗口汇总：
+ * 执行耗时优先按首条 `llm_input` → 最后一条 `llm_output` / `agent_end` 计算，
+ * 避免把 `message_received` 到真正开始执行之间的等待时间算进去。
  */
 export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): TurnWindowMetrics {
   if (windowEvents.length === 0) {
-    return { durationMs: null, promptTokens: 0, completionTokens: 0, displayTotal: null };
+    return { durationMs: null, startedAtMs: null, endedAtMs: null, promptTokens: 0, completionTokens: 0, displayTotal: null };
   }
   const sorted = [...windowEvents].sort(compareTimelineChrono);
   let promptSum = 0;
@@ -648,7 +652,19 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
   const displayTotal: number | null =
     sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
 
-  const firstMs = parseEventTimeMs(sorted[0]!);
+  let firstMs: number | null = null;
+  for (const e of sorted) {
+    if ((e.type ?? "").toLowerCase() === "llm_input") {
+      const t = parseEventTimeMs(e);
+      if (t != null) {
+        firstMs = t;
+        break;
+      }
+    }
+  }
+  if (firstMs == null) {
+    firstMs = parseEventTimeMs(sorted[0]!);
+  }
   let endMs: number | null = null;
   for (let i = sorted.length - 1; i >= 0; i--) {
     const ty = (sorted[i]!.type ?? "").toLowerCase();
@@ -677,6 +693,8 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
 
   return {
     durationMs,
+    startedAtMs: firstMs,
+    endedAtMs: endMs,
     promptTokens: promptSum,
     completionTokens: completionSum,
     displayTotal,

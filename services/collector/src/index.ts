@@ -9,6 +9,12 @@ import { sseSubscribe } from "./sse-hub.js";
 import { querySemanticSpansByTraceId } from "./semantic-spans-query.js";
 import { queryTraceMessages } from "./trace-messages-query.js";
 import { parseObserveListStatus } from "./observe-list-filters.js";
+import {
+  countResourceAuditEvents,
+  queryResourceAuditEvents,
+  queryResourceAuditStats,
+  type ResourceAuditSemanticFilter,
+} from "./resource-audit-query.js";
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
@@ -283,6 +289,61 @@ const handleSpanRecords = (c: Context) => {
 app.get("/v1/span/list", handleSpanRecords);
 /** @deprecated Use `GET /v1/span/list` */
 app.get("/v1/span-records", handleSpanRecords);
+
+function parseResourceAuditSemanticClass(raw: string | undefined): ResourceAuditSemanticFilter {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (s === "file" || s === "memory" || s === "tool_io") {
+    return s;
+  }
+  return "all";
+}
+
+const handleResourceAuditEvents = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "100") || 100, 500);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
+  const uri_prefix = optionalQueryString(c, "uri_prefix");
+
+  const listQuery = { limit, offset, order, search, sinceMs, untilMs, semantic_class, uri_prefix };
+  const items = queryResourceAuditEvents(db, listQuery);
+  const total = countResourceAuditEvents(db, listQuery);
+  return c.json({ items, total });
+};
+
+const handleResourceAuditStats = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const rawSearch = c.req.query("search");
+  const search = typeof rawSearch === "string" ? rawSearch : undefined;
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
+  const uri_prefix = optionalQueryString(c, "uri_prefix");
+
+  const stats = queryResourceAuditStats(db, { search, sinceMs, untilMs, semantic_class, uri_prefix });
+  return c.json(stats);
+};
+
+app.get("/v1/resource-audit/events", handleResourceAuditEvents);
+app.get("/v1/resource-audit/stats", handleResourceAuditStats);
 
 app.get("/v1/observe-facets", (c) => {
   if (!checkApiKey(c)) {

@@ -5,6 +5,7 @@ import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "@/i18n/navigation";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { displayOpenclawKind } from "@/lib/openclaw-routing-display";
 import {
   formatDurationMs,
   formatOptimizationRate,
@@ -14,6 +15,7 @@ import {
   traceRecordAgentName,
   traceRecordChannel,
   traceRecordDurationMs,
+  traceRecordOpenclawRouting,
   traceRecordStatusBand,
   traceRecordTaskSummary,
   type TraceRecordRow,
@@ -21,7 +23,7 @@ import {
 import { formatShortId } from "@/lib/utils";
 
 function detailHref(row: TraceRecordRow): string {
-  return `/traces/${encodeURIComponent(row.thread_key)}`;
+  return `/traces?thread=${encodeURIComponent(row.thread_key)}`;
 }
 
 export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tokenWarnAt: number }) {
@@ -32,7 +34,8 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
   const channel = traceRecordChannel(row);
   const band = traceRecordStatusBand(row, tokenWarnAt);
   const rawStatus = String(row.status);
-  const sessionShown = formatTraceRecordSessionLine(row);
+  const routing = traceRecordOpenclawRouting(row);
+  const kindShown = routing?.kind ? displayOpenclawKind(routing.kind, t) : null;
 
   return (
     <li className="list-none">
@@ -48,6 +51,19 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
             <p className="text-[11px] text-neutral-500">
               {[agent, channel].filter(Boolean).join(" · ") || "—"}
             </p>
+            {routing?.kind || routing?.label ? (
+              <p className="text-[11px] text-neutral-500">
+                {kindShown ? (
+                  <span
+                    className="mr-1.5 inline-flex rounded-full bg-sky-100 px-1.5 py-0.5 font-medium text-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+                    title={kindShown.title}
+                  >
+                    {kindShown.text}
+                  </span>
+                ) : null}
+                {routing.label ? <span className="text-neutral-600 dark:text-neutral-400">{routing.label}</span> : null}
+              </p>
+            ) : null}
           </div>
           <div className="flex shrink-0 sm:pt-0.5">
             <Button type="button" className="w-full sm:w-auto" onClick={() => router.push(detailHref(row))}>

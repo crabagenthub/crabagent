@@ -11,7 +11,6 @@ import {
   toolResultChars,
 } from "@/lib/span-insights";
 import { extractRunChatBlocks, type ChatRole } from "@/lib/span-messages";
-import { spanTokenTotals } from "@/lib/span-token-display";
 import { cn } from "@/lib/utils";
 import {
   extractPromptStagesFromMetadata,
@@ -111,10 +110,22 @@ function SpanInspectSection(props: {
   onSearchChange: (v: string) => void;
   copyPayload: string;
   prettyLabel: string;
+  showPrettyBadge?: boolean;
   t: ReturnType<typeof useTranslations>;
   children: React.ReactNode;
 }) {
-  const { title, isOpen, onToggle, search, onSearchChange, copyPayload, prettyLabel, t, children } = props;
+  const {
+    title,
+    isOpen,
+    onToggle,
+    search,
+    onSearchChange,
+    copyPayload,
+    prettyLabel,
+    showPrettyBadge = true,
+    t,
+    children,
+  } = props;
   return (
     <div className="border-b border-border">
       <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/15 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
@@ -127,9 +138,11 @@ function SpanInspectSection(props: {
           <span className="truncate">{title}</span>
         </button>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {prettyLabel}
-          </span>
+          {showPrettyBadge ? (
+            <span className="rounded-md border border-border bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {prettyLabel}
+            </span>
+          ) : null}
           <input
             type="search"
             value={search}
@@ -196,11 +209,12 @@ export function TraceSpanRunPanel({
     if (embedded && mainTab === "metadata") {
       setMainTab("run");
     }
+    if (embedded && mainTab === "feedback") {
+      setMainTab("run");
+    }
   }, [embedded, mainTab]);
 
-  const tabDefs = embedded
-    ? (["run", "feedback"] as const)
-    : (["run", "metadata", "feedback"] as const);
+  const tabDefs = embedded ? (["run"] as const) : (["run", "metadata", "feedback"] as const);
 
   const inputJson = useMemo(() => formatJson(span?.input), [span?.input]);
   const outputJson = useMemo(() => formatJson(span?.output), [span?.output]);
@@ -278,8 +292,6 @@ export function TraceSpanRunPanel({
     );
   }
 
-  const tok = spanTokenTotals(span);
-
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-t border-border bg-white lg:border-t-0">
       {!embedded ? (
@@ -293,74 +305,41 @@ export function TraceSpanRunPanel({
         />
       ) : null}
 
-      <div
-        className={
-          embedded
-            ? "flex shrink-0 gap-6 border-b border-border bg-background px-4"
-            : "flex shrink-0 gap-1 border-b border-border bg-neutral-50 px-2 py-1.5"
-        }
-      >
-        {tabDefs.map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setMainTab(k)}
-            className={[
-              embedded
-                ? "relative pb-3 pt-3 text-sm font-medium transition-colors after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5"
-                : "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
-              embedded
-                ? mainTab === k
-                  ? "text-blue-600 after:bg-blue-600"
-                  : "text-neutral-500 after:bg-transparent hover:text-neutral-800"
-                : mainTab === k
-                  ? "bg-white text-primary shadow-sm ring-1 ring-border"
-                  : "text-neutral-600 hover:text-neutral-900",
-            ].join(" ")}
-          >
-            {k === "run"
-              ? embedded
-                ? t("traceInspectTabDetails")
-                : t("detailRunTab")
-              : k === "metadata"
-                ? t("detailMetadataTab")
-                : embedded
-                  ? t("traceInspectTabFeedback")
+      {!embedded || tabDefs.length > 1 ? (
+        <div
+          className={
+            embedded
+              ? "flex shrink-0 gap-6 border-b border-border bg-background px-4"
+              : "flex shrink-0 gap-1 border-b border-border bg-neutral-50 px-2 py-1.5"
+          }
+        >
+          {tabDefs.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setMainTab(k)}
+              className={[
+                embedded
+                  ? "relative pb-3 pt-3 text-sm font-medium transition-colors after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5"
+                  : "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                embedded
+                  ? mainTab === k
+                    ? "text-blue-600 after:bg-blue-600"
+                    : "text-neutral-500 after:bg-transparent hover:text-neutral-800"
+                  : mainTab === k
+                    ? "bg-white text-primary shadow-sm ring-1 ring-border"
+                    : "text-neutral-600 hover:text-neutral-900",
+              ].join(" ")}
+            >
+              {k === "run"
+                ? embedded
+                  ? t("traceInspectTabDetails")
+                  : t("detailRunTab")
+                : k === "metadata"
+                  ? t("detailMetadataTab")
                   : t("detailFeedbackTab")}
-          </button>
-        ))}
-      </div>
-
-      {embedded ? (
-        <div className="shrink-0 space-y-1.5 border-b border-border bg-muted/25 px-4 py-2.5">
-          {span.model_name ? (
-            <p className="truncate text-xs font-medium text-neutral-900" title={span.model_name}>
-              {span.model_name}
-            </p>
-          ) : null}
-          {tok.hasAny ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-neutral-600">
-              {tok.displayTotal != null ? (
-                <span className="text-neutral-800">
-                  <span className="font-medium text-neutral-500">{t("detailAttrTokens")}: </span>
-                  {tok.displayTotal.toLocaleString()}
-                </span>
-              ) : null}
-              <span>
-                {t("detailSpanTokenInOut", {
-                  in: tok.prompt.toLocaleString(),
-                  out: tok.completion.toLocaleString(),
-                })}
-              </span>
-              {tok.cacheRead > 0 ? (
-                <span className="text-neutral-500">
-                  {t("detailSpanTokenCache", { n: tok.cacheRead.toLocaleString() })}
-                </span>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-[11px] text-neutral-400">{t("detailNoTokenStats")}</p>
-          )}
+            </button>
+          ))}
         </div>
       ) : null}
 
@@ -376,6 +355,7 @@ export function TraceSpanRunPanel({
                 onSearchChange={setSErr}
                 copyPayload={errorBody}
                 prettyLabel={t("spanInspectPretty")}
+                showPrettyBadge={false}
                 t={t}
               >
                 <HighlightedBlock text={errorBody} query={sErr} />
@@ -389,6 +369,7 @@ export function TraceSpanRunPanel({
               onSearchChange={setSIn}
               copyPayload={displayInputStr}
               prettyLabel={t("spanInspectPretty")}
+              showPrettyBadge={false}
               t={t}
             >
               <HighlightedBlock text={displayInputStr || "—"} query={sIn} />
@@ -401,6 +382,7 @@ export function TraceSpanRunPanel({
               onSearchChange={setSOut}
               copyPayload={displayOutputStr}
               prettyLabel={t("spanInspectPretty")}
+              showPrettyBadge={false}
               t={t}
             >
               <HighlightedBlock text={displayOutputStr || "—"} query={sOut} />
@@ -413,6 +395,7 @@ export function TraceSpanRunPanel({
               onSearchChange={setSMeta}
               copyPayload={metadataJson}
               prettyLabel={t("spanInspectPretty")}
+              showPrettyBadge={false}
               t={t}
             >
               <HighlightedBlock text={metadataJson} query={sMeta} />

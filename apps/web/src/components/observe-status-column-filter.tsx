@@ -37,7 +37,9 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
 
   return (
     <div className="flex items-center gap-1">
-      <span className="whitespace-nowrap">{label}</span>
+      <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600">
+        {label}
+      </span>
       <Dropdown
         popupVisible={open}
         onVisibleChange={setOpen}
@@ -63,7 +65,7 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
           size="icon-sm"
           className={cn(
             OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            value ? "text-primary" : "text-neutral-500",
+            value ? "text-primary hover:text-primary" : "text-neutral-600 hover:text-neutral-700",
           )}
           aria-label={t("statusColumnFilterAria")}
           aria-expanded={open}

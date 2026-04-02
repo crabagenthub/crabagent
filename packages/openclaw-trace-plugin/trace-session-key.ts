@@ -32,6 +32,36 @@ export function extractAgentIdFromRoutingSessionKey(sk?: string): string | undef
   return undefined;
 }
 
+/**
+ * 从 `agent:<agentId>:<provider>:<kind>:…` 形态 sessionKey 解析路由 kind（如 `group`、`dm`）。
+ * 若形态不符或第四段像会话 id（如 `oc_` 前缀）则返回 undefined，避免误标。
+ */
+export function parseRoutingKindFromSessionKey(sk?: string): string | undefined {
+  const t = sk?.trim() ?? "";
+  if (!t) {
+    return undefined;
+  }
+  const parts = t.split(":");
+  if (parts.length < 4) {
+    return undefined;
+  }
+  const head = parts[0]?.toLowerCase();
+  if (head !== "agent") {
+    return undefined;
+  }
+  const kindSeg = parts[3]?.trim() ?? "";
+  if (!kindSeg || kindSeg.length > 48) {
+    return undefined;
+  }
+  if (/^(oc_|ou_|og_)/i.test(kindSeg)) {
+    return undefined;
+  }
+  if (!/^[a-z][a-z0-9_-]*$/i.test(kindSeg)) {
+    return undefined;
+  }
+  return kindSeg;
+}
+
 function sessionKeyImpliesAgent(sk: string | undefined, aid: string): boolean {
   const fromSk = extractAgentIdFromRoutingSessionKey(sk);
   return Boolean(fromSk && fromSk.toLowerCase() === aid.toLowerCase());

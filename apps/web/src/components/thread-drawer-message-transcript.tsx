@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TraceConversationView } from "@/components/trace-conversation-view";
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
-import type { UserTurnListItem } from "@/lib/user-turn-list";
+import { resolveEffectiveTraceRootId, type UserTurnListItem } from "@/lib/user-turn-list";
 import { cn } from "@/lib/utils";
 
 const INITIAL_VISIBLE = 15;
@@ -17,6 +17,7 @@ type Props = {
   userTurns: UserTurnListItem[];
   threadKey: string;
   selectedListKey: string;
+  onOpenTrace?: (traceId: string) => void;
 };
 
 export function ThreadDrawerMessageTranscript({
@@ -25,6 +26,7 @@ export function ThreadDrawerMessageTranscript({
   userTurns,
   threadKey,
   selectedListKey,
+  onOpenTrace,
 }: Props) {
   const t = useTranslations("Traces");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -118,6 +120,16 @@ export function ThreadDrawerMessageTranscript({
                   events={events}
                   turn={turn}
                   threadKey={threadKey}
+                  onViewSteps={
+                    onOpenTrace
+                      ? () => {
+                          const traceId = resolveEffectiveTraceRootId(turn, events);
+                          if (traceId) {
+                            onOpenTrace(traceId);
+                          }
+                        }
+                      : null
+                  }
                   variant="turnEmbed"
                   conversationTurns={userTurns}
                   messagesOnly

@@ -141,18 +141,25 @@ export function formatDurationMs(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) {
     return "—";
   }
-  if (ms < 1000) {
-    return "<1s";
+
+  // < 60s：显示秒，保留3位小数
+  if (ms < 60_000) {
+    const seconds = ms / 1000;
+    return `${seconds.toFixed(3)}s`;
   }
-  const s = Math.round(ms / 1000);
-  if (s < 60) {
-    return `${s}s`;
-  }
-  const m = Math.floor(s / 60);
-  const rs = s % 60;
-  if (m < 120) {
+
+  // 先得到总秒（这里才取整）
+  const s = Math.floor(ms / 1000);
+
+  // < 60min：XmYs
+  if (s < 3600) {
+    const m = Math.floor(s / 60);
+    const rs = s % 60;
     return rs > 0 ? `${m}m${rs}s` : `${m}m`;
   }
+
+  // >= 1h：XhYm
+  const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
   const rm = m % 60;
   return rm > 0 ? `${h}h${rm}m` : `${h}h`;
@@ -206,6 +213,106 @@ export function traceRecordAgentName(row: TraceRecordRow): string | null {
 
 export function traceRecordChannel(row: TraceRecordRow): string | null {
   return strMeta(row.metadata, "channel");
+}
+
+/** 与 `openclaw-trace-plugin` 写入的 `metadata.openclaw_routing` 对齐。 */
+export type TraceOpenclawRouting = {
+  label?: string;
+  kind?: string;
+  thinking?: string;
+  fast?: string;
+  verbose?: string;
+  reasoning?: string;
+  max_context_tokens?: number;
+};
+
+function routingFieldToDisplay(v: unknown): string | undefined {
+  if (typeof v === "boolean") {
+    return v ? "true" : "false";
+  }
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return String(Math.trunc(v));
+  }
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t.length > 0 ? t : undefined;
+  }
+  return undefined;
+}
+
+export function traceRecordOpenclawRouting(row: TraceRecordRow): TraceOpenclawRouting | null {
+  const raw = row.metadata.openclaw_routing;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  const label = routingFieldToDisplay(o.label);
+  const kind = routingFieldToDisplay(o.kind);
+  const thinking = routingFieldToDisplay(o.thinking);
+  const fast = routingFieldToDisplay(o.fast);
+  const verbose = routingFieldToDisplay(o.verbose);
+  const reasoning = routingFieldToDisplay(o.reasoning);
+  const mct = o.max_context_tokens;
+  const max_context_tokens =
+    typeof mct === "number" && Number.isFinite(mct) && mct >= 0 ? Math.trunc(mct) : undefined;
+  if (
+    label === undefined &&
+    kind === undefined &&
+    thinking === undefined &&
+    fast === undefined &&
+    verbose === undefined &&
+    reasoning === undefined &&
+    max_context_tokens === undefined
+  ) {
+    return null;
+  }
+  return {
+    ...(label !== undefined ? { label } : {}),
+    ...(kind !== undefined ? { kind } : {}),
+    ...(thinking !== undefined ? { thinking } : {}),
+    ...(fast !== undefined ? { fast } : {}),
+    ...(verbose !== undefined ? { verbose } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(max_context_tokens !== undefined ? { max_context_tokens } : {}),
+  };
+}
+
+/** 用于表格 `title` / 无障碍说明的多行文案（键名固定英文，值来自采集）。 */
+export function formatTraceOpenclawRoutingDetailLines(
+  r: TraceOpenclawRouting,
+  labels: {
+    label: string;
+    kind: string;
+    thinking: string;
+    fast: string;
+    verbose: string;
+    reasoning: string;
+    maxContextTokens: string;
+  },
+): string {
+  const lines: string[] = [];
+  if (r.label !== undefined) {
+    lines.push(`${labels.label}: ${r.label}`);
+  }
+  if (r.kind !== undefined) {
+    lines.push(`${labels.kind}: ${r.kind}`);
+  }
+  if (r.thinking !== undefined) {
+    lines.push(`${labels.thinking}: ${r.thinking}`);
+  }
+  if (r.fast !== undefined) {
+    lines.push(`${labels.fast}: ${r.fast}`);
+  }
+  if (r.verbose !== undefined) {
+    lines.push(`${labels.verbose}: ${r.verbose}`);
+  }
+  if (r.reasoning !== undefined) {
+    lines.push(`${labels.reasoning}: ${r.reasoning}`);
+  }
+  if (r.max_context_tokens !== undefined) {
+    lines.push(`${labels.maxContextTokens}: ${r.max_context_tokens.toLocaleString()}`);
+  }
+  return lines.join("\n");
 }
 
 /** Short task preview: first user message snippet or chat title. */

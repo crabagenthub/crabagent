@@ -11,19 +11,30 @@ import {
   IconUser,
   IconCaretUp,
   IconCaretDown,
+  IconSun,
+  IconMoon,
+  IconDesktop,
 } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import Image from "next/image";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { ComponentType, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
+import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AppLocale } from "@/i18n/routing";
 import { clearApiKey } from "@/lib/collector";
+import {
+  readSidebarBottomExpanded,
+  readSidebarCollapsed,
+  SIDEBAR_BOTTOM_EXPANDED_STORAGE_KEY,
+  SIDEBAR_COLLAPSED_STORAGE_KEY,
+} from "@/lib/sidebar-storage";
+import type { ThemePreference } from "@/lib/theme-storage";
 import {
   NavIconAlerts,
   NavIconAnalytics,
@@ -31,6 +42,7 @@ import {
   NavIconMachines,
   NavIconOverview,
   NavIconSettings,
+  NavIconResourceAudit,
   NavIconTraces,
 } from "@/components/nav-icons";
 
@@ -41,8 +53,6 @@ type NavDef = {
   label: string;
   Icon: NavGlyph;
 };
-
-const STORAGE_KEY = "crabagent-sidebar-collapsed";
 
 const CLAWD_LOGO_URL = "https://clawhub.ai/clawd-logo.png";
 
@@ -107,7 +117,42 @@ function UserPanelLocale({ onAfterChange }: { onAfterChange?: () => void }) {
   );
 }
 
-const STORAGE_KEY_BOTTOM = "crabagent-sidebar-bottom-expanded";
+function UserPanelTheme({ onAfterChange }: { onAfterChange?: () => void }) {
+  const t = useTranslations("Nav");
+  const { preference, setPreference } = useTheme();
+
+  const row = (pref: ThemePreference, label: string, Icon: NavGlyph) => {
+    const active = preference === pref;
+    return (
+      <Button
+        key={pref}
+        type="button"
+        aria-pressed={active}
+        variant={active ? "default" : "secondary"}
+        size="sm"
+        className="flex flex-1 flex-col items-center gap-1 py-2 text-center text-[11px] leading-tight"
+        onClick={() => {
+          setPreference(pref);
+          onAfterChange?.();
+        }}
+      >
+        <Icon className="size-4 shrink-0" />
+        <span className="line-clamp-2 w-full px-0.5">{label}</span>
+      </Button>
+    );
+  };
+
+  return (
+    <div className="border-t border-border px-3 py-3">
+      <p className="mb-2 text-[11px] font-semibold text-muted-foreground">{t("themeAppearance")}</p>
+      <div className="flex gap-2">
+        {row("light", t("themeLight"), IconSun)}
+        {row("dark", t("themeDark"), IconMoon)}
+        {row("system", t("themeSystem"), IconDesktop)}
+      </div>
+    </div>
+  );
+}
 
 function ChevronUpThin({ className }: { className?: string }) {
   return <IconUp className={className} />;
@@ -193,6 +238,7 @@ function SidebarUserProfile({
           {t("userLogout")}
         </Button>
       </div>
+      <UserPanelTheme onAfterChange={() => setOpen(false)} />
       <UserPanelLocale onAfterChange={() => setOpen(false)} />
     </div>
   );
@@ -289,43 +335,22 @@ export function SiteNav() {
   const t = useTranslations("Nav");
   const pathname = usePathname();
   
-  // 使用 useState 懒加载避免 SSR 不匹配
-  const [collapsed, setCollapsed] = useState(false);
-  const [bottomExpanded, setBottomExpanded] = useState(true);
-  const [mounted, setMounted] = useState(false);
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const [bottomExpanded, setBottomExpanded] = useState(readSidebarBottomExpanded);
 
-  // 组件挂载后读取 localStorage
-  useEffect(() => {
-    setMounted(true);
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw === "1") {
-        setCollapsed(true);
-      }
-      const rawBottom = window.localStorage.getItem(STORAGE_KEY_BOTTOM);
-      if (rawBottom === "0") {
-        setBottomExpanded(false);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // 使用 useLayoutEffect 立即设置 DOM 属性，避免闪烁
   useLayoutEffect(() => {
-    if (mounted) {
-      document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
-    }
-  }, [collapsed, mounted]);
+    document.documentElement.dataset.sidebarCollapsed = collapsed ? "1" : "0";
+  }, [collapsed]);
 
   const toggleCollapsed = useCallback(() => {
     setCollapsed((v) => {
       const next = !v;
       try {
-        window.localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, next ? "1" : "0");
       } catch {
         // ignore
       }
+      document.documentElement.dataset.sidebarCollapsed = next ? "1" : "0";
       return next;
     });
   }, []);
@@ -334,7 +359,7 @@ export function SiteNav() {
     setBottomExpanded((v) => {
       const next = !v;
       try {
-        window.localStorage.setItem(STORAGE_KEY_BOTTOM, next ? "1" : "0");
+        window.localStorage.setItem(SIDEBAR_BOTTOM_EXPANDED_STORAGE_KEY, next ? "1" : "0");
       } catch {
         // ignore
       }
@@ -345,7 +370,7 @@ export function SiteNav() {
   const closeBottomStrip = useCallback(() => {
     setBottomExpanded(false);
     try {
-      window.localStorage.setItem(STORAGE_KEY_BOTTOM, "0");
+      window.localStorage.setItem(SIDEBAR_BOTTOM_EXPANDED_STORAGE_KEY, "0");
     } catch {
       // ignore
     }
@@ -362,6 +387,7 @@ export function SiteNav() {
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/traces", label: t("traces"), Icon: NavIconTraces },
+      { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
       { href: "/logs", label: t("logs"), Icon: NavIconLogs },
       { href: "/analytics", label: t("analytics"), Icon: NavIconAnalytics },
     ],

@@ -53,7 +53,14 @@ function providerGuess(span: SemanticSpanRow): string {
   return "";
 }
 
-export function TraceSpanAttributesPanel({ span }: { span: SemanticSpanRow | null }) {
+export function TraceSpanAttributesPanel({
+  span,
+  variant = "aside",
+}: {
+  span: SemanticSpanRow | null;
+  /** `embedded`: rounded card for stacking under「基本信息」in a three-column inspector. */
+  variant?: "aside" | "embedded";
+}) {
   const t = useTranslations("Traces");
   const [copied, setCopied] = useState(false);
 
@@ -68,10 +75,18 @@ export function TraceSpanAttributesPanel({ span }: { span: SemanticSpanRow | nul
   }, [span?.span_id]);
 
   if (!span) {
+    const empty = <p className="text-xs text-ca-muted">{t("inspectorEmpty")}</p>;
+    if (variant === "embedded") {
+      return (
+        <div className="flex min-h-[min(160px,25vh)] flex-col justify-center rounded-2xl border border-border bg-neutral-50/50 p-4 text-center">
+          {empty}
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full min-h-[160px] flex-col justify-center border-t border-border bg-neutral-50/50 p-4 text-center xl:border-l xl:border-t-0">
-        <p className="text-xs text-ca-muted">{t("inspectorEmpty")}</p>
-      </div>
+      <aside className="flex h-full min-h-[160px] w-full flex-col justify-center border-t border-border bg-neutral-50/50 p-4 text-center lg:border-l lg:border-t-0">
+        {empty}
+      </aside>
     );
   }
 
@@ -85,8 +100,8 @@ export function TraceSpanAttributesPanel({ span }: { span: SemanticSpanRow | nul
   const prov = providerGuess(span);
   const stream = span.metadata && typeof span.metadata === "object" ? (span.metadata as Record<string, unknown>).stream : undefined;
 
-  return (
-    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col border-t border-border bg-neutral-50/40 lg:border-l lg:border-t-0">
+  const body = (
+    <>
       <div className="shrink-0 border-b border-border bg-white/90 px-3 py-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{t("detailAttrPanelTitle")}</h3>
       </div>
@@ -165,6 +180,20 @@ export function TraceSpanAttributesPanel({ span }: { span: SemanticSpanRow | nul
         />
         {span.error ? <AttrRow label={t("detailAttrError")} value={span.error} /> : null}
       </div>
+    </>
+  );
+
+  if (variant === "embedded") {
+    return (
+      <div className="flex min-h-[min(220px,35vh)] w-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-neutral-50/40 lg:min-h-0">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <aside className="flex h-full min-h-0 w-full min-w-0 flex-col border-t border-border bg-neutral-50/40 lg:border-l lg:border-t-0">
+      {body}
     </aside>
   );
 }

@@ -53,6 +53,10 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupObserve") }, { label: tNav("traces") }];
     }
 
+    if (p === "/resource-audit") {
+      return [{ label: tNav("groupObserve") }, { label: tNav("resourceAudit") }];
+    }
+
     if (p === "/logs") {
       return [{ label: tNav("groupObserve") }, { label: tNav("logs") }];
     }

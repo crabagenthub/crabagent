@@ -193,11 +193,15 @@ function parseUsageExtended(usageJson: string | null | undefined): {
   };
 }
 
-function mapSpanTypeToApi(spanType: string, name: string): string {
+function mapSpanTypeToApi(spanType: string, name: string, metadata: Record<string, unknown>): string {
+  const sk = metadata.semantic_kind;
   if (spanType === "llm") {
     return "LLM";
   }
   if (spanType === "tool") {
+    if (sk === "memory") {
+      return "MEMORY";
+    }
     return "TOOL";
   }
   if (spanType === "guardrail") {
@@ -205,6 +209,9 @@ function mapSpanTypeToApi(spanType: string, name: string): string {
   }
   if (name === "agent_loop") {
     return "AGENT_LOOP";
+  }
+  if (sk === "memory") {
+    return "MEMORY";
   }
   return "IO";
 }
@@ -260,7 +267,7 @@ export function querySemanticSpansByTraceId(db: Database.Database, traceId: stri
     const errMsg = errInfo.message ?? errInfo.exception_message;
     const spanType = String(r.span_type ?? "general");
     const name = String(r.name ?? "");
-    const apiType = mapSpanTypeToApi(spanType, name);
+    const apiType = mapSpanTypeToApi(spanType, name, meta);
     const usage = parseUsageExtended(r.usage_json != null ? String(r.usage_json) : null);
     const ctxFull = meta.context_full;
     const ctxSent = meta.context_sent;

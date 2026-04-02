@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { IconBranch } from "@arco-design/web-react/icon";
+import { IconBranch, IconCopy } from "@arco-design/web-react/icon";
 import { LocalizedLink } from "@/components/localized-link";
 import {
   ChatContainerContent,
@@ -255,6 +255,7 @@ function AssistantBubble({
   memoryRefs,
   threadKey,
   msgId,
+  onViewSteps,
   messagesOnly,
   compact,
 }: {
@@ -263,20 +264,23 @@ function AssistantBubble({
   memoryRefs: MemoryRefSnippet[];
   threadKey: string;
   msgId: string | null;
+  onViewSteps?: (() => void) | null;
   /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
   messagesOnly?: boolean;
   compact?: boolean;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const traceHref = useMemo(() => {
-    const base = `/traces/${encodeURIComponent(threadKey)}`;
+    const base = `/traces?thread=${encodeURIComponent(threadKey)}`;
     const mid = (msgId ?? "").trim();
-    return mid ? `${base}?msg_id=${encodeURIComponent(mid)}` : base;
+    return mid ? `${base}&msg_id=${encodeURIComponent(mid)}` : base;
   }, [threadKey, msgId]);
 
-  const showTraceLink = !messagesOnly && threadKey.trim().length > 0;
+  const showTraceLink = threadKey.trim().length > 0;
+  const canCopy = text.trim().length > 0;
 
   const bubbleText = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
   const bubblePad = compact ? "px-3 py-2" : "px-4 py-3";
@@ -292,6 +296,48 @@ function AssistantBubble({
 
   return (
     <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
+      <div className="flex flex-wrap items-center gap-3 pl-0.5 text-xs text-neutral-500">
+        {canCopy ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+            title={copied ? t("detailCopied") : t("detailCopy")}
+            aria-label={t("detailCopy")}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text.trim());
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1200);
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            <IconCopy className="size-3.5 shrink-0" />
+            {t("detailCopy")}
+          </button>
+        ) : null}
+        {onViewSteps ? (
+          <button
+            type="button"
+            title={t("convViewSteps")}
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+            onClick={onViewSteps}
+          >
+            <IconBranch className="size-3.5 shrink-0" />
+            {t("convViewSteps")}
+          </button>
+        ) : showTraceLink ? (
+          <LocalizedLink
+            href={traceHref}
+            title={t("convViewSteps")}
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+          >
+            <IconBranch className="size-3.5 shrink-0" />
+            {t("convViewSteps")}
+          </LocalizedLink>
+        ) : null}
+      </div>
       {!messagesOnly && thinking ? (
         <button
           type="button"
@@ -347,17 +393,6 @@ function AssistantBubble({
           <p className={compact ? "text-xs" : "text-sm"}>—</p>
         </MessageContent>
       )}
-      {showTraceLink ? (
-        <div className="flex flex-wrap items-center gap-2 pl-0.5 pt-0.5">
-          <LocalizedLink
-            href={traceHref}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            <IconBranch className="size-4 shrink-0" />
-            {t("convViewTrace")}
-          </LocalizedLink>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -366,12 +401,14 @@ function ConversationTimelineBlocks({
   items,
   threadKey,
   msgId,
+  onViewSteps,
   messagesOnly,
   compact,
 }: {
   items: ConversationTimelineItem[];
   threadKey: string;
   msgId: string | null;
+  onViewSteps?: (() => void) | null;
   messagesOnly?: boolean;
   compact?: boolean;
 }) {
@@ -383,14 +420,27 @@ function ConversationTimelineBlocks({
       <div className="w-full min-w-0">
         {items.map((item, idx) => {
           const isLast = idx === items.length - 1;
+          const nextItem = !isLast ? items[idx + 1] : null;
           const dividerStyle = { borderColor: TURN_DIVIDER };
+          const showDivider = (() => {
+            if (isLast) {
+              return false;
+            }
+            if (!messagesOnly) {
+              return true;
+            }
+            if (item.kind === "user") {
+              return nextItem?.kind === "user";
+            }
+            return nextItem?.kind === "user";
+          })();
 
           if (item.kind === "user") {
             return (
               <div
                 key={item.key}
-                className={cn("flex justify-end pb-5", !isLast && "mb-5 border-b")}
-                style={!isLast ? dividerStyle : undefined}
+                className={cn("flex justify-end pb-5", showDivider && "mb-5 border-b")}
+                style={showDivider ? dividerStyle : undefined}
               >
                 <Message className="max-w-[min(100%,70%)] flex-row-reverse">
                   <MessageContent
@@ -410,8 +460,8 @@ function ConversationTimelineBlocks({
             return (
               <div
                 key={item.key}
-                className={cn("flex justify-start pb-5", !isLast && "mb-5 border-b")}
-                style={!isLast ? dividerStyle : undefined}
+                className={cn("flex justify-start pb-5", showDivider && "mb-5 border-b")}
+                style={showDivider ? dividerStyle : undefined}
               >
                 <CollapsedPipelineBlock item={item} />
               </div>
@@ -420,8 +470,8 @@ function ConversationTimelineBlocks({
           return (
             <div
               key={item.key}
-              className={cn("flex flex-col pb-5", !isLast && "mb-5 border-b")}
-              style={!isLast ? dividerStyle : undefined}
+              className={cn("flex flex-col pb-5", showDivider && "mb-5 border-b")}
+              style={showDivider ? dividerStyle : undefined}
             >
               <AssistantBubble
                 text={item.text}
@@ -429,6 +479,7 @@ function ConversationTimelineBlocks({
                 memoryRefs={item.memoryRefs}
                 threadKey={threadKey}
                 msgId={msgId}
+                onViewSteps={onViewSteps}
                 messagesOnly={messagesOnly}
                 compact={compact}
               />
@@ -451,6 +502,7 @@ export function TraceConversationView({
   events,
   turn,
   threadKey,
+  onViewSteps,
   variant = "panel",
   /** When `variant` is `turnEmbed`, pass full ordered turns so each block can slice [anchor, next anchor) and keep `llm_output` rows. */
   conversationTurns,
@@ -463,6 +515,7 @@ export function TraceConversationView({
   turn: UserTurnListItem | null;
   /** Conversation id for full-page trace link (same as route `/traces/[threadKey]`). */
   threadKey: string;
+  onViewSteps?: (() => void) | null;
   /** `turnEmbed`: no outer chat chrome; for stacking in full-session transcript. */
   variant?: TraceConversationViewVariant;
   conversationTurns?: UserTurnListItem[];
@@ -497,6 +550,7 @@ export function TraceConversationView({
       items={items}
       threadKey={threadKey}
       msgId={msgId}
+      onViewSteps={onViewSteps}
       messagesOnly={messagesOnly}
       compact={compact}
     />

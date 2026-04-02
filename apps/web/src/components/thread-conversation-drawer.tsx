@@ -13,13 +13,15 @@ import { formatDurationMs } from "@/lib/trace-records";
 import {
   buildConversationTurnWindowEvents,
   buildDetailEventList,
+  filterEventsForRun,
   buildUserTurnList,
   inferTurnListStatus,
   inferTurnWindowMetrics,
+  resolveLinkedRunIdForTurn,
   type TurnListStatus,
 } from "@/lib/user-turn-list";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
-import { IconCode, IconDashboard, IconMessage, IconClose, IconCommon } from "@arco-design/web-react/icon";
+import { IconCode, IconDashboard, IconMessage, IconClose, IconCommon,IconClockCircle } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import { cn, formatShortId } from "@/lib/utils";
 
@@ -73,9 +75,10 @@ type Props = {
   row: ThreadRecordRow | null;
   baseUrl: string;
   apiKey: string;
+  onOpenTrace?: (traceId: string) => void;
 };
 
-export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, apiKey }: Props) {
+export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, apiKey, onOpenTrace }: Props) {
   const t = useTranslations("Traces");
   const threadKey = row?.thread_id ?? "";
 
@@ -101,8 +104,23 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   const turnMetricsByKey = useMemo(() => {
     const m = new Map<string, ReturnType<typeof inferTurnWindowMetrics>>();
     for (const u of userTurns) {
+      const linkedRunId = resolveLinkedRunIdForTurn(u, merged);
+      const runEv = filterEventsForRun(merged, linkedRunId);
       const windowEv = buildConversationTurnWindowEvents(merged, u, userTurns);
-      m.set(u.listKey, inferTurnWindowMetrics(windowEv));
+      const runMetrics = runEv.length > 0 ? inferTurnWindowMetrics(runEv) : null;
+      const windowMetrics = inferTurnWindowMetrics(windowEv);
+      const startedAtMs = runMetrics?.startedAtMs ?? windowMetrics.startedAtMs;
+      const endedAtMs = windowMetrics.endedAtMs ?? runMetrics?.endedAtMs ?? null;
+      const durationMs =
+        startedAtMs != null && endedAtMs != null && endedAtMs >= startedAtMs ? endedAtMs - startedAtMs : null;
+      m.set(u.listKey, {
+        durationMs,
+        startedAtMs,
+        endedAtMs,
+        promptTokens: windowMetrics.promptTokens,
+        completionTokens: windowMetrics.completionTokens,
+        displayTotal: windowMetrics.displayTotal,
+      });
     }
     return m;
   }, [merged, userTurns]);
@@ -206,11 +224,6 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
 
   const threadShort = formatShortId(threadKey);
 
-  const metaStart =
-    row && row.first_seen_ms > 0 ? formatTraceDateTimeFromMs(row.first_seen_ms) : "—";
-  const metaDuration =
-    row?.duration_ms != null && row.duration_ms > 0 ? formatDurationMs(row.duration_ms) : "—";
-  const metaMsgCount = userTurns.length > 0 ? userTurns.length : row?.trace_count ?? 0;
   const listTotalTokens = row != null ? row.total_tokens : 0;
   const threadUsage = useMemo(() => aggregateThreadLlmOutputUsage(merged), [merged]);
 
@@ -220,6 +233,10 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     const metrics = turnMetricsByKey.get(u.listKey);
     const durLabel =
       metrics?.durationMs != null && metrics.durationMs >= 0 ? formatDurationMs(metrics.durationMs) : "—";
+    const startedLabel =
+      metrics?.startedAtMs != null && metrics.startedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.startedAtMs) : "—";
+    const endedLabel =
+      metrics?.endedAtMs != null && metrics.endedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.endedAtMs) : "—";
     const tokTotal = metrics?.displayTotal;
     const tokShow =
       tokTotal != null && Number.isFinite(tokTotal) && tokTotal > 0 ? tokTotal.toLocaleString() : "—";
@@ -255,13 +272,25 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
             {u.preview || "—"}
           </span>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums">
-            <span
-              className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400/90"
-              title={t("threadDrawerTurnExecTime")}
+            <Popover
+              trigger="hover"
+              position="top"
+              content={
+                <div className="space-y-1.5 p-1 text-xs">
+                  <div className="font-medium text-foreground">{t("threadDrawerTurnExecTime")}</div>
+                  <div className="text-muted-foreground">{t("threadDrawerTurnExecStart")}: {startedLabel}</div>
+                  <div className="text-muted-foreground">{t("threadDrawerTurnExecEnd")}: {endedLabel}</div>
+                </div>
+              }
             >
-              <IconDashboard className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-              {durLabel}
-            </span>
+              <span
+                className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400/90"
+                title={t("threadDrawerTurnExecTime")}
+              >
+                <IconClockCircle className="size-3.5 shrink-0" strokeWidth={3}/>
+                {durLabel}
+              </span>
+            </Popover>
             {tokBreakdown ? (
               <Popover
                 position="top"
@@ -388,6 +417,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 userTurns={userTurns}
                 threadKey={threadKey}
                 selectedListKey={selectedListKey}
+                onOpenTrace={onOpenTrace}
               />
               <aside
                 className="flex min-h-0 w-[min(100%,21rem)] shrink-0 flex-col border-border bg-muted/10 dark:bg-neutral-900/25"
@@ -399,9 +429,6 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                     row={row}
                     threadKey={threadKey}
                     threadShort={threadShort}
-                    metaStart={metaStart}
-                    metaDuration={metaDuration}
-                    metaMsgCount={metaMsgCount}
                     listTotalTokens={listTotalTokens}
                     threadUsage={threadUsage}
                   />

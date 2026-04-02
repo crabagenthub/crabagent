@@ -79,7 +79,7 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
 }
 
 export function spanThreadHref(threadKey: string): string {
-  return `/traces/${encodeURIComponent(threadKey)}`;
+  return `/traces?thread=${encodeURIComponent(threadKey)}`;
 }
 
 export function formatSpanDuration(ms: number | null): string {

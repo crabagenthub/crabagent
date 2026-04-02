@@ -13,9 +13,11 @@ type DrawerProps = {
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   className?: string;
+  wrapClassName?: string;
+  width?: string | number;
 };
 
-export function Drawer({ open, onOpenChange, children, className }: DrawerProps) {
+export function Drawer({ open, onOpenChange, children, className, wrapClassName, width }: DrawerProps) {
   const close = React.useCallback(() => onOpenChange(false), [onOpenChange]);
 
   return (
@@ -24,7 +26,7 @@ export function Drawer({ open, onOpenChange, children, className }: DrawerProps)
         visible={open}
         onCancel={() => onOpenChange(false)}
         placement="right"
-        width="min(100vw - 0.5rem, 80rem)"
+        width={width ?? "min(100vw - 0.5rem, 80rem)"}
         title={null}
         footer={null}
         closable={false}
@@ -41,7 +43,7 @@ export function Drawer({ open, onOpenChange, children, className }: DrawerProps)
           overflow: "hidden",
         }}
         maskStyle={{ background: "rgba(0, 0, 0, 0.06)" }}
-        wrapClassName="ca-arco-app-drawer-wrap"
+        wrapClassName={cn("ca-arco-app-drawer-wrap", wrapClassName)}
       >
         {children}
       </ArcoDrawer>

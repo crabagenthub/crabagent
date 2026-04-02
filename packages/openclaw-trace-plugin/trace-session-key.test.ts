@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   agentScopedTraceKey,
+  parseRoutingKindFromSessionKey,
   resolvePrimaryTraceKey,
   traceSessionKeyCandidates,
   traceSessionKeyCandidatesForInbound,
@@ -63,6 +64,15 @@ describe("trace-session-key（CozeLoop 式渠道键）", () => {
     for (const k of traceSessionKeyCandidates(ctx, "user:side")) {
       assert.ok(expanded.includes(k), `missing ${k}`);
     }
+  });
+
+  it("parseRoutingKindFromSessionKey 从 agent:…:feishu:group:… 取第四段 kind", () => {
+    assert.equal(parseRoutingKindFromSessionKey("agent:email_automatic:feishu:group:oc_x"), "group");
+    assert.equal(parseRoutingKindFromSessionKey("agent:a:feishu:user:ou_abc"), "user");
+  });
+
+  it("parseRoutingKindFromSessionKey 对 oc_ 第四段不误判", () => {
+    assert.equal(parseRoutingKindFromSessionKey("agent:email_automatic:feishu:oc_x"), undefined);
   });
 
   it("traceSessionKeyCandidatesForInbound 并集 event.from 与 ForPending（deferred flush）", () => {

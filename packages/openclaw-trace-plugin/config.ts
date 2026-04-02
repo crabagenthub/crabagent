@@ -54,6 +54,11 @@ export type CrabagentTracePluginConfig = {
    * 缓解 `message_received` / LLM hook 使用不同键时 pending 取不到。环境变量 `CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE=1` 关闭。
    */
   bridgeOpenClawSessionStore: boolean;
+  /**
+   * 在 `llm_input` 时读 `agents/<agentId>/sessions/sessions.json`，把 SessionEntry 中的 label / 档位 / tokens 等并入 `openclaw_routing`（OpenClaw 未在 hook 载荷中带会话快照时仍可对齐控制台）。
+   * 环境变量 `CRABAGENT_TRACE_NO_SESSION_STORE_ROUTING=1` 关闭。
+   */
+  sessionStoreRouting: boolean;
 };
 
 export function resolvePluginConfig(raw: Record<string, unknown> | undefined): CrabagentTracePluginConfig {
@@ -138,6 +143,8 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
       : (deferredFromEnv ?? 3000);
   const bridgeOpenClawSessionStore =
     c.bridgeOpenClawSessionStore !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE");
+  const sessionStoreRouting =
+    c.sessionStoreRouting !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_ROUTING");
   return {
     collectorBaseUrl: base,
     collectorApiKey: key,
@@ -153,5 +160,6 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     mirrorInboundPendingAgentIds,
     deferredUserMessageFlushMs,
     bridgeOpenClawSessionStore,
+    sessionStoreRouting,
   };
 }

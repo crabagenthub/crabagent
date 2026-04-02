@@ -1,5 +1,7 @@
 "use client";
 
+import "@/lib/arco-react19-setup";
+import { Button, Card, Radio, Select, Skeleton, Space, Spin, Tag, Typography } from "@arco-design/web-react";
 import { IconRefresh } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,8 +25,6 @@ import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint, TitleHintIcon } from "@/components/message-hint";
 import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import {
   defaultObserveDateRange,
@@ -56,17 +56,19 @@ function fmtPct(n: number | null | undefined, digits = 2): string {
   return `${sign}${n.toFixed(digits)}%`;
 }
 
-function fmtMomBadge(n: number | null): { text: string; className: string } {
+type MomTagTone = "green" | "red" | "gray";
+
+function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
   if (n == null || !Number.isFinite(n)) {
-    return { text: "—", className: "bg-neutral-100 text-neutral-600" };
+    return { text: "—", color: "gray" };
   }
   if (Math.abs(n) < 0.005) {
-    return { text: "0.00%", className: "bg-neutral-100 text-neutral-600" };
+    return { text: "0.00%", color: "gray" };
   }
   if (n > 0) {
-    return { text: fmtPct(n), className: "bg-emerald-50 text-emerald-800" };
+    return { text: fmtPct(n), color: "green" };
   }
-  return { text: fmtPct(n), className: "bg-red-50 text-red-800" };
+  return { text: fmtPct(n), color: "red" };
 }
 
 type KpiCardProps = {
@@ -79,27 +81,41 @@ type KpiCardProps = {
 };
 
 function KpiCard({ title, hint, value, suffix, mom, momLabel }: KpiCardProps) {
-  const momB = fmtMomBadge(mom ?? null);
+  const momM = momTagMeta(mom ?? null);
   return (
-    <Card className="border-border/80 shadow-sm" size="sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2 pt-4 px-4">
+    <Card bordered className="border-border/80 shadow-sm" bodyStyle={{ padding: "16px" }}>
+      <div className="mb-2 flex flex-row items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
-          <span className="text-[13px] font-medium text-muted-foreground">{title}</span>
+          <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>
+            {title}
+          </Typography.Text>
           {hint ? <TitleHintIcon tooltipText={hint} iconClassName="h-4 w-4" className="shrink-0" /> : null}
         </div>
-      </CardHeader>
-      <CardContent className="pb-4 px-4 pt-0">
-        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-          <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</span>
-          {suffix ? <span className="text-sm text-muted-foreground">{suffix}</span> : null}
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-muted-foreground">{momLabel}</span>
-          <span className={cn("rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums", momB.className)}>
-            {mom === null ? "—" : momB.text}
-          </span>
-        </div>
-      </CardContent>
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        <Typography.Title heading={5} className="!m-0 tabular-nums tracking-tight">
+          {value}
+        </Typography.Title>
+        {suffix ? (
+          <Typography.Text type="secondary" style={{ fontSize: 14 }}>
+            {suffix}
+          </Typography.Text>
+        ) : null}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          {momLabel}
+        </Typography.Text>
+        {mom === null ? (
+          <Tag size="small" color="gray">
+            —
+          </Tag>
+        ) : (
+          <Tag size="small" color={momM.color}>
+            {momM.text}
+          </Tag>
+        )}
+      </div>
     </Card>
   );
 }
@@ -113,16 +129,23 @@ type ChartCardProps = {
 };
 
 function ChartCard({ title, hint, children, className, rightSlot }: ChartCardProps) {
+  const showHeader = Boolean(title) || Boolean(hint) || Boolean(rightSlot);
   return (
-    <Card className={cn("border-border/80 shadow-sm", className)} size="sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2 pt-3 px-4">
-        <div className="flex min-w-0 items-center gap-1">
-          <span className="truncate text-sm font-semibold text-foreground">{title}</span>
-          {hint ? <TitleHintIcon tooltipText={hint} iconClassName="h-4 w-4" className="shrink-0" /> : null}
+    <Card bordered className={cn("border-border/80 shadow-sm", className)} bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}>
+      {showHeader ? (
+        <div className="mb-2 flex flex-row items-center justify-between gap-2 px-1">
+          <div className="flex min-w-0 items-center gap-1">
+            {title ? (
+              <Typography.Text bold className="truncate text-sm">
+                {title}
+              </Typography.Text>
+            ) : null}
+            {hint ? <TitleHintIcon tooltipText={hint} iconClassName="h-4 w-4" className="shrink-0" /> : null}
+          </div>
+          {rightSlot}
         </div>
-        {rightSlot}
-      </CardHeader>
-      <CardContent className="px-3 pb-3 pt-0">{children}</CardContent>
+      ) : null}
+      <div className="px-0.5">{children}</div>
     </Card>
   );
 }
@@ -251,11 +274,9 @@ export function OverviewDashboard() {
   if (!mounted) {
     return (
       <AppPageShell variant="overview">
-        <main className="ca-page relative z-[1]">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 w-56 rounded-lg bg-neutral-200" />
-            <div className="h-40 max-w-full rounded-xl bg-neutral-100" />
-          </div>
+        <main className="ca-page relative z-[1] space-y-4">
+          <Skeleton animation text={{ rows: 1, width: ["40%"] }} />
+          <Skeleton animation className="h-40 max-w-full rounded-lg" />
         </main>
       </AppPageShell>
     );
@@ -266,9 +287,11 @@ export function OverviewDashboard() {
       <AppPageShell variant="overview">
         <main className="ca-page relative z-[1]">
           <header className="mb-6">
-            <h1 className="ca-page-title">{t("statsTitle")}</h1>
+            <Typography.Title heading={4} className="ca-page-title !m-0">
+              {t("statsTitle")}
+            </Typography.Title>
           </header>
-          <p className="text-sm text-ca-muted">{t("needCollector")}</p>
+          <Typography.Text type="secondary">{t("needCollector")}</Typography.Text>
         </main>
       </AppPageShell>
     );
@@ -279,26 +302,25 @@ export function OverviewDashboard() {
   <main className="ca-page relative z-[1] space-y-8 pb-10">
         <header className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
-            <h1 className="ca-page-title">{t("statsTitle")}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t("statsSubtitle")}</p>
+            <Typography.Title heading={4} className="ca-page-title !m-0">
+              {t("statsTitle")}
+            </Typography.Title>
+            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 text-sm">
+              {t("statsSubtitle")}
+            </Typography.Paragraph>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-              {t("dataSourceSdk")}
-            </span>
+          <Space size={12} wrap className="items-center">
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
             <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5"
+              type="default"
+              size="small"
+              icon={<IconRefresh className={cn("size-3.5", q.isFetching && "animate-spin")} />}
               disabled={q.isFetching}
               onClick={() => void q.refetch()}
             >
-              <IconRefresh className={cn("size-3.5", q.isFetching && "animate-spin")} aria-hidden />
               {t("refresh")}
             </Button>
-          </div>
+          </Space>
         </header>
 
         {q.isError ? (
@@ -375,75 +397,73 @@ export function OverviewDashboard() {
             </section>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <label className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span>{t("filterModel")}</span>
-                <select
-                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <Space size={8} className="items-center">
+                <Typography.Text type="secondary" className="text-sm">
+                  {t("filterModel")}
+                </Typography.Text>
+                <Select
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(v) => setModel(String(v))}
+                  style={{ minWidth: 220 }}
+                  size="small"
+                  triggerProps={{ autoAlignPopupWidth: false }}
                 >
-                  <option value="__all__">{t("filterModelAll")}</option>
+                  <Select.Option value="__all__">{t("filterModelAll")}</Select.Option>
                   {modelOptions.map((m) => (
-                    <option key={m} value={m}>
+                    <Select.Option key={m} value={m}>
                       {m}
-                    </option>
+                    </Select.Option>
                   ))}
-                </select>
-              </label>
-              <p className="text-[11px] text-muted-foreground">{t("sampleNote", { spans: q.data?.spans.length ?? 0, traces: q.data?.traces.length ?? 0 })}</p>
+                </Select>
+              </Space>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {t("sampleNote", { spans: q.data?.spans.length ?? 0, traces: q.data?.traces.length ?? 0 })}
+              </Typography.Text>
             </div>
 
             <section className="space-y-3">
               <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div>
-                  <h2 className="text-sm font-semibold text-foreground">{t("sectionTokens")}</h2>
+                  <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                    {t("sectionTokens")}
+                  </Typography.Title>
                   <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                    <span className="text-muted-foreground">
+                    <Typography.Text type="secondary">
                       {t("tokenTotal")}:{" "}
-                      <strong className="font-mono text-foreground">
+                      <Typography.Text bold className="font-mono">
                         {(overview.kpis.totalTokens / 1000).toFixed(2)}
-                      </strong>{" "}
+                      </Typography.Text>{" "}
                       {t("unitKTokensAbs")}
-                    </span>
-                    <span className="text-muted-foreground">
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
                       {t("tokenInputEst")}:{" "}
-                      <strong className="font-mono text-foreground" style={{ color: CHART_PRIMARY }}>
+                      <Typography.Text bold className="font-mono" style={{ color: CHART_PRIMARY }}>
                         {((overview.kpis.totalTokens * 0.58) / 1000).toFixed(2)}
-                      </strong>
-                    </span>
-                    <span className="text-muted-foreground">
+                      </Typography.Text>
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
                       {t("tokenOutputEst")}:{" "}
-                      <strong className="font-mono text-foreground" style={{ color: CHART_SECONDARY }}>
+                      <Typography.Text bold className="font-mono" style={{ color: CHART_SECONDARY }}>
                         {((overview.kpis.totalTokens * 0.42) / 1000).toFixed(2)}
-                      </strong>
-                    </span>
+                      </Typography.Text>
+                    </Typography.Text>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{t("tokenUnitLabel")}</span>
-                  <div className="flex rounded-lg border border-border p-0.5">
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-xs font-medium transition",
-                        tokenUnit === "k" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground",
-                      )}
-                      onClick={() => setTokenUnit("k")}
-                    >
-                      {t("unitKTokens")}
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-xs font-medium transition",
-                        tokenUnit === "wan" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground",
-                      )}
-                      onClick={() => setTokenUnit("wan")}
-                    >
-                      {t("unitWanTokens")}
-                    </button>
-                  </div>
-                </div>
+                <Space size={8} className="items-center">
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {t("tokenUnitLabel")}
+                  </Typography.Text>
+                  <Radio.Group
+                    type="button"
+                    name="overview-token-unit"
+                    size="small"
+                    value={tokenUnit}
+                    onChange={(v) => setTokenUnit(v as "k" | "wan")}
+                  >
+                    <Radio value="k">{t("unitKTokens")}</Radio>
+                    <Radio value="wan">{t("unitWanTokens")}</Radio>
+                  </Radio.Group>
+                </Space>
               </div>
               <ChartCard title="" hint={t("hintTokenSplit")}>
                 <div className="h-[300px] w-full min-w-0">
@@ -484,7 +504,9 @@ export function OverviewDashboard() {
             </section>
 
             <section aria-label={t("sectionModel")} className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">{t("sectionModel")}</h2>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionModel")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-2">
                 <ChartCard title={t("chartModelQps")} hint={t("hintModelQps")}>
                   <div className="h-[240px] w-full min-w-0">
@@ -546,7 +568,9 @@ export function OverviewDashboard() {
             </section>
 
             <section aria-label={t("sectionLatency")} className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">{t("sectionLatency")}</h2>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionLatency")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-2">
                 <ChartCard title={t("chartTtft")} hint={t("hintTtft")}>
                   <div className="h-[240px] w-full min-w-0">
@@ -603,7 +627,9 @@ export function OverviewDashboard() {
             </section>
 
             <section aria-label={t("sectionTools")} className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">{t("sectionTools")}</h2>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionTools")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartToolVol")} hint={t("hintToolVol")}>
                   <div className="h-[220px] w-full min-w-0">
@@ -675,7 +701,9 @@ export function OverviewDashboard() {
             </section>
 
             <section aria-label={t("sectionAgent")} className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">{t("sectionAgent")}</h2>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionAgent")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartAgentSteps")} hint={t("hintAgentSteps")}>
                   <div className="h-[220px] w-full min-w-0">
@@ -720,7 +748,9 @@ export function OverviewDashboard() {
             </section>
 
             <section aria-label={t("sectionService")} className="space-y-3">
-              <h2 className="text-sm font-semibold text-foreground">{t("sectionServiceTop")}</h2>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionServiceTop")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartTraceReport")} hint={t("hintTraceReport")}>
                   <div className="h-[220px] w-full min-w-0">
@@ -762,7 +792,9 @@ export function OverviewDashboard() {
                   </div>
                 </ChartCard>
               </div>
-              <h3 className="text-sm font-semibold text-foreground">{t("sectionServiceCharts")}</h3>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionServiceCharts")}
+              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartServiceQps")} hint={t("hintServiceQps")}>
                   <div className="h-[220px] w-full min-w-0">
@@ -807,9 +839,8 @@ export function OverviewDashboard() {
             </section>
           </>
         ) : q.isFetching ? (
-          <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
-            <IconRefresh className="size-4 animate-spin" aria-hidden />
-            {t("loading")}
+          <div className="flex justify-center py-12">
+            <Spin tip={t("loading")} />
           </div>
         ) : null}
 </main>

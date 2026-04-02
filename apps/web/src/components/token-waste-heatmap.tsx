@@ -88,7 +88,7 @@ export function TokenWasteHeatmap(props: {
                   className="sticky left-0 z-10 min-w-[10rem] max-w-[14rem] border-r border-ca-shell-border bg-ca-shell-sidebar/95 px-3 py-2 align-middle font-normal backdrop-blur-sm"
                 >
                   <LocalizedLink
-                    href={`/traces/${encodeURIComponent(row.threadKey)}`}
+                    href={`/traces?thread=${encodeURIComponent(row.threadKey)}`}
                     className="block truncate text-ca-shell-text underline-offset-2 hover:underline"
                     title={row.label}
                   >

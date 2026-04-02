@@ -9,7 +9,31 @@ export function ioPathFromInput(input: Record<string, unknown>): string | null {
   if (typeof p === "string" && p.trim()) {
     return p.trim();
   }
+  const pr = input.params;
+  if (pr && typeof pr === "object" && !Array.isArray(pr)) {
+    const o = pr as Record<string, unknown>;
+    const pp = o.path ?? o.file_path ?? o.target_file ?? o.filePath ?? o.targetFile ?? o.uri;
+    if (typeof pp === "string" && pp.trim()) {
+      return pp.trim();
+    }
+  }
   return null;
+}
+
+/** 插件写入的 `metadata.resource.uri`（资源审计 / 记忆检索）。 */
+export function resourceUriFromAuditMetadata(metadata: Record<string, unknown>): string | null {
+  const r = metadata.resource;
+  if (r && typeof r === "object" && !Array.isArray(r)) {
+    const u = (r as Record<string, unknown>).uri;
+    if (typeof u === "string" && u.trim()) {
+      return u.trim();
+    }
+  }
+  return null;
+}
+
+export function spanResourceUri(row: SemanticSpanRow): string | null {
+  return resourceUriFromAuditMetadata(row.metadata) ?? ioPathFromInput(row.input);
 }
 
 export function estimatePayloadChars(v: unknown): number {
@@ -31,7 +55,7 @@ export function toolResultChars(output: Record<string, unknown>): number {
 }
 
 export function spanLargeFileWarning(row: SemanticSpanRow): boolean {
-  const path = ioPathFromInput(row.input);
+  const path = spanResourceUri(row);
   if (!path) {
     return false;
   }

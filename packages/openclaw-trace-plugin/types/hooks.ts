@@ -47,6 +47,22 @@ export type LlmInputEvent = {
   temperature?: number;
   topP?: number;
   maxTokens?: number;
+  /** OpenClaw 路由表 / 控制面可能提供的展示标签（多版本字段名由 `extractLlmInputRoutingMeta` 兜底）。 */
+  label?: string;
+  kind?: string;
+  thinking?: string | boolean;
+  fast?: string | boolean;
+  verbose?: string | boolean;
+  reasoning?: string | boolean;
+  maxContextTokens?: number;
+  routing?: Record<string, unknown>;
+  route?: Record<string, unknown>;
+  openclaw?: Record<string, unknown>;
+  /**
+   * OpenClaw `llm_input`：与会话 store 对齐的只读快照（`PluginHookOpenclawSessionSnapshot`）。
+   * 由 `extractLlmInputRoutingMeta` 并入 `openclaw_routing`。
+   */
+  openclawSession?: Record<string, unknown>;
 };
 
 /** OpenClaw `before_model_resolve` — runs before provider/model resolution; no session messages yet. */

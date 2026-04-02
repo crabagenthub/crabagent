@@ -9,6 +9,8 @@ export const COLLECTOR_API = {
   conversationTraces: "/v1/conversation/traces",
   traceSpans: "/v1/trace/spans",
   spanList: "/v1/span/list",
+  resourceAuditEvents: "/v1/resource-audit/events",
+  resourceAuditStats: "/v1/resource-audit/stats",
 } as const;
 
 /** React Query cache key prefixes (not URLs; aligned with {@link COLLECTOR_API}). */
@@ -17,4 +19,6 @@ export const COLLECTOR_QUERY_SCOPE = {
   traceList: "trace-list",
   traceSpans: "trace-spans",
   spanList: "span-list",
+  resourceAuditEvents: "resource-audit-events",
+  resourceAuditStats: "resource-audit-stats",
 } as const;

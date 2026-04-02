@@ -57,7 +57,7 @@ export type MessageContentProps =
 
 const MessageContent = (props: MessageContentProps) => {
   const proseClasses =
-    "prose prose-neutral max-w-none prose-p:my-1.5 prose-ol:my-2 prose-ul:my-2 dark:prose-invert";
+    "prose prose-neutral max-w-none prose-p:my-1.5 prose-ol:my-2 prose-ul:my-2 prose-hr:my-2 prose-hr:border-neutral-200 dark:prose-invert dark:prose-hr:border-neutral-700";
   const shellClasses = "rounded-lg bg-secondary p-2 text-foreground break-words whitespace-normal";
 
   if ("markdown" in props && props.markdown === true) {

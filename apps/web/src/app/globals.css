@@ -20,6 +20,40 @@ html[data-sidebar-collapsed="1"] {
   --ca-content-offset-left: 72px;
 }
 
+/* `SiteNavNoSSR` loading：与 localStorage 折叠态一致，避免先宽后窄闪一下 */
+.site-nav-loading-skeleton {
+  width: 272px;
+  min-width: 272px;
+  transition: none;
+}
+html[data-sidebar-collapsed="1"] .site-nav-loading-skeleton {
+  width: 72px;
+  min-width: 72px;
+}
+
+.site-nav-skeleton-header-expanded {
+  display: flex;
+}
+html[data-sidebar-collapsed="1"] .site-nav-skeleton-header-expanded {
+  display: none;
+}
+.site-nav-skeleton-header-collapsed {
+  display: none;
+}
+html[data-sidebar-collapsed="1"] .site-nav-skeleton-header-collapsed {
+  display: flex;
+}
+
+html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-row {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+}
+html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
+  display: none;
+}
+
 @layer base {
   body {
     @apply antialiased bg-background text-foreground;
@@ -28,7 +62,7 @@ html[data-sidebar-collapsed="1"] {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
   }
-  /* shadcn/ui Blue 主题 https://ui.shadcn.com/ */
+  /* shadcn/ui 主题，主色改为暗夜紫 */
   :root {
     --radius: 0.375rem;
     --radius-md: 0.375rem;
@@ -38,8 +72,8 @@ html[data-sidebar-collapsed="1"] {
     --card-foreground: oklch(0.141 0.005 285.823);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.141 0.005 285.823);
-    --primary: oklch(0.488 0.243 264.376);
-    --primary-foreground: oklch(0.97 0.014 254.604);
+    --primary: #722ed1;
+    --primary-foreground: #f5e8ff;
     --secondary: oklch(0.967 0.001 286.375);
     --secondary-foreground: oklch(0.21 0.006 285.885);
     --muted: oklch(0.967 0.001 286.375);
@@ -49,12 +83,12 @@ html[data-sidebar-collapsed="1"] {
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.92 0.004 286.32);
     --input: oklch(0.92 0.004 286.32);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
+    --ring: #8d4eda;
+    --chart-1: #ddbef6;
+    --chart-2: #c396ed;
+    --chart-3: #a871e3;
+    --chart-4: #722ed1;
+    --chart-5: #551db0;
     /* 侧栏：参考浅灰底 + 近黑正文 + 中性胶囊选中（非冷色蓝灰） */
     --sidebar: #f7f7f7;
     --sidebar-foreground: #1a1a1a;
@@ -65,7 +99,7 @@ html[data-sidebar-collapsed="1"] {
     --sidebar-active: #ececec;
     --sidebar-active-foreground: #1a1a1a;
     --sidebar-border: #e5e5e5;
-    --sidebar-ring: oklch(0.45 0.02 264);
+    --sidebar-ring: #8d4eda;
     --sidebar-section-label: #999999;
   }
   .dark {
@@ -75,8 +109,8 @@ html[data-sidebar-collapsed="1"] {
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.21 0.006 285.885);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.488 0.243 264.376);
-    --primary-foreground: oklch(0.97 0.014 254.604);
+    --primary: #722ed1;
+    --primary-foreground: #f5e8ff;
     --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.274 0.006 286.033);
@@ -86,22 +120,22 @@ html[data-sidebar-collapsed="1"] {
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
+    --ring: #8d4eda;
+    --chart-1: #ddbef6;
+    --chart-2: #c396ed;
+    --chart-3: #a871e3;
+    --chart-4: #722ed1;
+    --chart-5: #551db0;
     --sidebar: oklch(0.21 0.006 285.885);
     --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.623 0.214 259.815);
-    --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+    --sidebar-primary: #722ed1;
+    --sidebar-primary-foreground: #f5e8ff;
     --sidebar-accent: oklch(0.274 0.006 286.033);
     --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-active: oklch(0.36 0.028 264);
+    --sidebar-active: #3c108f;
     --sidebar-active-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.439 0 0);
+    --sidebar-ring: #8d4eda;
     --sidebar-section-label: oklch(0.62 0.01 286);
   }
   * {
@@ -152,6 +186,9 @@ html[data-sidebar-collapsed="1"] {
   /* 与应用侧栏 / Tailwind z 层协调：大详情抽屉 */
   .ca-arco-app-drawer-wrap {
     z-index: 100 !important;
+  }
+  .ca-arco-app-drawer-wrap--overlay {
+    z-index: 120 !important;
   }
   .ca-arco-app-drawer-wrap .ca-arco-app-drawer.arco-drawer {
     border-left: 1px solid var(--border);
@@ -207,32 +244,32 @@ html[data-sidebar-collapsed="1"] {
     --ca-page-grad-mid: oklch(0.94 0.07 55);
   }
   .ca-page-bg--overview {
-    --ca-page-grad-from: oklch(0.93 0.08 240);
-    --ca-page-grad-mid: oklch(0.94 0.07 165);
+    --ca-page-grad-from: #f5e8ff;
+    --ca-page-grad-mid: #ddbef6;
   }
   .ca-page-bg--traces {
-    --ca-page-grad-from: oklch(0.93 0.07 320);
-    --ca-page-grad-mid: oklch(0.91 0.09 220);
+    --ca-page-grad-from: #f5e8ff;
+    --ca-page-grad-mid: #c396ed;
   }
   .ca-page-bg--logs {
-    --ca-page-grad-from: oklch(0.92 0.04 260);
-    --ca-page-grad-mid: oklch(0.93 0.09 75);
+    --ca-page-grad-from: #ddbef6;
+    --ca-page-grad-mid: #c396ed;
   }
   .ca-page-bg--analytics {
-    --ca-page-grad-from: oklch(0.9 0.1 290);
-    --ca-page-grad-mid: oklch(0.93 0.08 155);
+    --ca-page-grad-from: #c396ed;
+    --ca-page-grad-mid: #a871e3;
   }
   .ca-page-bg--machines {
-    --ca-page-grad-from: oklch(0.91 0.07 200);
-    --ca-page-grad-mid: oklch(0.92 0.09 250);
+    --ca-page-grad-from: #ddbef6;
+    --ca-page-grad-mid: #a871e3;
   }
   .ca-page-bg--alerts {
-    --ca-page-grad-from: oklch(0.92 0.1 25);
-    --ca-page-grad-mid: oklch(0.93 0.11 55);
+    --ca-page-grad-from: #f5e8ff;
+    --ca-page-grad-mid: #8d4eda;
   }
   .ca-page-bg--settings {
-    --ca-page-grad-from: oklch(0.94 0.04 280);
-    --ca-page-grad-mid: oklch(0.93 0.05 240);
+    --ca-page-grad-from: #f5e8ff;
+    --ca-page-grad-mid: #ddbef6;
   }
 
   .ca-card {

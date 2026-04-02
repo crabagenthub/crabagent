@@ -2,21 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import {
-  IconArrowUp,
-  IconRobot,
-  IconLeft,
-  IconRight,
-  IconFilter,
-  IconInfoCircle,
-  IconList,
-  IconLanguage,
-  IconSearch,
-  IconThunderbolt,
-  IconEdit,
-  IconClose,
-} from "@arco-design/web-react/icon";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconRobot, IconInfoCircle, IconList, IconLanguage, IconSearch, IconEdit, IconClose } from "@arco-design/web-react/icon";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { InspectDrawerMetaSection } from "@/components/inspect-drawer-meta-section";
 import { MessageHint } from "@/components/message-hint";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
@@ -125,28 +112,6 @@ export function SpanRecordInspectDrawer({
     return items.find((s) => s.span_id === selectedSpanId) ?? null;
   }, [items, selectedSpanId]);
 
-  const idx = row ? rows.findIndex((r) => r.span_id === row.span_id) : -1;
-  const canPrev = idx > 0;
-  const canNext = idx >= 0 && idx < rows.length - 1;
-
-  const goPrev = useCallback(() => {
-    if (!canPrev) {
-      return;
-    }
-    onNavigate(rows[idx - 1]!);
-  }, [canPrev, idx, onNavigate, rows]);
-
-  const goNext = useCallback(() => {
-    if (!canNext) {
-      return;
-    }
-    onNavigate(rows[idx + 1]!);
-  }, [canNext, idx, onNavigate, rows]);
-
-  const scrollTreeTop = useCallback(() => {
-    treeScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
   const rowDur = row?.duration_ms ?? null;
   const listStartLabel =
     row != null && row.start_time_ms != null
@@ -173,120 +138,21 @@ export function SpanRecordInspectDrawer({
   const traceShort = formatShortId(traceId);
   const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
 
-  const contextTags = useMemo(() => {
-    if (!row) {
-      return [];
-    }
-    const out: string[] = [];
-    if (row.channel_name) {
-      out.push(row.channel_name);
-    }
-    if (row.agent_name) {
-      out.push(row.agent_name);
-    }
-    if (row.project_name && row.project_name !== "openclaw") {
-      out.push(row.project_name);
-    }
-    return out;
-  }, [row]);
-
   const inspectChipTags = useMemo(() => {
-    const out = [...contextTags];
-    if (selectedSpan?.module && !out.includes(selectedSpan.module)) {
-      out.push(selectedSpan.module);
-    }
-    return out;
-  }, [contextTags, selectedSpan?.module]);
+    const m = selectedSpan?.module?.trim();
+    return m ? [m] : [];
+  }, [selectedSpan?.module]);
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       {row ? (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
-                <IconList className="size-4 shrink-0" strokeWidth={2} aria-hidden />
-              </span>
-              <h2 className="text-lg font-semibold leading-tight text-foreground">
-                {t("spanInspectDrawerTitle")}
-              </h2>
-            </div>
-            <InspectDrawerMetaSection
-              fields={[
-                {
-                  label: t("drawerMetaTraceIdLabel"),
-                  value: traceId ? traceShort : "—",
-                  title: traceId || undefined,
-                  copyText: traceId || undefined,
-                  copyAriaLabel: t("inspectCopyTraceIdAria"),
-                },
-                {
-                  label: t("drawerMetaSpanNameLabel"),
-                  value: row.name || "—",
-                  title: row.name || undefined,
-                },
-                {
-                  label: t("drawerMetaSpanTypeLabel"),
-                  value: row.span_type || "—",
-                },
-                {
-                  label: t("drawerMetaAgentLabel"),
-                  value: (
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <IconRobot className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
-                      <span className="truncate">{row.agent_name?.trim() || "—"}</span>
-                    </span>
-                  ),
-                  title: row.agent_name?.trim() || undefined,
-                },
-                {
-                  label: t("drawerMetaChannelLabel"),
-                  value: (
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <IconLanguage className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
-                      <span className="truncate">{row.channel_name?.trim() || "—"}</span>
-                    </span>
-                  ),
-                  title: row.channel_name?.trim() || undefined,
-                },
-                {
-                  label: t("drawerMetaExecutionWindowLabel"),
-                  value: whenLine,
-                  colSpan: 4,
-                },
-                {
-                  label: t("drawerMetaStepsInTraceLabel"),
-                  value: <span className="tabular-nums">{String(items.length)}</span>,
-                },
-                {
-                  label: t("drawerMetaDurationTotalLabel"),
-                  value: <span className="tabular-nums">{metaDuration}</span>,
-                },
-                {
-                  label: t("drawerMetaTokensLabel"),
-                  value: <span className="tabular-nums">{row.total_tokens.toLocaleString()}</span>,
-                },
-              ]}
-              highlight={{
-                title: t("inspectDrawerStepSummaryTitle"),
-                subtitle: t("inspectDrawerSummaryUsageHint"),
-                metrics: (
-                  <>
-                    <span className="text-neutral-900 dark:text-neutral-100">
-                      <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">{metaDuration}</span>
-                      <span className="text-neutral-600 dark:text-neutral-400"> {t("colDuration")}</span>
-                    </span>
-                    <span className="text-neutral-900 dark:text-neutral-100">
-                      <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">
-                        {row.total_tokens.toLocaleString()}
-                      </span>
-                      <span className="text-neutral-600 dark:text-neutral-400"> {t("colTotalTokens")}</span>
-                    </span>
-                  </>
-                ),
-              }}
-            />
+        <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
+              <IconList className="size-4 shrink-0" strokeWidth={2} aria-hidden />
+            </span>
+            <h2 className="text-lg font-semibold leading-tight text-foreground">{t("spanInspectDrawerTitle")}</h2>
           </div>
           <DrawerClose
             className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -296,71 +162,8 @@ export function SpanRecordInspectDrawer({
           </DrawerClose>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-4 py-2">
-          <button
-            type="button"
-            disabled={!canPrev}
-            onClick={goPrev}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
-            aria-label={t("traceInspectNavPrev")}
-            title={t("traceInspectNavPrev")}
-          >
-            <IconLeft className="size-5" strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            disabled={!canNext}
-            onClick={goNext}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
-            aria-label={t("traceInspectNavNext")}
-            title={t("traceInspectNavNext")}
-          >
-            <IconRight className="size-5" strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            onClick={scrollTreeTop}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label={t("traceInspectNavUp")}
-            title={t("traceInspectNavUp")}
-          >
-            <IconArrowUp className="size-5" strokeWidth={1.75} />
-          </button>
-          <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
-          <button
-            type="button"
-            onClick={() => treeSearchRef.current?.focus()}
-            className="flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1.5 text-muted-foreground transition-all hover:border-border hover:bg-muted hover:text-foreground active:scale-95"
-            aria-label={t("detailTreeSearchPlaceholder")}
-            title={t("detailTreeSearchPlaceholder")}
-          >
-            <IconSearch className="size-4" strokeWidth={2} />
-            <span className="hidden text-xs font-semibold sm:inline">{t("searchLabel")}</span>
-          </button>
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-            disabled
-            aria-label={t("traceInspectFilterSoon")}
-            title={t("traceInspectFilterSoon")}
-          >
-            <IconFilter className="size-5" strokeWidth={1.75} />
-          </button>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-              title={t("traceInspectDebugSoon")}
-            >
-              <IconThunderbolt className="size-4" strokeWidth={1.75} />
-              {t("traceInspectDebugAi")}
-            </button>
-          </div>
-        </div>
-
         <div className="flex min-h-0 min-h-[min(520px,70dvh)] flex-1 flex-col overflow-hidden lg:flex-row">
-          <div className="flex min-h-[240px] w-full shrink-0 flex-col border-border lg:w-[min(100%,20rem)] lg:max-w-[38%] lg:border-r">
+          <div className="flex min-h-[240px] w-full shrink-0 flex-col border-border lg:w-[min(100%,17.5rem)] lg:max-w-[min(100%,20rem)] lg:shrink-0 lg:border-r">
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2.5">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-sm font-semibold text-foreground">
@@ -413,19 +216,106 @@ export function SpanRecordInspectDrawer({
           </div>
 
           <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-background">
-            <TraceInspectBasicHeader
-              selectedSpan={selectedSpan}
-              traceId={traceId}
-              fallbackSpanId={row.span_id}
-              chipTags={inspectChipTags}
-              rowTokens={row.total_tokens}
-              rowDurationMs={rowDur}
-            />
-
-            <div className="min-h-0 flex-1 overflow-hidden border-t border-border">
+            <div className="min-h-0 flex-1 overflow-hidden">
               <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />
             </div>
           </div>
+
+          <aside
+            className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/40 lg:max-h-none lg:w-[min(100%,22rem)] lg:min-w-[260px] lg:max-w-[24rem] lg:shrink-0 lg:border-l lg:border-t-0"
+            aria-label={t("inspectBasicInfoTitle")}
+          >
+            <div className="shrink-0 border-b border-border bg-white/90 px-3 py-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{t("inspectBasicInfoTitle")}</h3>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+              <TraceInspectBasicHeader
+                layout="sidebar"
+                selectedSpan={selectedSpan}
+                traceId={traceId}
+                fallbackSpanId={row.span_id}
+                chipTags={inspectChipTags}
+                rowTokens={row.total_tokens}
+                rowDurationMs={rowDur}
+              />
+              <InspectDrawerMetaSection
+                variant="sidebar"
+                className="mt-2 border-t border-neutral-200/80 pt-3 dark:border-neutral-700/80"
+                fields={[
+                  {
+                    label: t("drawerMetaTraceIdLabel"),
+                    value: traceId ? traceShort : "—",
+                    title: traceId || undefined,
+                    copyText: traceId || undefined,
+                    copyAriaLabel: t("inspectCopyTraceIdAria"),
+                  },
+                  {
+                    label: t("drawerMetaSpanNameLabel"),
+                    value: row.name || "—",
+                    title: row.name || undefined,
+                  },
+                  {
+                    label: t("drawerMetaSpanTypeLabel"),
+                    value: row.span_type || "—",
+                  },
+                  {
+                    label: t("drawerMetaAgentLabel"),
+                    value: (
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <IconRobot className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                        <span className="truncate">{row.agent_name?.trim() || "—"}</span>
+                      </span>
+                    ),
+                    title: row.agent_name?.trim() || undefined,
+                  },
+                  {
+                    label: t("drawerMetaChannelLabel"),
+                    value: (
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <IconLanguage className="size-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" strokeWidth={2} aria-hidden />
+                        <span className="truncate">{row.channel_name?.trim() || "—"}</span>
+                      </span>
+                    ),
+                    title: row.channel_name?.trim() || undefined,
+                  },
+                  {
+                    label: t("drawerMetaExecutionWindowLabel"),
+                    value: <span className="break-words">{whenLine}</span>,
+                  },
+                  {
+                    label: t("drawerMetaStepsInTraceLabel"),
+                    value: <span className="tabular-nums">{String(items.length)}</span>,
+                  },
+                  {
+                    label: t("drawerMetaDurationTotalLabel"),
+                    value: <span className="tabular-nums">{metaDuration}</span>,
+                  },
+                  {
+                    label: t("drawerMetaTokensLabel"),
+                    value: <span className="tabular-nums">{row.total_tokens.toLocaleString()}</span>,
+                  },
+                ]}
+                highlight={{
+                  title: t("inspectDrawerStepSummaryTitle"),
+                  subtitle: t("inspectDrawerSummaryUsageHint"),
+                  metrics: (
+                    <>
+                      <span className="text-neutral-900 dark:text-neutral-100">
+                        <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">{metaDuration}</span>
+                        <span className="text-neutral-600 dark:text-neutral-400"> {t("colDuration")}</span>
+                      </span>
+                      <span className="text-neutral-900 dark:text-neutral-100">
+                        <span className="font-bold text-amber-700 dark:text-amber-500 tabular-nums">
+                          {row.total_tokens.toLocaleString()}
+                        </span>
+                        <span className="text-neutral-600 dark:text-neutral-400"> {t("colTotalTokens")}</span>
+                      </span>
+                    </>
+                  ),
+                }}
+              />
+            </div>
+          </aside>
         </div>
       </div>
       ) : null}

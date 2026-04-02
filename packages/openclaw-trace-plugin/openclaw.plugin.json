@@ -79,6 +79,11 @@
         "type": "boolean",
         "default": true,
         "description": "Merge pending onto session keys from OpenClaw sessions.json (same path resolution as coze-openclaw-plugin session-recovery). Env: CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE=1 to disable."
+      },
+      "sessionStoreRouting": {
+        "type": "boolean",
+        "default": true,
+        "description": "On llm_input, read agents/<agentId>/sessions/sessions.json and merge SessionEntry (label, levels, tokens) into openclaw_routing when the hook payload has no snapshot. Env: CRABAGENT_TRACE_NO_SESSION_STORE_ROUTING=1 to disable."
       }
     }
   }

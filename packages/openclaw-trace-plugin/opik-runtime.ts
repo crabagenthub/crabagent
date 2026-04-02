@@ -2,10 +2,75 @@ import { randomUUID } from "node:crypto";
 import { extractRoutedAgentIdFromMessageMetadata } from "./inbound-mirror.js";
 import { deletePendingSnapshot, loadAllPendingSnapshots, writePendingSnapshot } from "./pending-disk.js";
 import type { OpikBatchPayload } from "./opik-types.js";
-import { extractAgentIdFromRoutingSessionKey } from "./trace-session-key.js";
+import {
+  extractRoutingFromPendingUserTurn,
+  mergeOpenclawRoutingLayers,
+} from "./llm-input-routing-meta.js";
+import { enrichToolSpanResourceAudit } from "./resource-audit-span.js";
+import { extractAgentIdFromRoutingSessionKey, parseRoutingKindFromSessionKey } from "./trace-session-key.js";
 
 /** 与 `message_received` 正文上限对齐；Gmail/Hook 隔离路径无 inbound hook，依赖本段 prompt 预览入库。 */
 export const TRACE_PROMPT_PREVIEW_MAX_CHARS = 16_384;
+
+/** `llm_input` 入库时附加的路由/模型参数（由 index 从 hook 载荷抽取）。 */
+export type LlmInputIngestExtras = {
+  routingFromEvent?: Record<string, unknown>;
+  modelParams?: Record<string, unknown>;
+};
+
+function threadKeyLooksOpenclawSession(threadId: string, ctx: AgentCtx): boolean {
+  const candidates = [threadId, ctx.sessionKey ?? "", ctx.channelId ?? ""].map((s) => s.trim());
+  return candidates.some(
+    (t) =>
+      t.length > 0 &&
+      (/^agent:/i.test(t) ||
+        /^webchat:/i.test(t) ||
+        /^feishu:/i.test(t) ||
+        /^hook:/i.test(t)),
+  );
+}
+
+/**
+ * Hook 若经 IPC 丢失 `openclawSession`，仍可从 sessionKey 解析出 kind，但四档会空。
+ * OpenClaw 控制面未单独设置时等价于 inherit — 在此补齐，避免列表仅「类型」有值。
+ */
+function applyOpenclawRoutingInheritFallback(
+  routing: Record<string, unknown>,
+  threadId: string,
+  ctx: AgentCtx,
+): void {
+  if (!threadKeyLooksOpenclawSession(threadId, ctx)) {
+    return;
+  }
+  for (const k of ["thinking", "verbose", "reasoning", "fast"] as const) {
+    if (routing[k] === undefined) {
+      routing[k] = "inherit";
+    }
+  }
+}
+
+function buildOpenclawRoutingMetadata(
+  threadId: string,
+  ctx: AgentCtx,
+  routingFromEvent?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const routing: Record<string, unknown> = {};
+  if (routingFromEvent) {
+    Object.assign(routing, routingFromEvent);
+  }
+  const fromKey =
+    parseRoutingKindFromSessionKey(threadId) ??
+    parseRoutingKindFromSessionKey(ctx.sessionKey) ??
+    parseRoutingKindFromSessionKey(ctx.channelId);
+  if (fromKey != null && routing.kind === undefined) {
+    routing.kind = fromKey;
+  }
+  if (Object.keys(routing).length === 0) {
+    return undefined;
+  }
+  applyOpenclawRoutingInheritFallback(routing, threadId, ctx);
+  return routing;
+}
 
 type AgentCtx = {
   sessionId?: string;
@@ -952,6 +1017,7 @@ export class OpikOpenClawRuntime {
     ctx: AgentCtx,
     sampleBps: number,
     pendingAliasKeys?: string[],
+    extras?: LlmInputIngestExtras,
   ): OpikBatchPayload | null {
     const sk = skRaw.trim() || effectiveSessionKey(ctx);
     const basePendingKeys =
@@ -982,6 +1048,11 @@ export class OpikOpenClawRuntime {
       pending && typeof pending === "object" && !Array.isArray(pending)
         ? (pending as Record<string, unknown>)
         : {};
+    const routingMerged = mergeOpenclawRoutingLayers(
+      extractRoutingFromPendingUserTurn(pendingRec),
+      extras?.routingFromEvent,
+    );
+    const openclawRouting = buildOpenclawRoutingMetadata(threadId, ctx, routingMerged);
     const startMs = pendingHasUserInboundMessage(pendingRec)
       ? firstUserInboundTimestampMs(pendingRec, t)
       : t;
@@ -1002,6 +1073,7 @@ export class OpikOpenClawRuntime {
         channelId: ctx.channelId,
         agentId: ctx.agentId,
       },
+      ...(openclawRouting ? { openclaw_routing: openclawRouting } : {}),
     };
     const runIdTrim = typeof ev.runId === "string" ? ev.runId.trim() : "";
     const threadRow = {
@@ -1031,11 +1103,20 @@ export class OpikOpenClawRuntime {
           conversationId: ctx.conversationId,
           agentId: ctx.agentId,
         },
+        ...(openclawRouting ? { openclaw_routing: openclawRouting } : {}),
       },
       created_at_ms: startMs,
       is_complete: 0,
       created_from: "openclaw-trace-plugin",
     };
+    const spanMeta: Record<string, unknown> = {};
+    if (openclawRouting) {
+      spanMeta.openclaw_routing = openclawRouting;
+    }
+    const mp = extras?.modelParams;
+    if (mp && Object.keys(mp).length > 0) {
+      spanMeta.model_params = mp;
+    }
     const spanRow: Record<string, unknown> = {
       span_id: llmSpanId,
       trace_id: traceId,
@@ -1048,6 +1129,7 @@ export class OpikOpenClawRuntime {
       provider: ev.provider,
       is_complete: 0,
       sort_index: 1,
+      ...(Object.keys(spanMeta).length > 0 ? { metadata: spanMeta } : {}),
     };
     const turn: ActiveTurn = {
       sessionKey: sk,
@@ -1480,6 +1562,7 @@ export class OpikOpenClawRuntime {
         message: typeof ev.error === "string" ? ev.error : JSON.stringify(ev.error),
       };
     }
+    enrichToolSpanResourceAudit(span);
   }
 
   onAgentEnd(

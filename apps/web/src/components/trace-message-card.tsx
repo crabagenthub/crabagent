@@ -9,7 +9,7 @@ import type { TraceMessageRow } from "@/lib/trace-messages";
 import { traceMessagePreviewText, traceMessageTimeIso } from "@/lib/trace-messages";
 
 function detailHref(threadKey: string): string {
-  return `/traces/${encodeURIComponent(threadKey)}`;
+  return `/traces?thread=${encodeURIComponent(threadKey)}`;
 }
 
 export function TraceMessageCard({ row, previewMax }: { row: TraceMessageRow; previewMax: number }) {

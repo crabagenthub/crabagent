@@ -12,6 +12,10 @@ import { MessageHint } from "@/components/message-hint";
 import { ObserveListKindSwitcher } from "@/components/observe-list-kind-switcher";
 import { ObserveListToolbar } from "@/components/observe-list-toolbar";
 import {
+  ObserveTableColumnManager,
+  useObserveTableColumnVisibility,
+} from "@/components/observe-table-column-manager";
+import {
   defaultObserveDateRange,
   isObserveDateRangeAll,
   readStoredObserveDateRange,
@@ -20,15 +24,15 @@ import {
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
 import { SpanRecordInspectDrawer } from "@/components/span-record-inspect-drawer";
-import { SpansDataTable } from "@/components/spans-data-table";
+import { OBSERVE_SPANS_TABLE_ID, SPANS_OPTIONAL_KEYS, SpansDataTable } from "@/components/spans-data-table";
 import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
-import { ThreadsOpikTable } from "@/components/threads-opik-table";
+import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/components/threads-opik-table";
 import { Card, CardContent } from "@/components/ui/card";
 import ArcoPagination from "@arco-design/web-react/es/Pagination";
 
 import "@/lib/arco-react19-setup";
 import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
-import { TracesOpikTable } from "@/components/traces-opik-table";
+import { OBSERVE_TRACES_TABLE_ID, TRACES_OPTIONAL_KEYS, TracesOpikTable } from "@/components/traces-opik-table";
 import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
 import {
   loadObserveFacets,
@@ -70,6 +74,34 @@ function readStoredPageSize(): number {
 }
 
 type ListKind = "threads" | "traces" | "spans";
+
+type ObserveListUiState = {
+  searchDraft: string;
+  searchApplied: string;
+  pageIndex: number;
+  pageSize: number;
+  dateRange: ObserveDateRange;
+  filterChannel: string;
+  filterAgent: string;
+  filterStatus: ObserveListStatusParam | "";
+  sortKey: ObserveListSortParam;
+  listOrder: "asc" | "desc";
+};
+
+function buildDefaultObserveListUiState(pageSize: number): ObserveListUiState {
+  return {
+    searchDraft: "",
+    searchApplied: "",
+    pageIndex: 0,
+    pageSize,
+    dateRange: defaultObserveDateRange(),
+    filterChannel: "",
+    filterAgent: "",
+    filterStatus: "",
+    sortKey: "time",
+    listOrder: "desc",
+  };
+}
 
 function invalidateObserveLists(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: [COLLECTOR_QUERY_SCOPE.traceList] });
@@ -121,28 +153,18 @@ export default function TracesPage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [mounted, setMounted] = useState(false);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [searchApplied, setSearchApplied] = useState("");
-  const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSizeState] = useState(10);
-  const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
-
-  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
-    setDateRange(next);
-    writeStoredObserveDateRange(next);
-  }, []);
+  const [tracesUi, setTracesUi] = useState<ObserveListUiState>(() => buildDefaultObserveListUiState(10));
+  const [threadsUi, setThreadsUi] = useState<ObserveListUiState>(() => buildDefaultObserveListUiState(10));
+  const [spansUi, setSpansUi] = useState<ObserveListUiState>(() => buildDefaultObserveListUiState(10));
 
   useEffect(() => {
     const stored = readStoredObserveDateRange();
     if (stored) {
-      setDateRange(stored);
+      setTracesUi((prev) => ({ ...prev, dateRange: stored }));
+      setThreadsUi((prev) => ({ ...prev, dateRange: stored }));
+      setSpansUi((prev) => ({ ...prev, dateRange: stored }));
     }
   }, []);
-  const [filterChannel, setFilterChannel] = useState("");
-  const [filterAgent, setFilterAgent] = useState("");
-  const [filterStatus, setFilterStatus] = useState<ObserveListStatusParam | "">("");
-  const [sortKey, setSortKey] = useState<ObserveListSortParam>("time");
-  const [listOrder, setListOrder] = useState<"asc" | "desc">("desc");
   const [threadDrawerRow, setThreadDrawerRow] = useState<ThreadRecordRow | null>(null);
   const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
   const [inspectSpanRow, setInspectSpanRow] = useState<SpanRecordRow | null>(null);
@@ -156,22 +178,19 @@ export default function TracesPage() {
   }, []);
 
   useEffect(() => {
-    setPageSizeState(readStoredPageSize());
+    const stored = readStoredPageSize();
+    setTracesUi((prev) => ({ ...prev, pageSize: stored }));
+    setThreadsUi((prev) => ({ ...prev, pageSize: stored }));
+    setSpansUi((prev) => ({ ...prev, pageSize: stored }));
   }, []);
 
   const setPageSize = useCallback((n: number) => {
-    setPageSizeState(n);
     try {
       window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(n));
     } catch {
       /* ignore */
     }
   }, []);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => setSearchApplied(searchDraft.trim()), 400);
-    return () => window.clearTimeout(id);
-  }, [searchDraft]);
 
   useEffect(() => {
     const onSettings = () => {
@@ -183,13 +202,90 @@ export default function TracesPage() {
     return () => window.removeEventListener(CRABAGENT_COLLECTOR_SETTINGS_EVENT, onSettings);
   }, [queryClient]);
 
-  const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
-  const listEnabled = mounted && baseUrl.trim().length > 0;
-  const refetchInterval = 12_000;
+  const currentUi = listKind === "traces" ? tracesUi : listKind === "threads" ? threadsUi : spansUi;
+  const {
+    searchDraft,
+    searchApplied,
+    pageIndex,
+    pageSize,
+    dateRange,
+    filterChannel,
+    filterAgent,
+    filterStatus,
+    sortKey,
+    listOrder,
+  } = currentUi;
+
+  const updateCurrentUi = useCallback(
+    (updater: (prev: ObserveListUiState) => ObserveListUiState) => {
+      if (listKind === "traces") {
+        setTracesUi(updater);
+        return;
+      }
+      if (listKind === "threads") {
+        setThreadsUi(updater);
+        return;
+      }
+      setSpansUi(updater);
+    },
+    [listKind],
+  );
+
+  const setSearchDraft = useCallback((value: string) => {
+    updateCurrentUi((prev) => ({ ...prev, searchDraft: value }));
+  }, [updateCurrentUi]);
+
+  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
+    updateCurrentUi((prev) => ({ ...prev, dateRange: next, pageIndex: 0 }));
+    writeStoredObserveDateRange(next);
+  }, [updateCurrentUi]);
+
+  const setFilterChannel = useCallback((next: string) => {
+    updateCurrentUi((prev) => ({ ...prev, filterChannel: next, pageIndex: 0 }));
+  }, [updateCurrentUi]);
+
+  const setFilterAgent = useCallback((next: string) => {
+    updateCurrentUi((prev) => ({ ...prev, filterAgent: next, pageIndex: 0 }));
+  }, [updateCurrentUi]);
+
+  const setFilterStatus = useCallback((next: ObserveListStatusParam | "") => {
+    updateCurrentUi((prev) => ({ ...prev, filterStatus: next, pageIndex: 0 }));
+  }, [updateCurrentUi]);
+
+  const handleColumnSort = useCallback((sort: ObserveListSortParam, order: "asc" | "desc") => {
+    updateCurrentUi((prev) => ({ ...prev, sortKey: sort, listOrder: order, pageIndex: 0 }));
+  }, [updateCurrentUi]);
+
+  const setPageIndex = useCallback((next: number) => {
+    updateCurrentUi((prev) => ({ ...prev, pageIndex: next }));
+  }, [updateCurrentUi]);
+
+  const setCurrentPageSize = useCallback((next: number) => {
+    updateCurrentUi((prev) => ({ ...prev, pageSize: next, pageIndex: 0 }));
+    setPageSize(next);
+  }, [setPageSize, updateCurrentUi]);
 
   useEffect(() => {
-    setPageIndex(0);
-  }, [searchApplied, dateRange, listKind, filterChannel, filterAgent, filterStatus, sortKey, listOrder]);
+    const id = window.setTimeout(() => {
+      if (listKind === "traces") {
+        setTracesUi((prev) => ({ ...prev, searchApplied: prev.searchDraft.trim(), pageIndex: 0 }));
+        return;
+      }
+      if (listKind === "threads") {
+        setThreadsUi((prev) => ({ ...prev, searchApplied: prev.searchDraft.trim(), pageIndex: 0 }));
+        return;
+      }
+      setSpansUi((prev) => ({ ...prev, searchApplied: prev.searchDraft.trim(), pageIndex: 0 }));
+    }, 400);
+    return () => window.clearTimeout(id);
+  }, [listKind, searchDraft]);
+
+  const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
+  const tracesSinceUntil = useMemo(() => resolveObserveSinceUntil(tracesUi.dateRange), [tracesUi.dateRange]);
+  const threadsSinceUntil = useMemo(() => resolveObserveSinceUntil(threadsUi.dateRange), [threadsUi.dateRange]);
+  const spansSinceUntil = useMemo(() => resolveObserveSinceUntil(spansUi.dateRange), [spansUi.dateRange]);
+  const listEnabled = mounted && baseUrl.trim().length > 0;
+  const refetchInterval = 12_000;
 
   useEffect(() => {
     if (listKind !== "threads") {
@@ -203,12 +299,26 @@ export default function TracesPage() {
     }
   }, [listKind]);
 
-  const dateRangeKey = useMemo(
+  const tracesDateRangeKey = useMemo(
     () =>
-      dateRange.kind === "custom"
-        ? (`custom:${dateRange.startMs}-${dateRange.endMs}` as const)
-        : (`preset:${dateRange.preset}` as const),
-    [dateRange],
+      tracesUi.dateRange.kind === "custom"
+        ? (`custom:${tracesUi.dateRange.startMs}-${tracesUi.dateRange.endMs}` as const)
+        : (`preset:${tracesUi.dateRange.preset}` as const),
+    [tracesUi.dateRange],
+  );
+  const threadsDateRangeKey = useMemo(
+    () =>
+      threadsUi.dateRange.kind === "custom"
+        ? (`custom:${threadsUi.dateRange.startMs}-${threadsUi.dateRange.endMs}` as const)
+        : (`preset:${threadsUi.dateRange.preset}` as const),
+    [threadsUi.dateRange],
+  );
+  const spansDateRangeKey = useMemo(
+    () =>
+      spansUi.dateRange.kind === "custom"
+        ? (`custom:${spansUi.dateRange.startMs}-${spansUi.dateRange.endMs}` as const)
+        : (`preset:${spansUi.dateRange.preset}` as const),
+    [spansUi.dateRange],
   );
 
   const traceQueryKey = useMemo(
@@ -217,32 +327,32 @@ export default function TracesPage() {
         COLLECTOR_QUERY_SCOPE.traceList,
         baseUrl,
         apiKey,
-        listOrder,
-        sortKey,
-        searchApplied,
-        pageIndex,
-        pageSize,
-        dateRangeKey,
-        sinceMs ?? 0,
-        untilMs ?? 0,
-        filterChannel,
-        filterAgent,
-        filterStatus,
+        tracesUi.listOrder,
+        tracesUi.sortKey,
+        tracesUi.searchApplied,
+        tracesUi.pageIndex,
+        tracesUi.pageSize,
+        tracesDateRangeKey,
+        tracesSinceUntil.sinceMs ?? 0,
+        tracesSinceUntil.untilMs ?? 0,
+        tracesUi.filterChannel,
+        tracesUi.filterAgent,
+        tracesUi.filterStatus,
       ] as const,
     [
       baseUrl,
       apiKey,
-      listOrder,
-      sortKey,
-      searchApplied,
-      pageIndex,
-      pageSize,
-      dateRangeKey,
-      sinceMs,
-      untilMs,
-      filterChannel,
-      filterAgent,
-      filterStatus,
+      tracesDateRangeKey,
+      tracesSinceUntil.sinceMs,
+      tracesSinceUntil.untilMs,
+      tracesUi.filterAgent,
+      tracesUi.filterChannel,
+      tracesUi.filterStatus,
+      tracesUi.listOrder,
+      tracesUi.pageIndex,
+      tracesUi.pageSize,
+      tracesUi.searchApplied,
+      tracesUi.sortKey,
     ],
   );
 
@@ -252,30 +362,30 @@ export default function TracesPage() {
         COLLECTOR_QUERY_SCOPE.conversationList,
         baseUrl,
         apiKey,
-        listOrder,
-        sortKey,
-        searchApplied,
-        pageIndex,
-        pageSize,
-        dateRangeKey,
-        sinceMs ?? 0,
-        untilMs ?? 0,
-        filterChannel,
-        filterAgent,
+        threadsUi.listOrder,
+        threadsUi.sortKey,
+        threadsUi.searchApplied,
+        threadsUi.pageIndex,
+        threadsUi.pageSize,
+        threadsDateRangeKey,
+        threadsSinceUntil.sinceMs ?? 0,
+        threadsSinceUntil.untilMs ?? 0,
+        threadsUi.filterChannel,
+        threadsUi.filterAgent,
       ] as const,
     [
       baseUrl,
       apiKey,
-      listOrder,
-      sortKey,
-      searchApplied,
-      pageIndex,
-      pageSize,
-      dateRangeKey,
-      sinceMs,
-      untilMs,
-      filterChannel,
-      filterAgent,
+      threadsDateRangeKey,
+      threadsSinceUntil.sinceMs,
+      threadsSinceUntil.untilMs,
+      threadsUi.filterAgent,
+      threadsUi.filterChannel,
+      threadsUi.listOrder,
+      threadsUi.pageIndex,
+      threadsUi.pageSize,
+      threadsUi.searchApplied,
+      threadsUi.sortKey,
     ],
   );
 
@@ -285,32 +395,32 @@ export default function TracesPage() {
         COLLECTOR_QUERY_SCOPE.spanList,
         baseUrl,
         apiKey,
-        listOrder,
-        sortKey,
-        searchApplied,
-        pageIndex,
-        pageSize,
-        dateRangeKey,
-        sinceMs ?? 0,
-        untilMs ?? 0,
-        filterChannel,
-        filterAgent,
-        filterStatus,
+        spansUi.listOrder,
+        spansUi.sortKey,
+        spansUi.searchApplied,
+        spansUi.pageIndex,
+        spansUi.pageSize,
+        spansDateRangeKey,
+        spansSinceUntil.sinceMs ?? 0,
+        spansSinceUntil.untilMs ?? 0,
+        spansUi.filterChannel,
+        spansUi.filterAgent,
+        spansUi.filterStatus,
       ] as const,
     [
       baseUrl,
       apiKey,
-      listOrder,
-      sortKey,
-      searchApplied,
-      pageIndex,
-      pageSize,
-      dateRangeKey,
-      sinceMs,
-      untilMs,
-      filterChannel,
-      filterAgent,
-      filterStatus,
+      spansDateRangeKey,
+      spansSinceUntil.sinceMs,
+      spansSinceUntil.untilMs,
+      spansUi.filterAgent,
+      spansUi.filterChannel,
+      spansUi.filterStatus,
+      spansUi.listOrder,
+      spansUi.pageIndex,
+      spansUi.pageSize,
+      spansUi.searchApplied,
+      spansUi.sortKey,
     ],
   );
 
@@ -343,25 +453,125 @@ export default function TracesPage() {
     return Array.from(merged).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   }, [facetsQ.data?.agents, filterAgent]);
 
-  const handleColumnSort = useCallback((sort: ObserveListSortParam, order: "asc" | "desc") => {
-    setSortKey(sort);
-    setListOrder(order);
-  }, []);
+
+  const tracesColumns = useObserveTableColumnVisibility(OBSERVE_TRACES_TABLE_ID, TRACES_OPTIONAL_KEYS);
+  const threadsColumns = useObserveTableColumnVisibility(OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS);
+  const spansColumns = useObserveTableColumnVisibility(OBSERVE_SPANS_TABLE_ID, SPANS_OPTIONAL_KEYS);
+
+  const tracesColumnManagerItems = useMemo(
+    () => [
+      { key: "trace_id", mandatory: true as const, label: t("colTableMessageId") },
+      { key: "status", mandatory: true as const, label: t("colStatus") },
+      { key: "input", mandatory: true as const, label: t("colInput") },
+      { key: "channel", label: t("filterChannelLabel") },
+      { key: "agent", label: t("filterAgentLabel") },
+      { key: "openclaw_routing_kind", label: t("openclawRoutingFieldKind") },
+      { key: "openclaw_routing_thinking", label: t("openclawRoutingFieldThinking") },
+      { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
+      { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
+      { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
+      { key: "start_time", label: t("colStartTime") },
+      { key: "output", label: t("colOutput") },
+      { key: "errors", label: t("colErrors") },
+      { key: "duration", label: t("colDuration") },
+      { key: "total_tokens", label: t("colTotalTokens") },
+      { key: "total_cost", label: t("colEstCost") },
+      { key: "tags", label: t("colTags") },
+    ],
+    [t],
+  );
+
+  const threadsColumnManagerItems = useMemo(
+    () => [
+      { key: "thread_id", mandatory: true as const, label: t("colTableSessionId") },
+      { key: "status", mandatory: true as const, label: t("colStatus") },
+      { key: "last_message_preview", mandatory: true as const, label: t("threadsColLatestMessage") },
+      { key: "agent_name", label: t("threadsColAgent") },
+      { key: "channel_name", label: t("threadsColChannel") },
+      { key: "trace_count", label: t("threadsColMessageCount") },
+      { key: "total_tokens", label: t("colTotalTokens") },
+      { key: "total_cost", label: t("colEstCost") },
+    ],
+    [t],
+  );
+
+  const spansColumnManagerItems = useMemo(
+    () => [
+      { key: "span_id", mandatory: true as const, label: t("spansColSpanId") },
+      { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
+      { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
+      { key: "agent_name", label: t("spansColAgent") },
+      { key: "channel_name", label: t("spansColChannel") },
+      { key: "name", label: t("spansColName") },
+      { key: "span_type", label: t("spansColType") },
+      { key: "output_preview", label: t("spansColOutput") },
+      { key: "start_time_ms", label: t("spansColExecStart") },
+      { key: "end_time_ms", label: t("spansColExecEnd") },
+      { key: "duration_ms", label: t("spansColDuration") },
+      { key: "total_tokens", label: t("spansColTokens") },
+    ],
+    [t],
+  );
+
+  const columnManagerSlot = useMemo(() => {
+    if (listKind === "traces") {
+      return (
+        <ObserveTableColumnManager
+          items={tracesColumnManagerItems}
+          hiddenOptional={tracesColumns.hiddenOptional}
+          onToggleOptional={tracesColumns.toggleOptional}
+          onReset={tracesColumns.resetOptional}
+        />
+      );
+    }
+    if (listKind === "spans") {
+      return (
+        <ObserveTableColumnManager
+          items={spansColumnManagerItems}
+          hiddenOptional={spansColumns.hiddenOptional}
+          onToggleOptional={spansColumns.toggleOptional}
+          onReset={spansColumns.resetOptional}
+        />
+      );
+    }
+    return (
+      <ObserveTableColumnManager
+        items={threadsColumnManagerItems}
+        hiddenOptional={threadsColumns.hiddenOptional}
+        onToggleOptional={threadsColumns.toggleOptional}
+        onReset={threadsColumns.resetOptional}
+      />
+    );
+  }, [
+    listKind,
+    spansColumnManagerItems,
+    spansColumns.hiddenOptional,
+    spansColumns.resetOptional,
+    spansColumns.toggleOptional,
+    threadsColumnManagerItems,
+    threadsColumns.hiddenOptional,
+    threadsColumns.resetOptional,
+    threadsColumns.toggleOptional,
+    tracesColumnManagerItems,
+    tracesColumns.hiddenOptional,
+    tracesColumns.resetOptional,
+    tracesColumns.toggleOptional,
+  ]);
 
   const tracesQ = useQuery({
     queryKey: traceQueryKey,
     queryFn: () =>
       loadTraceRecords(baseUrl, apiKey, {
-        limit: pageSize,
-        offset: pageIndex * pageSize,
-        order: listOrder,
-        sort: sortKey === "tokens" ? "tokens" : undefined,
-        search: searchApplied.length > 0 ? searchApplied : undefined,
-        sinceMs,
-        untilMs,
-        channel: filterChannel.trim() || undefined,
-        agent: filterAgent.trim() || undefined,
-        status: filterStatus || undefined,
+        limit: tracesUi.pageSize,
+        offset: tracesUi.pageIndex * tracesUi.pageSize,
+        order: tracesUi.listOrder,
+        sort: tracesUi.sortKey === "tokens" ? "tokens" : undefined,
+        search: tracesUi.searchApplied.length > 0 ? tracesUi.searchApplied : undefined,
+        sinceMs: tracesSinceUntil.sinceMs,
+        untilMs: tracesSinceUntil.untilMs,
+        channel: tracesUi.filterChannel.trim() || undefined,
+        agent: tracesUi.filterAgent.trim() || undefined,
+        status: tracesUi.filterStatus || undefined,
       }),
     enabled: listEnabled && listKind === "traces",
     refetchInterval,
@@ -372,15 +582,15 @@ export default function TracesPage() {
     queryKey: threadQueryKey,
     queryFn: () =>
       loadThreadRecords(baseUrl, apiKey, {
-        limit: pageSize,
-        offset: pageIndex * pageSize,
-        order: listOrder,
-        sort: sortKey === "tokens" ? "tokens" : undefined,
-        search: searchApplied.length > 0 ? searchApplied : undefined,
-        sinceMs,
-        untilMs,
-        channel: filterChannel.trim() || undefined,
-        agent: filterAgent.trim() || undefined,
+        limit: threadsUi.pageSize,
+        offset: threadsUi.pageIndex * threadsUi.pageSize,
+        order: threadsUi.listOrder,
+        sort: threadsUi.sortKey === "tokens" ? "tokens" : undefined,
+        search: threadsUi.searchApplied.length > 0 ? threadsUi.searchApplied : undefined,
+        sinceMs: threadsSinceUntil.sinceMs,
+        untilMs: threadsSinceUntil.untilMs,
+        channel: threadsUi.filterChannel.trim() || undefined,
+        agent: threadsUi.filterAgent.trim() || undefined,
       }),
     enabled: listEnabled && listKind === "threads",
     refetchInterval,
@@ -391,16 +601,16 @@ export default function TracesPage() {
     queryKey: spanQueryKey,
     queryFn: () =>
       loadSpanRecords(baseUrl, apiKey, {
-        limit: pageSize,
-        offset: pageIndex * pageSize,
-        order: listOrder,
-        sort: sortKey === "tokens" ? "tokens" : undefined,
-        search: searchApplied.length > 0 ? searchApplied : undefined,
-        sinceMs,
-        untilMs,
-        channel: filterChannel.trim() || undefined,
-        agent: filterAgent.trim() || undefined,
-        status: filterStatus || undefined,
+        limit: spansUi.pageSize,
+        offset: spansUi.pageIndex * spansUi.pageSize,
+        order: spansUi.listOrder,
+        sort: spansUi.sortKey === "tokens" ? "tokens" : undefined,
+        search: spansUi.searchApplied.length > 0 ? spansUi.searchApplied : undefined,
+        sinceMs: spansSinceUntil.sinceMs,
+        untilMs: spansSinceUntil.untilMs,
+        channel: spansUi.filterChannel.trim() || undefined,
+        agent: spansUi.filterAgent.trim() || undefined,
+        status: spansUi.filterStatus || undefined,
       }),
     enabled: listEnabled && listKind === "spans",
     refetchInterval,
@@ -592,6 +802,26 @@ export default function TracesPage() {
   const spanRows = useMemo(() => spansQ.data?.items ?? [], [spansQ.data?.items]);
   const total = q.data?.total ?? 0;
 
+  const openTraceInspectOverlay = useCallback(
+    async (traceId: string) => {
+      const normalized = traceId.trim();
+      if (!normalized) {
+        return;
+      }
+      setInspectSpanRow(null);
+      const hit = traceRows.find((row) => row.trace_id === normalized);
+      if (hit) {
+        setInspectTraceRow(hit);
+        return;
+      }
+      const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, normalized);
+      if (resolved) {
+        setInspectTraceRow(resolved);
+      }
+    },
+    [apiKey, baseUrl, traceRows],
+  );
+
   useEffect(() => {
     if (!q.isSuccess || total <= 0) {
       return;
@@ -608,9 +838,8 @@ export default function TracesPage() {
   const missingUrl = mounted && baseUrl.trim().length === 0;
 
   const clearSearch = useCallback(() => {
-    setSearchDraft("");
-    setSearchApplied("");
-  }, []);
+    updateCurrentUi((prev) => ({ ...prev, searchDraft: "", searchApplied: "", pageIndex: 0 }));
+  }, [updateCurrentUi]);
 
   const searchActive = searchApplied.length > 0;
   const observeFacetFilterCount =
@@ -730,6 +959,7 @@ export default function TracesPage() {
           isFetching={q.isFetching || q.isPending}
           searchActive={searchActive}
           onClearSearch={clearSearch}
+          filtersSlot={columnManagerSlot}
         />
       )}
 
@@ -775,6 +1005,8 @@ export default function TracesPage() {
                   onAgentFilterChange={setFilterAgent}
                   statusFilter={filterStatus}
                   onStatusFilterChange={setFilterStatus}
+                  hiddenOptional={tracesColumns.hiddenOptional}
+                  showColumnManager={false}
                   emptyBody={
                     traceRows.length === 0 ? (
                       <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
@@ -795,6 +1027,8 @@ export default function TracesPage() {
                   agentFilter={filterAgent}
                   agentOptions={agentOptions}
                   onAgentFilterChange={setFilterAgent}
+                  hiddenOptional={threadsColumns.hiddenOptional}
+                  showColumnManager={false}
                   emptyBody={
                     threadRows.length === 0 ? (
                       <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
@@ -817,6 +1051,8 @@ export default function TracesPage() {
                   onAgentFilterChange={setFilterAgent}
                   statusFilter={filterStatus}
                   onStatusFilterChange={setFilterStatus}
+                  hiddenOptional={spansColumns.hiddenOptional}
+                  showColumnManager={false}
                   emptyBody={
                     spanRows.length === 0 ? (
                       <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
@@ -856,7 +1092,7 @@ export default function TracesPage() {
                 onChange={(page, ps) => {
                   setPageIndex(page - 1);
                   if (ps !== pageSize) {
-                    setPageSize(ps);
+                    setCurrentPageSize(ps);
                   }
                 }}
               />
@@ -876,6 +1112,9 @@ export default function TracesPage() {
         row={threadDrawerRow}
         baseUrl={baseUrl}
         apiKey={apiKey}
+        onOpenTrace={(traceId) => {
+          void openTraceInspectOverlay(traceId);
+        }}
       />
 
       <TraceRecordInspectDialog
@@ -883,6 +1122,12 @@ export default function TracesPage() {
         onOpenChange={(next) => {
           if (!next) {
             setInspectTraceRow(null);
+            if (threadDrawerRow) {
+              const q = buildObserveQueryForPick(searchParams, { kind: "thread", id: threadDrawerRow.thread_id });
+              delete q.kind;
+              router.replace({ pathname, query: q });
+              return;
+            }
             clearObserveInspectInUrl();
           }
         }}

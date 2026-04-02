@@ -1,8 +1,9 @@
 "use client";
 
+import { Message } from "@arco-design/web-react";
 import { IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ThreadLlmUsageAggregate } from "@/lib/trace-payload-usage";
 import type { ThreadRecordRow } from "@/lib/thread-records";
 import { cn } from "@/lib/utils";
@@ -11,55 +12,38 @@ function CopyIconButton({
   text,
   ariaLabel,
   successLabel,
+  tooltipLabel,
 }: {
   text: string;
   ariaLabel: string;
   successLabel: string;
+  tooltipLabel: string;
 }) {
-  const [showOk, setShowOk] = useState(false);
-  const hideTimer = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (hideTimer.current != null) {
-        window.clearTimeout(hideTimer.current);
-      }
-    };
-  }, []);
-
   const onClick = async () => {
     try {
       await navigator.clipboard.writeText(text);
-      if (hideTimer.current != null) {
-        window.clearTimeout(hideTimer.current);
-      }
-      setShowOk(true);
-      hideTimer.current = window.setTimeout(() => setShowOk(false), 2000);
+      Message.success(successLabel);
     } catch {
       /* ignore */
     }
   };
 
   return (
-    <span className="inline-flex shrink-0 items-center gap-1.5">
-      <button
-        type="button"
-        onClick={() => void onClick()}
-        className="inline-flex rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-        aria-label={ariaLabel}
-      >
-        <IconCopy className="size-3.5" />
-      </button>
-      {showOk ? (
-        <span
-          className="whitespace-nowrap text-[11px] font-medium text-emerald-700 dark:text-emerald-400"
-          role="status"
-          aria-live="polite"
-        >
-          {successLabel}
-        </span>
-      ) : null}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            onClick={() => void onClick()}
+            className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+            aria-label={ariaLabel}
+          >
+            <IconCopy className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipContent>{tooltipLabel}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -97,9 +81,6 @@ type Props = {
   row: ThreadRecordRow | null;
   threadKey: string;
   threadShort: string;
-  metaStart: string;
-  metaDuration: string;
-  metaMsgCount: number;
   /** 会话列表接口合计，在无 `llm_output` 分项时用于「总 token」兜底 */
   listTotalTokens: number;
   threadUsage: ThreadLlmUsageAggregate;
@@ -114,9 +95,6 @@ export function ThreadConversationInspectHeader({
   row,
   threadKey,
   threadShort,
-  metaStart,
-  metaDuration,
-  metaMsgCount,
   listTotalTokens,
   threadUsage,
   variant = "default",
@@ -179,33 +157,9 @@ export function ThreadConversationInspectHeader({
             text={threadKey}
             ariaLabel={t("threadDrawerCopyThreadId")}
             successLabel={t("threadDrawerCopyThreadIdSuccess")}
+            tooltipLabel={t("copy")}
           />
         ) : null}
-      </div>
-    </div>
-  );
-
-  const durationCell = (
-    <div className="min-w-0">
-      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("inspectDetailDuration")}</div>
-      <div className="mt-1 truncate text-sm font-normal text-neutral-900 dark:text-neutral-100">{metaDuration}</div>
-    </div>
-  );
-
-  const firstSeenCell = (
-    <div className="min-w-0">
-      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaFirstSeenLabel")}</div>
-      <div className="mt-1 truncate text-sm font-normal text-neutral-900 dark:text-neutral-100" title={metaStart !== "—" ? metaStart : undefined}>
-        {metaStart}
-      </div>
-    </div>
-  );
-
-  const turnsCell = (
-    <div className="min-w-0">
-      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaTurnsLabel")}</div>
-      <div className="mt-1 tabular-nums text-sm font-normal text-neutral-900 dark:text-neutral-100">
-        {metaMsgCount > 0 ? String(metaMsgCount) : "—"}
       </div>
     </div>
   );
@@ -248,9 +202,6 @@ export function ThreadConversationInspectHeader({
             {sessionCell}
             {agentCell}
             {channelCell}
-            {durationCell}
-            {firstSeenCell}
-            {turnsCell}
             {statusCell}
           </>
         ) : (
@@ -258,9 +209,6 @@ export function ThreadConversationInspectHeader({
             {sessionCell}
             {agentCell}
             {channelCell}
-            {durationCell}
-            {firstSeenCell}
-            {turnsCell}
             <div className="min-w-0 md:col-span-3">{statusCell}</div>
           </>
         )}
@@ -279,11 +227,7 @@ export function ThreadConversationInspectHeader({
           )}
         >
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectBillingSectionTitle")}</span>
-            <span className="text-neutral-300 dark:text-neutral-600" aria-hidden>
-              |
-            </span>
-            <span className="text-neutral-600 dark:text-neutral-400">{t("inspectTokenUsageSubtitle")}</span>
+            <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
             <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
           </div>
         </div>

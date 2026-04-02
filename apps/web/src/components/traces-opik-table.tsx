@@ -1,14 +1,23 @@
 "use client";
 
 import "@/lib/arco-react19-setup";
-import type { TableColumnProps } from "@arco-design/web-react";
+import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
 import { IconCopy } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
-import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
+import {
+  applyObserveTableSortChange,
+  observeColumnSortOrder,
+  sortObserveRows,
+} from "@/lib/observe-table-arco-sort";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
+import { ObserveIoPreviewPopoverCell } from "@/components/observe-io-preview-popover-cell";
+import {
+  ObserveTableColumnManager,
+  useObserveTableColumnVisibility,
+} from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { Button } from "@/components/ui/button";
@@ -20,6 +29,13 @@ import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
 import {
+  displayOpenclawFast,
+  displayOpenclawKind,
+  displayOpenclawReasoning,
+  displayOpenclawThinking,
+  displayOpenclawVerbose,
+} from "@/lib/openclaw-routing-display";
+import {
   formatDurationMs,
   statusBandLabel,
   statusBandPillClass,
@@ -27,37 +43,43 @@ import {
   traceRecordAgentName,
   traceRecordChannel,
   traceRecordDurationMs,
+  traceRecordOpenclawRouting,
   type TraceRecordRow,
 } from "@/lib/trace-records";
 import { formatShortId } from "@/lib/utils";
 
-function clipOneLine(s: string | null | undefined, max: number): string {
-  const raw = (s ?? "").trim().replace(/\s+/g, " ");
-  if (!raw) {
-    return "";
-  }
-  return raw.length <= max ? raw : `${raw.slice(0, max - 1)}…`;
-}
+export const OBSERVE_TRACES_TABLE_ID = "observe-traces";
 
-function rowInputSnippet(row: TraceRecordRow, max: number): string {
+const TRACES_COLUMN_MANDATORY = new Set(["trace_id", "status", "input"]);
+
+export const TRACES_OPTIONAL_KEYS: readonly string[] = [
+  "channel",
+  "agent",
+  "openclaw_routing_kind",
+  "openclaw_routing_thinking",
+  "openclaw_routing_fast",
+  "openclaw_routing_verbose",
+  "openclaw_routing_reasoning",
+  "start_time",
+  "output",
+  "errors",
+  "duration",
+  "total_tokens",
+  "total_cost",
+  "tags",
+];
+
+function rowFullInputText(row: TraceRecordRow): string {
   const raw = row.last_message_preview;
-  if (typeof raw !== "string" || raw.trim().length === 0) {
+  if (typeof raw !== "string" || !raw.trim()) {
     return "";
   }
-  return clipOneLine(extractInboundDisplayPreview(raw), max);
+  return extractInboundDisplayPreview(raw).trim();
 }
 
-function rowOutputSnippet(row: TraceRecordRow, max: number): string {
-  return clipOneLine(row.output_preview, max);
-}
-
-function median(nums: number[]): number | null {
-  const a = nums.filter((n) => Number.isFinite(n) && n > 0).sort((x, y) => x - y);
-  if (a.length === 0) {
-    return null;
-  }
-  const m = Math.floor(a.length / 2);
-  return a.length % 2 ? a[m]! : (a[m - 1]! + a[m]!) / 2;
+function rowFullOutputText(row: TraceRecordRow): string {
+  const raw = row.output_preview;
+  return typeof raw === "string" ? raw.trim() : "";
 }
 
 async function copyText(text: string, onSuccess: () => void): Promise<void> {
@@ -95,7 +117,7 @@ function TraceIdCell({ traceId }: { traceId: string }) {
                 variant="ghost"
                 size="icon-sm"
                 data-row-click-stop
-                className="shrink-0 p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                className="shrink-0 p-1 text-neutral-800 hover:bg-neutral-100 hover:text-neutral-800"
                 onClick={(e) => {
                   e.stopPropagation();
                   triggerProps.onClick?.(e);
@@ -110,7 +132,7 @@ function TraceIdCell({ traceId }: { traceId: string }) {
                 aria-label={t("copyIdAria", { kind: t("idKinds.trace_id") })}
                 title={t("copyIdAria", { kind: t("idKinds.trace_id") })}
               >
-                <IconCopy className="size-3.5" />
+                <IconCopy className="size-3.5 text-neutral-800" />
               </Button>
             )}
           />
@@ -122,7 +144,68 @@ function TraceIdCell({ traceId }: { traceId: string }) {
 }
 
 const headerCellClass =
-  "text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:text-neutral-600";
+  "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
+
+/** OpenClaw 路由列：中文下不用全大写，列头用 title 展示说明 */
+const openclawRoutingHeaderClass =
+  "whitespace-nowrap text-xs font-semibold text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
+
+function OpenclawRoutingTextCell({ value }: { value: string | undefined }) {
+  if (value === undefined || value === "") {
+    return <span className="text-xs text-neutral-400">—</span>;
+  }
+  return (
+    <span className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 dark:text-neutral-100" title={value}>
+      {value}
+    </span>
+  );
+}
+
+function OpenclawRoutingMappedCell({
+  raw,
+  role,
+  t,
+}: {
+  raw: string | undefined;
+  role: "thinking" | "fast" | "verbose" | "reasoning";
+  t: (key: string) => string;
+}) {
+  const d =
+    role === "thinking"
+      ? displayOpenclawThinking(raw, t)
+      : role === "fast"
+        ? displayOpenclawFast(raw, t)
+        : role === "verbose"
+          ? displayOpenclawVerbose(raw, t)
+          : displayOpenclawReasoning(raw, t);
+  if (d.text === "\u2014") {
+    return <span className="text-xs text-neutral-400">—</span>;
+  }
+  return (
+    <span
+      className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 dark:text-neutral-100"
+      title={d.title ?? d.text}
+    >
+      {d.text}
+    </span>
+  );
+}
+
+function OpenclawRoutingKindCell({ row, t }: { row: TraceRecordRow; t: (key: string) => string }) {
+  const raw = traceRecordOpenclawRouting(row)?.kind;
+  const d = displayOpenclawKind(raw, t);
+  if (d.text === "\u2014") {
+    return <span className="text-xs text-neutral-400">—</span>;
+  }
+  return (
+    <span
+      className="inline-flex max-w-full truncate rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+      title={d.title ?? d.text}
+    >
+      {d.text}
+    </span>
+  );
+}
 
 export function TracesOpikTable({
   rows,
@@ -139,6 +222,8 @@ export function TracesOpikTable({
   statusFilter = "",
   onStatusFilterChange,
   emptyBody,
+  hiddenOptional,
+  showColumnManager = true,
 }: {
   rows: TraceRecordRow[];
   sortKey: ObserveListSortParam;
@@ -155,47 +240,64 @@ export function TracesOpikTable({
   onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
   /** 无数据时表体区域内展示（表头仍渲染） */
   emptyBody?: ReactNode;
+  hiddenOptional?: Set<string>;
+  showColumnManager?: boolean;
 }) {
   const t = useTranslations("Traces");
 
-  const metrics = useMemo(() => {
-    const inputFilled = rows.filter((r) => rowInputSnippet(r, 4000).length > 0).length;
-    const outputFilled = rows.filter((r) => rowOutputSnippet(r, 4000).length > 0).length;
-    const errCount = rows.filter((r) => String(r.status).toLowerCase() === "error").length;
-    const durs = rows.map((r) => traceRecordDurationMs(r)).filter((x): x is number => x != null);
-    const p50 = median(durs);
-    const tokenVals = rows.map((r) => (typeof r.total_tokens === "number" ? r.total_tokens : 0));
-    const tokAvg =
-      tokenVals.length > 0 ? tokenVals.reduce((a, b) => a + b, 0) / tokenVals.length : null;
-    const costs = rows
-      .map((r) => r.total_cost)
-      .filter((c): c is number => typeof c === "number" && Number.isFinite(c));
-    const costAvg = costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : null;
-    const tagCounts = rows.map((r) => (Array.isArray(r.tags) ? r.tags.length : 0));
-    const tagAvg = tagCounts.length > 0 ? tagCounts.reduce((a, b) => a + b, 0) / tagCounts.length : null;
-    return {
-      inputFilled,
-      outputFilled,
-      errCount,
-      p50,
-      tokAvg,
-      costAvg,
-      tagAvg,
-    };
-  }, [rows]);
+  const {
+    hiddenOptional: localHiddenOptional,
+    toggleOptional,
+    resetOptional,
+  } = useObserveTableColumnVisibility(
+    OBSERVE_TRACES_TABLE_ID,
+    TRACES_OPTIONAL_KEYS,
+  );
+  const effectiveHiddenOptional = hiddenOptional ?? localHiddenOptional;
 
-  const thSub = useCallback(
-    (kind: "count" | "p50" | "avg", value: string) => (
-      <span className="mt-0.5 block text-[11px] font-normal normal-case tracking-normal text-neutral-500">
-        {kind === "count" && t("tableMetricCount", { n: value })}
-        {kind === "p50" && t("tableMetricP50", { v: value })}
-        {kind === "avg" && t("tableMetricAvg", { v: value })}
-      </span>
-    ),
+  const columnManagerItems = useMemo(
+    () => [
+      { key: "trace_id", mandatory: true as const, label: t("colTableMessageId") },
+      { key: "status", mandatory: true as const, label: t("colStatus") },
+      { key: "input", mandatory: true as const, label: t("colInput") },
+      { key: "channel", label: t("filterChannelLabel") },
+      { key: "agent", label: t("filterAgentLabel") },
+      { key: "openclaw_routing_kind", label: t("openclawRoutingFieldKind") },
+      { key: "openclaw_routing_thinking", label: t("openclawRoutingFieldThinking") },
+      { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
+      { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
+      { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
+      { key: "start_time", label: t("colStartTime") },
+      { key: "output", label: t("colOutput") },
+      { key: "errors", label: t("colErrors") },
+      { key: "duration", label: t("colDuration") },
+      { key: "total_tokens", label: t("colTotalTokens") },
+      { key: "total_cost", label: t("colEstCost") },
+      { key: "tags", label: t("colTags") },
+    ],
     [t],
   );
 
-  const columns: TableColumnProps<TraceRecordRow>[] = useMemo(
+  const onTableChange = useCallback<NonNullable<TableProps<TraceRecordRow>["onChange"]>>(
+    (_pagination, sorter, _filters, extra) => {
+      applyObserveTableSortChange(sorter, extra, onColumnSort);
+    },
+    [onColumnSort],
+  );
+
+  const sortedRows = useMemo(
+    () =>
+      sortObserveRows(
+        rows,
+        sortKey,
+        listOrder,
+        (row) => row.start_time,
+        (row) => row.total_tokens,
+      ),
+    [rows, sortKey, listOrder],
+  );
+
+  const allColumns: TableColumnProps<TraceRecordRow>[] = useMemo(
     () => [
       {
         title: <span className={headerCellClass}>{t("colTableMessageId")}</span>,
@@ -265,6 +367,73 @@ export function TracesOpikTable({
         },
       },
       {
+        title: <span className={openclawRoutingHeaderClass}>{t("openclawRoutingFieldKind")}</span>,
+        dataIndex: "openclaw_routing_kind",
+        key: "openclaw_routing_kind",
+        width: 88,
+        render: (_, row) => <OpenclawRoutingKindCell row={row} t={t} />,
+      },
+      {
+        title: (
+          <span className={openclawRoutingHeaderClass} title={t("openclawRoutingFieldThinkingHeaderHint")}>
+            {t("openclawRoutingFieldThinking")}
+          </span>
+        ),
+        dataIndex: "openclaw_routing_thinking",
+        key: "openclaw_routing_thinking",
+        width: 100,
+        render: (_, row) => (
+          <OpenclawRoutingMappedCell raw={traceRecordOpenclawRouting(row)?.thinking} role="thinking" t={t} />
+        ),
+      },
+      {
+        title: (
+          <span className={openclawRoutingHeaderClass} title={t("openclawRoutingFieldFastHeaderHint")}>
+            {t("openclawRoutingFieldFast")}
+          </span>
+        ),
+        dataIndex: "openclaw_routing_fast",
+        key: "openclaw_routing_fast",
+        width: 96,
+        render: (_, row) => (
+          <OpenclawRoutingMappedCell
+            raw={
+              traceRecordOpenclawRouting(row)?.fast !== undefined
+                ? String(traceRecordOpenclawRouting(row)!.fast)
+                : undefined
+            }
+            role="fast"
+            t={t}
+          />
+        ),
+      },
+      {
+        title: (
+          <span className={openclawRoutingHeaderClass} title={t("openclawRoutingFieldVerboseHeaderHint")}>
+            {t("openclawRoutingFieldVerbose")}
+          </span>
+        ),
+        dataIndex: "openclaw_routing_verbose",
+        key: "openclaw_routing_verbose",
+        width: 104,
+        render: (_, row) => (
+          <OpenclawRoutingMappedCell raw={traceRecordOpenclawRouting(row)?.verbose} role="verbose" t={t} />
+        ),
+      },
+      {
+        title: (
+          <span className={openclawRoutingHeaderClass} title={t("openclawRoutingFieldReasoningHeaderHint")}>
+            {t("openclawRoutingFieldReasoning")}
+          </span>
+        ),
+        dataIndex: "openclaw_routing_reasoning",
+        key: "openclaw_routing_reasoning",
+        width: 96,
+        render: (_, row) => (
+          <OpenclawRoutingMappedCell raw={traceRecordOpenclawRouting(row)?.reasoning} role="reasoning" t={t} />
+        ),
+      },
+      {
         title: (
           <span className={headerCellClass}>
             {onStatusFilterChange ? (
@@ -286,7 +455,7 @@ export function TracesOpikTable({
             <span
               className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(
                 traceListStatusBandFromApiStatus(row.status),
-              )}`}
+              )} whitespace-nowrap`}
             >
               {statusBandLabel(traceListStatusBandFromApiStatus(row.status), row.status, t)}
             </span>
@@ -295,23 +464,12 @@ export function TracesOpikTable({
           ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span>{t("colStartTime")}</span>
-              <ObserveColumnSortIcons
-                dimension="time"
-                sortKey={sortKey}
-                listOrder={listOrder}
-                onSort={onColumnSort}
-                ascLabel={t("columnSortTimeAsc")}
-                descLabel={t("columnSortTimeDesc")}
-              />
-            </div>
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colStartTime")}</span>,
         dataIndex: "start_time",
         key: "start_time",
+        sorter: (a, b) => (a.start_time ?? 0) - (b.start_time ?? 0),
+        sortOrder: observeColumnSortOrder("start_time", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         width: 160,
         render: (_, row) => (
           <span className="text-xs text-neutral-700">
@@ -320,56 +478,29 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colInput")}
-            {thSub("count", String(metrics.inputFilled))}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colInput")}</span>,
         dataIndex: "input",
         key: "input",
-        width: 220,
-        render: (_, row) => {
-          const inPrev = rowInputSnippet(row, 200);
-          return (
-            <p
-              className="m-0 line-clamp-2 break-words text-xs leading-snug text-neutral-800"
-              title={inPrev}
-            >
-              {inPrev || "—"}
-            </p>
-          );
-        },
+        width: 360,
+        render: (_, row) => (
+          <div className="min-w-0">
+            <ObserveIoPreviewPopoverCell fullText={rowFullInputText(row)} ariaLabel={t("traceListInputFullAria")} />
+          </div>
+        ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colOutput")}
-            {thSub("count", String(metrics.outputFilled))}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colOutput")}</span>,
         dataIndex: "output",
         key: "output",
-        width: 220,
-        render: (_, row) => {
-          const outPrev = rowOutputSnippet(row, 200);
-          return (
-            <p
-              className="m-0 line-clamp-2 break-words text-xs leading-snug text-neutral-800"
-              title={outPrev}
-            >
-              {outPrev || "—"}
-            </p>
-          );
-        },
+        width: 360,
+        render: (_, row) => (
+          <div className="min-w-0">
+            <ObserveIoPreviewPopoverCell fullText={rowFullOutputText(row)} ariaLabel={t("traceListOutputFullAria")} />
+          </div>
+        ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colErrors")}
-            {thSub("count", String(metrics.errCount))}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colErrors")}</span>,
         dataIndex: "errors",
         key: "errors",
         width: 88,
@@ -380,12 +511,7 @@ export function TracesOpikTable({
         },
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colDuration")}
-            {thSub("p50", metrics.p50 != null ? formatDurationMs(metrics.p50) : "—")}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colDuration")}</span>,
         dataIndex: "duration",
         key: "duration",
         width: 112,
@@ -396,31 +522,12 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span>
-                {t("colTotalTokens")}
-                {thSub(
-                  "avg",
-                  metrics.tokAvg != null
-                    ? metrics.tokAvg.toLocaleString(undefined, { maximumFractionDigits: 1 })
-                    : "—",
-                )}
-              </span>
-              <ObserveColumnSortIcons
-                dimension="tokens"
-                sortKey={sortKey}
-                listOrder={listOrder}
-                onSort={onColumnSort}
-                ascLabel={t("columnSortTokensAsc")}
-                descLabel={t("columnSortTokensDesc")}
-              />
-            </div>
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colTotalTokens")}</span>,
         dataIndex: "total_tokens",
         key: "total_tokens",
+        sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
+        sortOrder: observeColumnSortOrder("total_tokens", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         width: 128,
         render: (_, row) => (
           <span className="text-xs tabular-nums text-neutral-800">
@@ -429,12 +536,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colEstCost")}
-            {thSub("avg", metrics.costAvg != null ? metrics.costAvg.toFixed(4) : "—")}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colEstCost")}</span>,
         dataIndex: "total_cost",
         key: "total_cost",
         width: 112,
@@ -445,15 +547,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {t("colTags")}
-            {thSub(
-              "avg",
-              metrics.tagAvg != null ? metrics.tagAvg.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—",
-            )}
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("colTags")}</span>,
         dataIndex: "tags",
         key: "tags",
         width: 160,
@@ -484,7 +578,6 @@ export function TracesOpikTable({
     ],
     [
       t,
-      metrics,
       sortKey,
       listOrder,
       onColumnSort,
@@ -496,20 +589,41 @@ export function TracesOpikTable({
       onAgentFilterChange,
       statusFilter,
       onStatusFilterChange,
-      thSub,
     ],
+  );
+
+  const columns = useMemo(
+    () =>
+      allColumns.filter((c) => {
+        const k = String(c.key);
+        if (TRACES_COLUMN_MANDATORY.has(k)) {
+          return true;
+        }
+        return !effectiveHiddenOptional.has(k);
+      }),
+    [allColumns, effectiveHiddenOptional],
   );
 
   return (
     <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+      {showColumnManager ? (
+        <div className="mb-2 flex justify-end">
+          <ObserveTableColumnManager
+            items={columnManagerItems}
+            hiddenOptional={effectiveHiddenOptional}
+            onToggleOptional={toggleOptional}
+            onReset={resetOptional}
+          />
+        </div>
+      ) : null}
       <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
-        <div className="min-w-[1240px]">
+        <div className="min-w-[2100px]">
           <Table<TraceRecordRow>
             className={OBSERVE_TABLE_CLASSNAME}
             size="small"
             border={false}
             columns={columns}
-            data={rows}
+            data={sortedRows}
             rowKey={(r) => r.trace_id || `${r.thread_key}-${r.start_time}`}
             pagination={false}
             tableLayoutFixed={false}
@@ -517,6 +631,7 @@ export function TracesOpikTable({
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
             }
+            onChange={onTableChange}
             onRow={
               onRowClick
                 ? (record) => ({

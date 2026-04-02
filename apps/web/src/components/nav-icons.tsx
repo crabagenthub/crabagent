@@ -5,6 +5,7 @@ import {
   IconDashboard,
   IconDesktop,
   IconNotification,
+  IconSafe,
   IconSettings,
 } from "@arco-design/web-react/icon";
 import type { SVGProps } from "react";
@@ -19,6 +20,11 @@ export function NavIconOverview(props: IconProps) {
 export function NavIconTraces(props: IconProps) {
   const { title, ...rest } = props;
   return <IconBranch {...rest} aria-label={title} />;
+}
+
+export function NavIconResourceAudit(props: IconProps) {
+  const { title, ...rest } = props;
+  return <IconSafe {...rest} aria-label={title} />;
 }
 
 export function NavIconLogs(props: IconProps) {

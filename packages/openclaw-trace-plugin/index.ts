@@ -11,12 +11,18 @@ import {
   extractTraceBridgeKeysFromInboundMetadata,
   mirrorInboundPendingForAgents,
 } from "./inbound-mirror.js";
+import {
+  extractLlmInputRoutingMeta,
+  mergeOpenclawRoutingLayers,
+  pickLlmInputModelParams,
+} from "./llm-input-routing-meta.js";
 import { pickLlmOutputUsage } from "./llm-output-usage.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
 import {
-  resolveOpenClawSessionsBasePath,
+  resolveOpenClawSessionsBasePathForAgent,
   sessionStoreKeysForSessionId,
 } from "./session-store-bridge.js";
+import { extractRoutingFromOpenClawSessionStore } from "./session-store-routing.js";
 import {
   agentScopedTraceKey,
   extractAgentIdFromRoutingSessionKey,
@@ -236,7 +242,7 @@ export default {
       if (getCfg().bridgeOpenClawSessionStore) {
         const sid = ctx.sessionId?.trim();
         if (sid) {
-          const base = resolveOpenClawSessionsBasePath(api);
+          const base = resolveOpenClawSessionsBasePathForAgent(api, ctx.agentId);
           const fromStore = sessionStoreKeysForSessionId(base, sid);
           for (const sk of fromStore) {
             rt.mergePendingContext(sk, payload);
@@ -303,34 +309,13 @@ export default {
 
     const pushIfAny = (b: OpikBatchPayload | null | undefined, source: string) => {
       if (b && batchNonEmpty(b)) {
-        const nearDailyDigest = Date.now() - lastDailyDigestProbeAt <= 120_000;
-        if (nearDailyDigest) {
-          // #region agent log
-          fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D3",location:"packages/openclaw-trace-plugin/index.ts:303",message:"queue_push_near_daily_window",data:{source,traceRows:b.traces?.length??0,spanRows:b.spans?.length??0,threadsRows:b.threads?.length??0,dailyInBatch:batchContainsDailyDigest(b)},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-        }
         if (serviceStartedInThisProcess) {
           getQueue().push(b);
         } else {
           const cfg = getCfg();
           if (cfg.collectorBaseUrl) {
             // hook 与 flush 分进程时，内存队列不可见；当前进程直接上报 collector。
-            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, b)
-              .then((r) => {
-                if (Date.now() - lastDailyDigestProbeAt <= 120_000) {
-                  // #region agent log
-                  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D5",location:"packages/openclaw-trace-plugin/index.ts:324",message:"direct_post_result_near_daily_window",data:{source,ok:r.ok,status:r.status,bodyPreview:r.body.slice(0,180),traceRows:b.traces?.length??0},timestamp:Date.now()})}).catch(()=>{});
-                  // #endregion
-                }
-              })
-              .catch((err) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (Date.now() - lastDailyDigestProbeAt <= 120_000) {
-                  // #region agent log
-                  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D5",location:"packages/openclaw-trace-plugin/index.ts:332",message:"direct_post_error_near_daily_window",data:{source,error:msg},timestamp:Date.now()})}).catch(()=>{});
-                  // #endregion
-                }
-              });
+            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, b).catch(() => {});
           }
         }
         if (batchContainsDailyDigest(b)) {
@@ -497,6 +482,24 @@ export default {
           deferredUserMessageFlushTimers.delete(k);
         }
       }
+      let diskRouting: Record<string, unknown> | undefined;
+      if (cfg.sessionStoreRouting) {
+        const bp = resolveOpenClawSessionsBasePathForAgent(api, ctx.agentId);
+        const cands: string[] = [];
+        const skRaw = ctx.sessionKey?.trim();
+        if (skRaw) {
+          cands.push(skRaw);
+        }
+        const ch = ctx.channelId?.trim();
+        if (ch) {
+          cands.push(ch);
+        }
+        const sid = ctx.sessionId?.trim();
+        if (sid && bp) {
+          cands.push(...sessionStoreKeysForSessionId(bp, sid));
+        }
+        diskRouting = extractRoutingFromOpenClawSessionStore(bp, cands);
+      }
       const prev = getRuntime().onLlmInput(
         sk,
         {
@@ -511,6 +514,14 @@ export default {
         hookCtx(ctx),
         cfg.sampleRateBps,
         pendingAliases,
+        {
+          routingFromEvent: mergeOpenclawRoutingLayers(
+            extractLlmInputRoutingMeta(ctx as unknown),
+            diskRouting,
+            extractLlmInputRoutingMeta(event as unknown),
+          ),
+          modelParams: pickLlmInputModelParams(event as unknown),
+        },
       );
       traceDbg("llm_input", {
         node: "hook_llm_input",

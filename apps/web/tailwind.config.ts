@@ -2,6 +2,7 @@ import typography from "@tailwindcss/typography";
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
@@ -67,8 +68,8 @@ const config: Config = {
           surface: "#ffffff",
           border: "#e5e5e5",
           muted: "#71717a",
-          accent: "#10a37f",
-          "accent-hover": "#0d8f6e",
+          accent: "#722ed1",
+          "accent-hover": "#551db0",
           danger: "#ef4444",
           "danger-soft": "#fef2f2",
         },

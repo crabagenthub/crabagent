@@ -6,7 +6,7 @@ import { IconExclamationCircle, IconSwap, IconClockCircle, IconCommon, IconTag }
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import type { SpanTreeNode } from "@/lib/build-span-tree";
 import {
-  ioPathFromInput,
+  spanResourceUri,
   llmThoughtPreview,
   memoryHitsFromOutput,
   memoryMetaFromMetadata,
@@ -50,7 +50,16 @@ function formatDurSeconds(durMs: number | null): string {
   if (durMs == null || !Number.isFinite(durMs) || durMs < 0) {
     return "—";
   }
-  return `${(durMs / 1000).toFixed(1)}s`;
+  if (durMs < 1000) {
+    return `${Math.round(durMs)} ms`;
+  }
+  if (durMs >= 60_000) {
+    const totalSeconds = durMs / 1000;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds - minutes * 60;
+    return `${minutes} min ${seconds.toFixed(2)} s`;
+  }
+  return `${(durMs / 1000).toFixed(2)} s`;
 }
 
 function spanTagCount(node: SpanTreeNode): number {
@@ -197,7 +206,7 @@ function TreeNodeRow({
     (node.type === "TOOL" || node.type === "IO" || node.type === "MEMORY" || node.type === "PLUGIN");
   const when = formatTraceDateTimeLocal(new Date(node.start_time).toISOString());
   const dur = durationMs(node);
-  const path = ioPathFromInput(node.input);
+  const path = spanResourceUri(node);
   const largeFile = spanLargeFileWarning(node);
   const fatTool = spanToolOversizedResult(node);
   const memMeta = memoryMetaFromMetadata(node.metadata);
@@ -466,7 +475,12 @@ export function TraceSemanticTree({
   );
 
   return (
-    <div className={cn("space-y-3", variant === "default" ? "p-3 sm:p-4" : "px-2 py-2 sm:px-3")}>
+    <div
+      className={cn(
+        "space-y-3",
+        variant === "default" ? "p-3 sm:p-4" : "py-2 pl-2 pr-4 sm:py-2 sm:pl-3 sm:pr-5",
+      )}
+    >
       {treeBody}
     </div>
   );

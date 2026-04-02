@@ -30,7 +30,9 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
 
   return (
     <div className="flex items-center gap-1">
-      <span className="whitespace-nowrap">{label}</span>
+      <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600">
+        {label}
+      </span>
       <Dropdown
         popupVisible={open}
         onVisibleChange={setOpen}
@@ -56,7 +58,7 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
           size="icon-sm"
           className={cn(
             OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            applied ? "text-primary" : "text-neutral-500",
+            applied ? "text-primary hover:text-primary" : "text-neutral-600 hover:text-neutral-700",
           )}
           aria-label={t(ariaLabelKey)}
           aria-expanded={open}

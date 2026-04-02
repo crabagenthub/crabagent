@@ -1,6 +1,6 @@
 "use client";
 
-import { IconCopy, IconLanguage, IconInfoCircle, IconApps, IconClockCircle, IconCommon } from "@arco-design/web-react/icon";
+import { IconCopy, IconInfoCircle, IconApps, IconClockCircle, IconCommon } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { spanTokenTotals } from "@/lib/span-token-display";
@@ -48,6 +48,8 @@ type Props = {
   rowTokens?: number | null;
   rowDurationMs?: number | null;
   variant?: "modal" | "panel";
+  /** Narrow right column: single-column stack, no multi-column grid. */
+  layout?: "default" | "sidebar";
 };
 
 function CopyIconButton({ text, ariaLabel }: { text: string; ariaLabel: string }) {
@@ -71,8 +73,12 @@ export function TraceInspectBasicHeader({
   rowTokens = null,
   rowDurationMs = null,
   variant = "modal",
+  layout = "default",
 }: Props) {
   const t = useTranslations("Traces");
+  const isSidebar = layout === "sidebar";
+
+  const labelSidebar = (s: string) => s.replace(/:\s*$/, "");
 
   const spanId = selectedSpan?.span_id?.trim() || fallbackSpanId.trim();
   const serviceIdDisplay = spanId || "—";
@@ -110,6 +116,126 @@ export function TraceInspectBasicHeader({
     : "—";
 
   const pad = variant === "panel" ? "px-4 py-3" : "px-4 py-3";
+
+  if (isSidebar) {
+    return (
+      <div className="shrink-0 pb-1">
+        <dl className="m-0 space-y-2.5">
+          <div>
+            <dt className="text-[11px] font-medium text-neutral-500">{labelSidebar(t("inspectInferenceServiceLabel"))}</dt>
+            <dd className="mt-0.5 truncate text-xs text-neutral-900 dark:text-neutral-100" title={inferenceName}>
+              {inferenceName}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-medium text-neutral-500">{labelSidebar(t("inspectDetailServiceId"))}</dt>
+            <dd className="mt-0.5 flex min-w-0 items-center gap-1">
+              <span className="truncate font-mono text-xs text-neutral-900 dark:text-neutral-100" title={serviceIdDisplay}>
+                {formatShortId(serviceIdDisplay) || serviceIdDisplay}
+              </span>
+              {spanId ? <CopyIconButton text={spanId} ariaLabel={t("inspectCopyServiceIdAria")} /> : null}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-medium text-neutral-500">{labelSidebar(t("inspectModelEndpointLabel"))}</dt>
+            <dd className="mt-0.5 flex min-w-0 items-center gap-1">
+              <span className="truncate text-xs text-neutral-900 dark:text-neutral-100" title={endpointId}>
+                {endpointId}
+              </span>
+              {endpointId !== "—" ? <CopyIconButton text={endpointId} ariaLabel={t("inspectCopyEndpointAria")} /> : null}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-3 rounded-lg border border-neutral-200/70 bg-white/80 px-2.5 py-2 dark:border-neutral-700/80 dark:bg-neutral-900/40">
+          <div className="text-[11px] font-medium text-neutral-600 dark:text-neutral-400">
+            {t("inspectBillingSectionTitle")}
+            <span className="mx-1 text-neutral-300 dark:text-neutral-600" aria-hidden>
+              ·
+            </span>
+            {t("inspectTokenUsageSubtitle")}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-neutral-900 dark:text-neutral-100">
+            <span>
+              <span className="font-semibold text-amber-700 dark:text-amber-500">{t("inspectTokenInShort")}</span> {inDisplay}
+            </span>
+            <span>
+              <span className="font-semibold text-amber-700 dark:text-amber-500">{t("inspectTokenOutShort")}</span> {outDisplay}
+            </span>
+            {tok != null && tok.cacheRead > 0 ? (
+              <span className="text-[11px] text-neutral-500">cache {tok.cacheRead.toLocaleString()}</span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg bg-neutral-100/80 px-2.5 py-2 text-xs leading-snug text-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-300">
+          <ul className="m-0 list-none space-y-1.5 p-0">
+            <li className="flex gap-1.5">
+              <IconClockCircle className="mt-0.5 size-3 shrink-0 text-neutral-400" aria-hidden />
+              <span>
+                <span className="text-neutral-500 dark:text-neutral-400">{labelSidebar(t("inspectDetailDuration"))}</span>{" "}
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{durationLabel}</span>
+              </span>
+            </li>
+            <li className="flex gap-1.5">
+              <IconCommon className="mt-0.5 size-3 shrink-0 text-neutral-400" aria-hidden />
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                <span className="text-neutral-500 dark:text-neutral-400">{labelSidebar(t("inspectDetailTrace"))}</span>
+                <span className="font-mono text-[11px] text-neutral-900 dark:text-neutral-100" title={traceId || undefined}>
+                  {traceShort}
+                </span>
+                {traceId ? <CopyIconButton text={traceId} ariaLabel={t("inspectCopyTraceIdAria")} /> : null}
+              </span>
+            </li>
+            <li className="flex gap-1.5">
+              <IconApps className="mt-0.5 size-3 shrink-0 text-neutral-400" aria-hidden />
+              <span>
+                <span className="text-neutral-500 dark:text-neutral-400">{labelSidebar(t("inspectDetailSpanKind"))}</span>{" "}
+                <span className="text-neutral-900 dark:text-neutral-100">{typeModuleLine}</span>
+              </span>
+            </li>
+            <li className="flex gap-1.5">
+              <span
+                className={cn(
+                  "mt-0.5 size-3 shrink-0 rounded-full",
+                  selectedSpan == null ? "bg-neutral-300 dark:bg-neutral-600" : statusError ? "bg-red-400" : "bg-emerald-400",
+                )}
+                aria-hidden
+              />
+              <span>
+                <span className="text-neutral-500 dark:text-neutral-400">{labelSidebar(t("inspectDetailRunStatus"))}</span>{" "}
+                <span
+                  className={
+                    selectedSpan == null
+                      ? "text-neutral-900 dark:text-neutral-100"
+                      : statusError
+                        ? "text-red-700 dark:text-red-400"
+                        : "text-emerald-800 dark:text-emerald-400"
+                  }
+                >
+                  {statusLabel}
+                </span>
+              </span>
+            </li>
+          </ul>
+        </div>
+
+        {chipTags.length > 0 ? (
+          <div className="mt-2.5 flex flex-wrap gap-1">
+            {chipTags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex max-w-full truncate rounded-md bg-rose-500/12 px-1.5 py-0.5 text-[10px] font-medium text-rose-900 dark:text-rose-200"
+                title={tag}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("shrink-0 border-b border-border bg-background", pad)}>

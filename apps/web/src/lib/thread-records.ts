@@ -1,6 +1,9 @@
 import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
+import { extractThreadListMessageText } from "@/lib/strip-inbound-meta";
+import { loadTraceEvents } from "@/lib/trace-events";
+import { buildUserTurnList } from "@/lib/user-turn-list";
 
 export type ThreadRecordRow = {
   thread_id: string;
@@ -14,6 +17,7 @@ export type ThreadRecordRow = {
   trace_count: number;
   first_message_preview?: string | null;
   last_message_preview?: string | null;
+  latest_input_preview?: string | null;
   total_tokens: number;
   total_cost?: number | null;
   duration_ms?: number | null;
@@ -86,6 +90,8 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
     trace_count: Number(r.trace_count) || 0,
     first_message_preview: typeof r.first_message_preview === "string" ? r.first_message_preview : null,
     last_message_preview: typeof r.last_message_preview === "string" ? r.last_message_preview : null,
+    latest_input_preview:
+      typeof r.first_message_preview === "string" ? extractThreadListMessageText(r.first_message_preview) : null,
     total_tokens: coerceNonNegNumber(r.total_tokens),
     total_cost: total_cost != null && Number.isFinite(total_cost) ? total_cost : null,
     duration_ms,
@@ -94,7 +100,7 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
 }
 
 export function threadListHref(row: ThreadRecordRow): string {
-  return `/traces/${encodeURIComponent(row.thread_id)}`;
+  return `/traces?thread=${encodeURIComponent(row.thread_id)}`;
 }
 
 /** Stable id for selection / keys across workspace + project. */
@@ -143,6 +149,33 @@ export async function loadThreadRecords(
   }
   const j = (await res.json()) as { items?: Record<string, unknown>[]; total?: number };
   const items = (j.items ?? []).map(normalizeThreadRecord);
+  const needLatestInput = items.filter((item) => item.trace_count > 1 && item.thread_id.trim().length > 0);
+  if (needLatestInput.length > 0) {
+    const enriched = await Promise.allSettled(
+      needLatestInput.map(async (item) => {
+        const ev = await loadTraceEvents(baseUrl, apiKey, item.thread_id);
+        const turns = buildUserTurnList(ev.items ?? []);
+        const latest = turns[turns.length - 1];
+        return {
+          threadId: item.thread_id,
+          latestInputPreview: latest?.fullText?.trim() || latest?.preview?.trim() || item.latest_input_preview || "",
+        };
+      }),
+    );
+    const latestByThread = new Map<string, string>();
+    for (const entry of enriched) {
+      if (entry.status !== "fulfilled") {
+        continue;
+      }
+      const text = entry.value.latestInputPreview.trim();
+      if (text) {
+        latestByThread.set(entry.value.threadId, text);
+      }
+    }
+    for (const item of items) {
+      item.latest_input_preview = latestByThread.get(item.thread_id) ?? item.latest_input_preview ?? null;
+    }
+  }
   const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;
   return { items, total };
 }

@@ -1,8 +1,11 @@
 "use client";
 
-import { IconMessage, IconQuestionCircle } from "@arco-design/web-react/icon";
+import "@/lib/arco-react19-setup";
+import { Tooltip } from "@arco-design/web-react";
+import { IconMessage } from "@arco-design/web-react/icon";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 function ChatBubbleIcon({ className }: { className?: string }) {
@@ -152,22 +155,35 @@ export function TitleHintIcon({
   }
   const label = (ariaLabel ?? tooltipText).trim();
   return (
-    <HintTooltipButton
-      text={tooltipText}
-      ariaLabel={label}
-      tooltipClassName={
-        tooltipClassName ??
-        "max-h-[min(50vh,22rem)] overflow-y-auto rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2.5 text-left text-[11px] leading-snug text-white shadow-xl ring-1 ring-black/30 whitespace-pre-wrap break-words"
+    <Tooltip
+      content={
+        <span
+          className={cn(
+            "block max-h-[min(50vh,22rem)] max-w-md overflow-y-auto whitespace-pre-wrap break-words text-left text-[12px] leading-snug text-white",
+            tooltipClassName,
+          )}
+          style={tooltipStyle}
+        >
+          {tooltipText}
+        </span>
       }
-      tooltipStyle={tooltipStyle}
-      buttonClassName={[
-        "group relative inline-flex shrink-0 items-center justify-center rounded-full p-0.5 outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        className,
-      ].join(" ")}
+      position="top"
+      trigger={["hover", "focus"]}
+      getPopupContainer={() => document.body}
+      color="#1d2129"
     >
-      <TitleQuestionMarkBadge className={iconClassName} />
-    </HintTooltipButton>
+      <button
+        type="button"
+        className={cn(
+          "group relative inline-flex shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0.5 outline-none",
+          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          className,
+        )}
+        aria-label={label}
+      >
+        <TitleQuestionMarkBadge className={iconClassName} />
+      </button>
+    </Tooltip>
   );
 }
 

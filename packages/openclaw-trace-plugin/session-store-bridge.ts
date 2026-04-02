@@ -13,13 +13,18 @@ export type OpenClawSessionEntry = {
 
 export type OpenClawSessionStore = Record<string, OpenClawSessionEntry>;
 
-/** 与 coze `session-recovery` 同序：runtime.resolvePath → OPENCLAW_STATE_DIR → workspace 父目录 → 容器默认。 */
-export function resolveOpenClawSessionsBasePath(api: unknown): string | null {
+/**
+ * 与 coze `session-recovery` 同序：runtime.resolvePath → OPENCLAW_STATE_DIR → workspace 父目录 → 容器默认。
+ * @param agentId 默认 `main`；子 agent（如 `email_automatic`）对应 `agents/<id>/sessions`。
+ */
+export function resolveOpenClawSessionsBasePathForAgent(api: unknown, agentId?: string): string | null {
+  const aid = agentId?.trim() || "main";
+  const rel = `agents/${aid}/sessions`;
   const a = api as Record<string, unknown>;
   const runtime = a.runtime as { resolvePath?: (rel: string) => string } | undefined;
   if (typeof runtime?.resolvePath === "function") {
     try {
-      const p = runtime.resolvePath("agents/main/sessions")?.trim();
+      const p = runtime.resolvePath(rel)?.trim();
       if (p) {
         return p;
       }
@@ -29,14 +34,19 @@ export function resolveOpenClawSessionsBasePath(api: unknown): string | null {
   }
   const stateDir = process.env.OPENCLAW_STATE_DIR?.trim();
   if (stateDir) {
-    return path.join(stateDir, "agents/main/sessions");
+    return path.join(stateDir, rel);
   }
   const cfg = a.config as { agents?: { defaults?: { workspace?: string } } } | undefined;
   const ws = cfg?.agents?.defaults?.workspace?.trim();
   if (ws) {
-    return path.join(path.dirname(ws), "agents/main/sessions");
+    return path.join(path.dirname(ws), rel);
   }
-  return "/workspace/projects/agents/main/sessions";
+  return `/workspace/projects/${rel}`;
+}
+
+/** @deprecated 使用 {@link resolveOpenClawSessionsBasePathForAgent}(api, "main")；保留兼容导出。 */
+export function resolveOpenClawSessionsBasePath(api: unknown): string | null {
+  return resolveOpenClawSessionsBasePathForAgent(api, "main");
 }
 
 type SidIndexCache = {

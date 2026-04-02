@@ -1,14 +1,23 @@
 "use client";
 
 import "@/lib/arco-react19-setup";
-import type { TableColumnProps } from "@arco-design/web-react";
+import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
 import { IconCopy } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { KeyboardEvent, ReactNode } from "react";
-import { useMemo } from "react";
-import { ObserveColumnSortIcons } from "@/components/observe-column-sort-icons";
+import { useCallback, useMemo } from "react";
+import {
+  applyObserveTableSortChange,
+  observeColumnSortOrder,
+  sortObserveRows,
+} from "@/lib/observe-table-arco-sort";
 import { ObserveFacetColumnFilter } from "@/components/observe-facet-column-filter";
+import { ObserveIoPreviewPopoverCell } from "@/components/observe-io-preview-popover-cell";
+import {
+  ObserveTableColumnManager,
+  useObserveTableColumnVisibility,
+} from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { Button } from "@/components/ui/button";
@@ -21,16 +30,24 @@ import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
-function clip(s: string | null | undefined, max: number): string {
-  const raw = (s ?? "").trim().replace(/\s+/g, " ");
-  if (!raw) {
-    return "—";
-  }
-  return raw.length <= max ? raw : `${raw.slice(0, max - 1)}…`;
-}
+export const OBSERVE_SPANS_TABLE_ID = "observe-spans";
+
+const SPANS_COLUMN_MANDATORY = new Set(["span_id", "list_status", "input_preview"]);
+
+export const SPANS_OPTIONAL_KEYS: readonly string[] = [
+  "agent_name",
+  "channel_name",
+  "name",
+  "span_type",
+  "output_preview",
+  "start_time_ms",
+  "end_time_ms",
+  "duration_ms",
+  "total_tokens",
+];
 
 const headerCellClass =
-  "text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:text-neutral-600";
+  "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
 
 function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
   const t = useTranslations("Traces");
@@ -53,7 +70,7 @@ function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-full truncate rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex max-w-full whitespace-nowrap truncate rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
         cls,
       )}
       title={label}
@@ -85,7 +102,7 @@ function SpanIdCell({ spanId }: { spanId: string }) {
               variant="ghost"
               size="icon-sm"
               data-row-click-stop
-              className="shrink-0 p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+              className="shrink-0 p-1 text-neutral-800 hover:bg-neutral-100 hover:text-neutral-800"
               onClick={async (e) => {
                 e.stopPropagation();
                 triggerProps.onClick?.(e);
@@ -102,7 +119,7 @@ function SpanIdCell({ spanId }: { spanId: string }) {
               }}
               aria-label={t("traceInspectCopySpanId")}
             >
-              <IconCopy className="size-3.5" />
+              <IconCopy className="size-3.5 text-neutral-800" />
             </Button>
           )}
         />
@@ -127,6 +144,8 @@ export function SpansDataTable({
   statusFilter = "",
   onStatusFilterChange,
   emptyBody,
+  hiddenOptional,
+  showColumnManager = true,
 }: {
   rows: SpanRecordRow[];
   sortKey: ObserveListSortParam;
@@ -142,10 +161,55 @@ export function SpansDataTable({
   statusFilter?: ObserveListStatusParam | "";
   onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
   emptyBody?: ReactNode;
+  hiddenOptional?: Set<string>;
+  showColumnManager?: boolean;
 }) {
   const t = useTranslations("Traces");
 
-  const columns: TableColumnProps<SpanRecordRow>[] = useMemo(
+  const { hiddenOptional: localHiddenOptional, toggleOptional, resetOptional } = useObserveTableColumnVisibility(
+    OBSERVE_SPANS_TABLE_ID,
+    SPANS_OPTIONAL_KEYS,
+  );
+  const effectiveHiddenOptional = hiddenOptional ?? localHiddenOptional;
+
+  const columnManagerItems = useMemo(
+    () => [
+      { key: "span_id", mandatory: true as const, label: t("spansColSpanId") },
+      { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
+      { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
+      { key: "agent_name", label: t("spansColAgent") },
+      { key: "channel_name", label: t("spansColChannel") },
+      { key: "name", label: t("spansColName") },
+      { key: "span_type", label: t("spansColType") },
+      { key: "output_preview", label: t("spansColOutput") },
+      { key: "start_time_ms", label: t("spansColExecStart") },
+      { key: "end_time_ms", label: t("spansColExecEnd") },
+      { key: "duration_ms", label: t("spansColDuration") },
+      { key: "total_tokens", label: t("spansColTokens") },
+    ],
+    [t],
+  );
+
+  const onTableChange = useCallback<NonNullable<TableProps<SpanRecordRow>["onChange"]>>(
+    (_pagination, sorter, _filters, extra) => {
+      applyObserveTableSortChange(sorter, extra, onColumnSort);
+    },
+    [onColumnSort],
+  );
+
+  const sortedRows = useMemo(
+    () =>
+      sortObserveRows(
+        rows,
+        sortKey,
+        listOrder,
+        (row) => row.start_time_ms,
+        (row) => row.total_tokens,
+      ),
+    [rows, sortKey, listOrder],
+  );
+
+  const allColumns: TableColumnProps<SpanRecordRow>[] = useMemo(
     () => [
       {
         title: <span className={headerCellClass}>{t("spansColSpanId")}</span>,
@@ -245,56 +309,37 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColInput")}</span>,
         dataIndex: "input_preview",
         key: "input_preview",
-        width: 200,
+        width: 320,
         render: (_, r) => (
-          <span className="max-w-[14rem] text-xs text-neutral-600" title={r.input_preview ?? ""}>
-            {clip(r.input_preview, 120)}
-          </span>
+          <div className="min-w-0">
+            <ObserveIoPreviewPopoverCell
+              fullText={r.input_preview ?? ""}
+              ariaLabel={t("spanListInputFullAria")}
+            />
+          </div>
         ),
       },
       {
         title: <span className={headerCellClass}>{t("spansColOutput")}</span>,
         dataIndex: "output_preview",
         key: "output_preview",
-        width: 200,
+        width: 320,
         render: (_, r) => (
-          <span className="max-w-[14rem] text-xs text-neutral-600" title={r.output_preview ?? ""}>
-            {clip(r.output_preview, 120)}
-          </span>
+          <div className="min-w-0">
+            <ObserveIoPreviewPopoverCell
+              fullText={r.output_preview ?? ""}
+              ariaLabel={t("spanListOutputFullAria")}
+            />
+          </div>
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-1">
-              <div className="flex items-center gap-1.5">
-                <span>{t("spansColExecStart")}</span>
-                <ObserveColumnSortIcons
-                  dimension="time"
-                  sortKey={sortKey}
-                  listOrder={listOrder}
-                  onSort={onColumnSort}
-                  ascLabel={t("columnSortTimeAsc")}
-                  descLabel={t("columnSortTimeDesc")}
-                />
-              </div>
-              <span className="hidden h-3 w-px bg-neutral-300 sm:inline sm:self-center" aria-hidden />
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-semibold tracking-wide text-neutral-500">{t("sortByTokens")}</span>
-                <ObserveColumnSortIcons
-                  dimension="tokens"
-                  sortKey={sortKey}
-                  listOrder={listOrder}
-                  onSort={onColumnSort}
-                  ascLabel={t("columnSortTokensAsc")}
-                  descLabel={t("columnSortTokensDesc")}
-                />
-              </div>
-            </div>
-          </span>
-        ),
+        title: <span className={headerCellClass}>{t("spansColExecStart")}</span>,
         dataIndex: "start_time_ms",
         key: "start_time_ms",
+        sorter: (a, b) => (a.start_time_ms ?? 0) - (b.start_time_ms ?? 0),
+        sortOrder: observeColumnSortOrder("start_time_ms", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         width: 200,
         render: (_, r) => (
           <span className="whitespace-nowrap text-xs text-neutral-600">
@@ -328,6 +373,9 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColTokens")}</span>,
         dataIndex: "total_tokens",
         key: "total_tokens",
+        sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
+        sortOrder: observeColumnSortOrder("total_tokens", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         width: 112,
         align: "right",
         render: (_, r) => (
@@ -351,16 +399,38 @@ export function SpansDataTable({
     ],
   );
 
+  const columns = useMemo(
+    () =>
+      allColumns.filter((c) => {
+        const k = String(c.key);
+        if (SPANS_COLUMN_MANDATORY.has(k)) {
+          return true;
+        }
+        return !effectiveHiddenOptional.has(k);
+      }),
+    [allColumns, effectiveHiddenOptional],
+  );
+
   return (
     <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+      {showColumnManager ? (
+        <div className="mb-2 flex justify-end">
+          <ObserveTableColumnManager
+            items={columnManagerItems}
+            hiddenOptional={effectiveHiddenOptional}
+            onToggleOptional={toggleOptional}
+            onReset={resetOptional}
+          />
+        </div>
+      ) : null}
       <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
-        <div className="min-w-[1600px]">
+        <div className="min-w-[1840px]">
           <Table<SpanRecordRow>
             className={OBSERVE_TABLE_CLASSNAME}
             size="small"
             border={false}
             columns={columns}
-            data={rows}
+            data={sortedRows}
             rowKey={(r) => `${r.trace_id}:${r.span_id}`}
             pagination={false}
             tableLayoutFixed={false}
@@ -368,6 +438,7 @@ export function SpansDataTable({
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
             }
+            onChange={onTableChange}
             onRow={
               onRowClick
                 ? (record) => ({
