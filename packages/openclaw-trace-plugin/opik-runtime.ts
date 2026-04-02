@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { extractRoutedAgentIdFromMessageMetadata } from "./inbound-mirror.js";
 import { deletePendingSnapshot, loadAllPendingSnapshots, writePendingSnapshot } from "./pending-disk.js";
+import {
+  normalizeOpikSpanInputForStorage,
+  normalizeOpikTraceInputForStorage,
+  stripLeadingBracketDatePrefixes,
+} from "./strip-leading-bracket-date.js";
 import type { OpikBatchPayload } from "./opik-types.js";
 import {
   extractRoutingFromPendingUserTurn,
@@ -422,6 +427,43 @@ function pendingHasUserInboundMessage(p: Record<string, unknown> | undefined): b
   return typeof c === "string" && c.trim().length > 0;
 }
 
+/** Aligns with collector `thread_turn_types.ThreadRunKind` for `opik_thread_turns`. */
+type ThreadRunKind = "external" | "async_followup" | "subagent" | "system";
+
+function inferThreadRunKind(
+  pending: Record<string, unknown>,
+  promptPreview: string | undefined,
+): ThreadRunKind {
+  const mr = pending.message_received;
+  let metaAsync = false;
+  if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+    const m = mr as Record<string, unknown>;
+    const meta =
+      m.metadata && typeof m.metadata === "object" && !Array.isArray(m.metadata)
+        ? (m.metadata as Record<string, unknown>)
+        : {};
+    metaAsync =
+      meta.async_command === true ||
+      meta.is_async === true ||
+      m.async === true ||
+      m.isAsync === true;
+  }
+  const p = (promptPreview ?? "").trim();
+  const lower = p.toLowerCase();
+  const textLooksAsync =
+    metaAsync ||
+    lower.includes("an async command the user already approved") ||
+    (lower.includes("async command") && lower.includes("completed")) ||
+    (lower.includes("async command") && lower.includes("do not run"));
+  if (textLooksAsync) {
+    return "async_followup";
+  }
+  if (pendingHasUserInboundMessage(pending)) {
+    return "external";
+  }
+  return "system";
+}
+
 /** 飞书 oc_/ou_ 等，用于在 hook 别名与 pending 桶名不一致时仍能合并取出。 */
 function extractThreadCorrelationIds(s: string): Set<string> {
   const out = new Set<string>();
@@ -596,7 +638,7 @@ function syntheticTranscriptPending(text: string, kind: "user" | "fallback"): Re
   return {
     message_received: {
       from: kind === "user" ? "agent_end.transcript" : "agent_end.transcript_fallback",
-      content: text.slice(0, 16_384),
+      content: stripLeadingBracketDatePrefixes(text).slice(0, 16_384),
     },
   };
 }
@@ -708,6 +750,8 @@ export class OpikOpenClawRuntime {
   private readonly active = new Map<string, ActiveTurn>();
   private readonly lateLlmOutputRefBySk = new Map<string, LateLlmRef>();
   private readonly lateLlmOutputGraceMs = 120_000;
+  /** Last `turn_id` for an `external` run per thread — async/subagent follow-ups attach via `parent_turn_id`. */
+  private readonly lastExternalTurnIdByThread = new Map<string, string>();
   /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。 */
   private readonly persistPendingDir?: string;
   private readonly traceBareAgentEnds: boolean;
@@ -729,6 +773,23 @@ export class OpikOpenClawRuntime {
     if (this.persistPendingDir) {
       this.hydratePendingFromDisk();
     }
+  }
+
+  private computeTurnMetadata(
+    threadId: string,
+    pending: Record<string, unknown>,
+    promptPreview: string | undefined,
+  ): { turnId: string; runKind: ThreadRunKind; parentTurnId: string | null } {
+    const runKind = inferThreadRunKind(pending, promptPreview);
+    const turnId = randomUUID();
+    let parentTurnId: string | null = null;
+    // External is the only top-level; all non-external turns attach under the latest external (if any).
+    if (runKind !== "external") {
+      parentTurnId = this.lastExternalTurnIdByThread.get(threadId) ?? null;
+    } else {
+      this.lastExternalTurnIdByThread.set(threadId, turnId);
+    }
+    return { turnId, runKind, parentTurnId };
   }
 
   private hydratePendingFromDisk(): void {
@@ -977,10 +1038,10 @@ export class OpikOpenClawRuntime {
       const utRaw = input.user_turn;
       const userTurn =
         utRaw && typeof utRaw === "object" && !Array.isArray(utRaw) ? (utRaw as Record<string, unknown>) : {};
-      cur.traceRow.input = {
+      cur.traceRow.input = normalizeOpikTraceInputForStorage({
         ...input,
         user_turn: { ...userTurn, ...cur.pendingUserMessage },
-      };
+      }) as Record<string, unknown>;
     }
     const batch: OpikBatchPayload = {
       threads: [cur.threadRow],
@@ -1061,7 +1122,7 @@ export class OpikOpenClawRuntime {
       threadChannelLabelFromPending(ctx, pendingRec, threadId) ?? threadChannelLabel(ctx);
     const promptStr = typeof ev.prompt === "string" ? ev.prompt : undefined;
     /** Leading field so DB previews / SUBSTR on input_json still catch user text if JSON is truncated. */
-    const input = {
+    const input = normalizeOpikTraceInputForStorage({
       list_input_preview: promptStr && promptStr.length > 0 ? promptStr.slice(0, 12_000) : undefined,
       prompt: ev.prompt,
       systemPrompt: ev.systemPrompt,
@@ -1074,7 +1135,7 @@ export class OpikOpenClawRuntime {
         agentId: ctx.agentId,
       },
       ...(openclawRouting ? { openclaw_routing: openclawRouting } : {}),
-    };
+    }) as Record<string, unknown>;
     const runIdTrim = typeof ev.runId === "string" ? ev.runId.trim() : "";
     const threadRow = {
       thread_id: threadId,
@@ -1086,6 +1147,7 @@ export class OpikOpenClawRuntime {
       channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
     };
+    const turnMeta = this.computeTurnMetadata(threadId, pendingRec, promptStr);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
@@ -1098,6 +1160,9 @@ export class OpikOpenClawRuntime {
         usage: {},
         ...(runIdTrim.length > 0 ? { run_id: runIdTrim, runId: runIdTrim } : {}),
         agent_name: agLabel,
+        turn_id: turnMeta.turnId,
+        run_kind: turnMeta.runKind,
+        parent_turn_id: turnMeta.parentTurnId,
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
@@ -1124,7 +1189,7 @@ export class OpikOpenClawRuntime {
       name: ev.model ?? "llm",
       type: "llm",
       start_time_ms: startMs,
-      input: { promptPreview: ev.prompt?.slice(0, 2000) },
+      input: normalizeOpikSpanInputForStorage({ promptPreview: ev.prompt?.slice(0, 2000) }) as Record<string, unknown>,
       model: ev.model,
       provider: ev.provider,
       is_complete: 0,
@@ -1178,6 +1243,7 @@ export class OpikOpenClawRuntime {
       channel_name: threadChannelLabel(ctx),
       metadata: { source: "openclaw-trace-plugin" },
     };
+    const turnMeta = this.computeTurnMetadata(threadId, {}, undefined);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
@@ -1187,6 +1253,9 @@ export class OpikOpenClawRuntime {
       input,
       metadata: {
         usage: {},
+        turn_id: turnMeta.turnId,
+        run_kind: turnMeta.runKind,
+        parent_turn_id: turnMeta.parentTurnId,
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
@@ -1270,7 +1339,7 @@ export class OpikOpenClawRuntime {
     const agLabel = threadAgentLabelFromPending(ctx, pending);
     const chLabel = threadChannelLabelFromPending(ctx, pending, threadId);
     const traceName = agLabel ?? "non_llm_turn";
-    const input = {
+    const input = normalizeOpikTraceInputForStorage({
       list_input_preview: preview,
       prompt: preview,
       user_turn: pending,
@@ -1280,7 +1349,7 @@ export class OpikOpenClawRuntime {
         channelId: ctx.channelId,
         agentId: ctx.agentId,
       },
-    };
+    }) as Record<string, unknown>;
     const threadRow = {
       thread_id: threadId,
       workspace_name: this.workspace,
@@ -1291,6 +1360,7 @@ export class OpikOpenClawRuntime {
       channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
     };
+    const turnMeta = this.computeTurnMetadata(threadId, pending as Record<string, unknown>, preview);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
@@ -1301,6 +1371,9 @@ export class OpikOpenClawRuntime {
       metadata: {
         usage: {},
         agent_name: agLabel,
+        turn_id: turnMeta.turnId,
+        run_kind: turnMeta.runKind,
+        parent_turn_id: turnMeta.parentTurnId,
       openclaw_context: {
         messageProvider: ctx.messageProvider,
         conversationId: ctx.conversationId,

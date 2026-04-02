@@ -106,15 +106,11 @@ export function ThreadDrawerMessageTranscript({
         <div className="mx-auto max-w-[min(100%,48rem)] px-2 py-2 sm:px-3 sm:py-3">
           {visibleTurns.map((turn) => {
             const globalIdx = userTurns.findIndex((u) => u.listKey === turn.listKey);
-            const active = turn.listKey === selectedListKey;
             return (
               <section
                 key={turn.listKey}
                 id={globalIdx >= 0 ? `thread-conv-turn-${globalIdx}` : undefined}
-                className={cn(
-                  "scroll-mt-2 rounded-xl border border-transparent py-2 sm:py-3",
-                  active && "border-primary/35 bg-primary/[0.04] shadow-sm ring-1 ring-primary/20",
-                )}
+                className="scroll-mt-2 rounded-xl py-2 sm:py-3"
               >
                 <TraceConversationView
                   events={events}

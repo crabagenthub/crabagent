@@ -203,7 +203,11 @@ function TreeNodeRow({
   const active = selectedId === node.span_id;
   const decisionBranch =
     parentType === "LLM" &&
-    (node.type === "TOOL" || node.type === "IO" || node.type === "MEMORY" || node.type === "PLUGIN");
+    (node.type === "TOOL" ||
+      node.type === "SKILL" ||
+      node.type === "IO" ||
+      node.type === "MEMORY" ||
+      node.type === "PLUGIN");
   const when = formatTraceDateTimeLocal(new Date(node.start_time).toISOString());
   const dur = durationMs(node);
   const path = spanResourceUri(node);
@@ -254,7 +258,7 @@ function TreeNodeRow({
           }}
           title={decisionBranch ? t("semanticDecisionNodeTitle") : undefined}
           className={cn(
-            "flex w-full flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-left text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "relative flex w-full flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-left text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             active
               ? "border-sky-300 bg-sky-50 shadow-sm ring-2 ring-sky-200/80"
               : decisionBranch
@@ -263,6 +267,11 @@ function TreeNodeRow({
           )}
           style={{ marginLeft: depth * 12 }}
         >
+          {largeFile || fatTool ? (
+            <span className="absolute right-2.5 top-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-900">
+              {largeFile ? t("semanticLargeFileBadge") : t("semanticLargeResultBadge")}
+            </span>
+          ) : null}
           <div className="flex items-start gap-2">
             <span
               className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-pink-100 text-[10px] font-bold text-pink-700"
@@ -325,11 +334,6 @@ function TreeNodeRow({
                     style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
                   />
                 </div>
-              ) : null}
-              {largeFile || fatTool ? (
-                <p className="mt-1 text-[9px] text-amber-800">
-                  {largeFile ? t("semanticLargeFileBadge") : t("semanticLargeResultBadge")}
-                </p>
               ) : null}
             </div>
           </div>

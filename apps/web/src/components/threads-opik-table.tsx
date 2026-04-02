@@ -19,6 +19,7 @@ import {
   useObserveTableColumnVisibility,
 } from "@/components/observe-table-column-manager";
 import { Markdown } from "@/components/prompt-kit/markdown";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -122,38 +123,14 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
       <span className="block min-w-0 truncate whitespace-nowrap text-xs text-neutral-800" title={threadId}>
         {formatShortId(threadId)}
       </span>
-      <Tooltip>
-        <TooltipTrigger
-          render={(triggerProps) => (
-            <Button
-              {...triggerProps}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              data-row-click-stop
-              className="shrink-0 p-1 text-neutral-800 hover:bg-neutral-100 hover:text-neutral-800"
-              onClick={async (e) => {
-                e.stopPropagation();
-                triggerProps.onClick?.(e);
-                try {
-                  await navigator.clipboard.writeText(threadId);
-                  toast.success(t("copied"));
-                } catch {
-                  // ignore clipboard failures
-                }
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                triggerProps.onKeyDown?.(e);
-              }}
-              aria-label={t("threadDrawerCopyThreadId")}
-            >
-              <IconCopy className="size-3.5 text-neutral-800" />
-            </Button>
-          )}
-        />
-        <TooltipContent>{t("copy")}</TooltipContent>
-      </Tooltip>
+      <TraceCopyIconButton
+        text={threadId}
+        ariaLabel={t("threadDrawerCopyThreadId")}
+        tooltipLabel={t("copy")}
+        successLabel={t("copied")}
+        className="p-1 hover:bg-neutral-100"
+        stopPropagation
+      />
     </div>
   );
 }

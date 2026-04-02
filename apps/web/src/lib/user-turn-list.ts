@@ -27,6 +27,10 @@ export type UserTurnListItem = {
   chatTitle: string | null;
   /** Plugin correlation id: same on message_received and later hooks for one user turn. */
   msgId: string | null;
+  /** 与主命令合并展示时的其它 trace_root_id（异步跟进等）。 */
+  mergedTraceRootIds?: string[] | null;
+  /** 合并进来的异步跟进条数（等于 mergedTraceRootIds.length，便于模板使用）。 */
+  mergedAsyncFollowUpCount?: number;
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {
@@ -138,6 +142,213 @@ export function eventMsgId(e: TraceTimelineEvent): string | null {
       ? (e.payload as Record<string, unknown>)
       : {};
   return strOrNull(payload.msg_id);
+}
+
+/** Collector / 插件在 synthetic 事件上标记的异步跟进回合。 */
+export function eventAsyncCommand(e: TraceTimelineEvent): boolean {
+  if ((e as { async_command?: unknown }).async_command === true) {
+    return true;
+  }
+  const payload =
+    e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+      ? (e.payload as Record<string, unknown>)
+      : {};
+  if (payload.async_command === true) {
+    return true;
+  }
+  const md =
+    payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+      ? (payload.metadata as Record<string, unknown>)
+      : {};
+  return md.async_command === true || md.is_async === true;
+}
+
+function chatTitleLooksAsync(title: string | null | undefined): boolean {
+  const t = (title ?? "").toLowerCase();
+  return (
+    t.includes("异步") ||
+    /\basync\b/.test(t) ||
+    t.includes("follow-up") ||
+    t.includes("followup") ||
+    t.includes("async_command")
+  );
+}
+
+function payloadLooksAsyncFollowup(e: TraceTimelineEvent): boolean {
+  const payload =
+    e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+      ? (e.payload as Record<string, unknown>)
+      : {};
+  const md =
+    payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+      ? (payload.metadata as Record<string, unknown>)
+      : {};
+  if (typeof payload.command_kind === "string" && /async/i.test(payload.command_kind)) {
+    return true;
+  }
+  if (typeof md.command_kind === "string" && /async/i.test(md.command_kind)) {
+    return true;
+  }
+  if (typeof payload.trace_kind === "string" && /async/i.test(payload.trace_kind)) {
+    return true;
+  }
+  return false;
+}
+
+function payloadContentLooksAsyncFollowup(e: TraceTimelineEvent): boolean {
+  const payload =
+    e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+      ? (e.payload as Record<string, unknown>)
+      : {};
+
+  // Reuse the same "best-effort text extraction" used by previews, so we
+  // match async templates even when payload shape varies.
+  const full = plainTextFromMessagePayload(payload).toLowerCase();
+  if (!full || full === "—") {
+    return false;
+  }
+
+  // English template (OpenClaw common):
+  // "An async command the user already approved has completed. Do not run the command again."
+  const looksEn =
+    full.includes("async command") &&
+    (full.includes("already approved") || full.includes("approved")) &&
+    (full.includes("has completed") || full.includes("completed")) &&
+    (full.includes("do not run the command again") || full.includes("do not run"));
+
+  // Chinese template (best-effort).
+  const looksZh =
+    (full.includes("异步") || full.includes("async")) &&
+    (full.includes("已批准") || full.includes("批准") || full.includes("already approved")) &&
+    (full.includes("完成") || full.includes("completed")) &&
+    (full.includes("不要") || full.includes("do not run"));
+
+  // Some templates may only include the tail.
+  const looksTail =
+    full.includes("do not run the command again") ||
+    full.includes("do not run the command") ||
+    full.includes("do not run");
+
+  return looksEn || looksZh || (looksTail && full.includes("async command"));
+}
+
+/**
+ * 是否应视为「主消息之后的异步跟进」，合并到上一条左侧会话项（不单独占一行）。
+ * 含 collector 标记、标题/元数据启发式。
+ */
+export function isAsyncFollowupMessage(e: TraceTimelineEvent): boolean {
+  return eventAsyncCommand(e) || chatTitleLooksAsync(e.chat_title) || payloadLooksAsyncFollowup(e) || payloadContentLooksAsyncFollowup(e);
+}
+
+type MessageReceivedPrelim = {
+  e: TraceTimelineEvent;
+  msgId: string | null;
+};
+
+function turnFromMessageReceived(
+  primary: TraceTimelineEvent,
+  sorted: TraceTimelineEvent[],
+  anchorForNextRun: TraceTimelineEvent,
+  mergedTraceRootIds: string[] | null,
+): UserTurnListItem {
+  const payload =
+    primary.payload && typeof primary.payload === "object" && !Array.isArray(primary.payload)
+      ? (primary.payload as Record<string, unknown>)
+      : {};
+  const fullText = displayInboundText(plainTextFromMessagePayload(payload));
+  const eid = typeof primary.event_id === "string" && primary.event_id ? primary.event_id : `row-${primary.id ?? 0}`;
+  return {
+    listKey: eid,
+    numericId: rowNumericId(primary),
+    preview: previewOf(fullText),
+    fullText,
+    whenLabel: whenOf(primary),
+    linkedRunId: findNextLlmRunId(sorted, anchorForNextRun),
+    source: "message_received",
+    traceRootId: strOrNull(primary.trace_root_id),
+    agentId: strOrNull(primary.agent_id),
+    agentName: strOrNull(primary.agent_name),
+    chatTitle: strOrNull(primary.chat_title),
+    msgId: eventMsgId(primary),
+    mergedTraceRootIds: mergedTraceRootIds && mergedTraceRootIds.length > 0 ? mergedTraceRootIds : null,
+  };
+}
+
+function mergeMessageReceivedPrelims(
+  group: MessageReceivedPrelim[],
+  sorted: TraceTimelineEvent[],
+): UserTurnListItem {
+  const g = [...group].sort((a, b) => rowNumericId(a.e) - rowNumericId(b.e));
+  const primaryIdx = g.findIndex((x) => !isAsyncFollowupMessage(x.e));
+  const primary = g[primaryIdx >= 0 ? primaryIdx : 0]!;
+  const primaryRoot = strOrNull(primary.e.trace_root_id);
+  const extraRoots = [...new Set(g.map((x) => strOrNull(x.e.trace_root_id)).filter((r): r is string => Boolean(r)))].filter(
+    (r) => r !== primaryRoot,
+  );
+  const anchorForNextRun = g[g.length - 1]!.e;
+  const merged = turnFromMessageReceived(primary.e, sorted, anchorForNextRun, extraRoots.length > 0 ? extraRoots : null);
+  const n = extraRoots.length;
+  return n > 0 ? { ...merged, mergedAsyncFollowUpCount: n } : merged;
+}
+
+/**
+ * 将多条 message_received 合成一条左侧会话项：
+ * - 同一 msg_id 的多次上报合并为一行；
+ * - 异步跟进（async 标记或标题/元数据启发式）合并到**上一条**主消息（含上一条为带 msg_id 的 trace），不单独成行。
+ */
+function buildMergedMessageReceivedTurnList(
+  received: TraceTimelineEvent[],
+  sorted: TraceTimelineEvent[],
+): UserTurnListItem[] {
+  const prelims: MessageReceivedPrelim[] = received.map((e) => ({
+    e,
+    msgId: eventMsgId(e),
+  }));
+  prelims.sort((a, b) => rowNumericId(a.e) - rowNumericId(b.e));
+
+  const groups: MessageReceivedPrelim[][] = [];
+  const msgIdToGroupIdx = new Map<string, number>();
+  let current: MessageReceivedPrelim[] = [];
+
+  for (const p of prelims) {
+    if (isAsyncFollowupMessage(p.e)) {
+      if (current.length > 0) {
+        current.push(p);
+      } else if (groups.length > 0) {
+        groups[groups.length - 1]!.push(p);
+      } else {
+        groups.push([p]);
+      }
+      continue;
+    }
+
+    if (p.msgId) {
+      if (current.length > 0) {
+        groups.push(current);
+        current = [];
+      }
+      const idx = msgIdToGroupIdx.get(p.msgId);
+      if (idx !== undefined) {
+        groups[idx]!.push(p);
+      } else {
+        msgIdToGroupIdx.set(p.msgId, groups.length);
+        groups.push([p]);
+      }
+      continue;
+    }
+
+    if (current.length > 0) {
+      groups.push(current);
+    }
+    current = [p];
+  }
+  if (current.length > 0) {
+    groups.push(current);
+  }
+
+  return groups
+    .map((g) => mergeMessageReceivedPrelims(g, sorted))
+    .sort((a, b) => a.numericId - b.numericId);
 }
 
 function sessionsMatch(a: TraceTimelineEvent, b: TraceTimelineEvent): boolean {
@@ -349,28 +560,7 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
 
   const received = sorted.filter((e) => e.type === "message_received");
   if (received.length > 0) {
-    return received.map((e) => {
-      const payload =
-        e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
-          ? (e.payload as Record<string, unknown>)
-          : {};
-      const fullText = displayInboundText(plainTextFromMessagePayload(payload));
-      const eid = typeof e.event_id === "string" && e.event_id ? e.event_id : `row-${e.id ?? 0}`;
-      return {
-        listKey: eid,
-        numericId: rowNumericId(e),
-        preview: previewOf(fullText),
-        fullText,
-        whenLabel: whenOf(e),
-        linkedRunId: findNextLlmRunId(sorted, e),
-        source: "message_received" as const,
-        traceRootId: strOrNull(e.trace_root_id),
-        agentId: strOrNull(e.agent_id),
-        agentName: strOrNull(e.agent_name),
-        chatTitle: strOrNull(e.chat_title),
-        msgId: eventMsgId(e),
-      };
-    });
+    return buildMergedMessageReceivedTurnList(received, sorted);
   }
 
   const llmRows = sorted.filter((e) => e.type === "llm_input");
@@ -497,6 +687,16 @@ export function buildDetailEventList(
 
   if (root) {
     slice = filterEventsForTraceRoot(events, root);
+    const merged = turn.mergedTraceRootIds;
+    if (merged && merged.length > 0) {
+      for (const r of merged) {
+        const tr = r.trim();
+        if (!tr || tr === root) {
+          continue;
+        }
+        slice = mergeTraceEventsDedupe(slice, filterEventsForTraceRoot(events, tr));
+      }
+    }
     const msgKey = turn.listKey;
     if (msgKey && !slice.some((e) => e.event_id === msgKey)) {
       const orphan = events.find((e) => e.event_id === msgKey);
@@ -593,6 +793,12 @@ export function filterEventsForRun(
 }
 
 function parseEventTimeMs(e: TraceTimelineEvent): number | null {
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+    return e.ended_at_ms;
+  }
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+    return e.started_at_ms;
+  }
   const s = e.client_ts ?? e.created_at;
   if (typeof s === "string" && s.trim()) {
     const t = Date.parse(s);
@@ -655,7 +861,10 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
   let firstMs: number | null = null;
   for (const e of sorted) {
     if ((e.type ?? "").toLowerCase() === "llm_input") {
-      const t = parseEventTimeMs(e);
+      const t =
+        typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0
+          ? e.started_at_ms
+          : parseEventTimeMs(e);
       if (t != null) {
         firstMs = t;
         break;
@@ -669,7 +878,11 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
   for (let i = sorted.length - 1; i >= 0; i--) {
     const ty = (sorted[i]!.type ?? "").toLowerCase();
     if (ty === "llm_output" || ty === "agent_end") {
-      const t = parseEventTimeMs(sorted[i]!);
+      const row = sorted[i]!;
+      const t =
+        typeof row.ended_at_ms === "number" && Number.isFinite(row.ended_at_ms) && row.ended_at_ms > 0
+          ? row.ended_at_ms
+          : parseEventTimeMs(row);
       if (t != null) {
         endMs = t;
         break;
@@ -687,7 +900,25 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
   }
 
   let durationMs: number | null = null;
-  if (firstMs != null && endMs != null && endMs >= firstMs) {
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const row = sorted[i]!;
+    if (
+      typeof row.duration_ms === "number" &&
+      Number.isFinite(row.duration_ms) &&
+      row.duration_ms >= 0 &&
+      ((row.type ?? "").toLowerCase() === "llm_output" || (row.type ?? "").toLowerCase() === "agent_end")
+    ) {
+      durationMs = row.duration_ms;
+      if (firstMs == null && endMs != null) {
+        firstMs = endMs - row.duration_ms;
+      }
+      if (endMs == null && firstMs != null) {
+        endMs = firstMs + row.duration_ms;
+      }
+      break;
+    }
+  }
+  if (durationMs == null && firstMs != null && endMs != null && endMs >= firstMs) {
     durationMs = endMs - firstMs;
   }
 

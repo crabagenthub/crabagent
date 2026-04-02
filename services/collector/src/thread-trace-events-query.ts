@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
 
 type TraceRow = {
   trace_id: string;
@@ -8,7 +9,99 @@ type TraceRow = {
   output_json: string | null;
   metadata_json: string | null;
   created_at_ms: number | null;
+  updated_at_ms: number | null;
+  ended_at_ms: number | null;
+  duration_ms: number | null;
 };
+
+function strTrim(v: unknown): string | undefined {
+  if (typeof v === "string" && v.trim()) {
+    return v.trim();
+  }
+  return undefined;
+}
+
+/** 与 Web `eventMsgId` 对齐：用于同一条用户消息触发的多条 trace（如主命令 + 异步跟进）在 UI 上合并。 */
+function extractMsgIdFromTrace(metadata: Record<string, unknown>, input: Record<string, unknown>): string | null {
+  const fromMeta =
+    strTrim(metadata.msg_id) ??
+    strTrim(metadata.messageId) ??
+    strTrim(metadata.message_id) ??
+    strTrim(metadata.correlation_id);
+  if (fromMeta) {
+    return fromMeta;
+  }
+  const ut = input.user_turn;
+  if (ut && typeof ut === "object" && !Array.isArray(ut)) {
+    const mr = (ut as Record<string, unknown>).message_received;
+    if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+      const m = mr as Record<string, unknown>;
+      const direct =
+        strTrim(m.msg_id) ??
+        strTrim(m.messageId) ??
+        strTrim(m.message_id) ??
+        strTrim(m.id);
+      if (direct) {
+        return direct;
+      }
+      const mmeta = m.metadata;
+      if (mmeta && typeof mmeta === "object" && !Array.isArray(mmeta)) {
+        const mm = mmeta as Record<string, unknown>;
+        const nested =
+          strTrim(mm.msg_id) ??
+          strTrim(mm.messageId) ??
+          strTrim(mm.message_id) ??
+          strTrim(mm.dingtalk_message_id) ??
+          strTrim(mm.dingTalkMessageId);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** 钉钉 / OpenClaw 异步跟进回合：用于会话左侧合并到主命令展示。 */
+function inferAsyncCommandTrace(
+  metadata: Record<string, unknown>,
+  chatTitle: string | null,
+  input: Record<string, unknown>,
+): boolean {
+  if (metadata.async_command === true || metadata.is_async === true) {
+    return true;
+  }
+  const ck = strTrim(metadata.command_kind)?.toLowerCase();
+  if (ck === "async" || ck === "async_follow_up" || ck === "async_command") {
+    return true;
+  }
+  const title = (chatTitle ?? "").toLowerCase();
+  if (title.includes("异步") || /\basync\b/i.test(title)) {
+    return true;
+  }
+  const ut = input.user_turn;
+  if (ut && typeof ut === "object" && !Array.isArray(ut)) {
+    const mr = (ut as Record<string, unknown>).message_received;
+    if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+      const m = mr as Record<string, unknown>;
+      if (m.async === true || m.isAsync === true) {
+        return true;
+      }
+      const mmeta = m.metadata;
+      if (mmeta && typeof mmeta === "object" && !Array.isArray(mmeta)) {
+        const mm = mmeta as Record<string, unknown>;
+        if (mm.async_command === true || mm.is_async === true) {
+          return true;
+        }
+        const kind = strTrim(mm.command_kind)?.toLowerCase();
+        if (kind === "async" || kind === "async_command" || kind === "async_follow_up") {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 
 function agentNameFromMetadata(metadata: Record<string, unknown>): string | null {
   for (const k of ["agent_name", "agentName", "agent"] as const) {
@@ -53,6 +146,10 @@ function safeObject(raw: string | null | undefined): Record<string, unknown> {
 /** Payload shape expected by web `plainTextFromMessagePayload` / `message_received` handling. */
 function userPayloadFromInput(input: Record<string, unknown>): Record<string, unknown> {
   if (Object.keys(input).length > 0) {
+    const n = normalizeOpikTraceInputForStorage(input);
+    if (n && typeof n === "object" && !Array.isArray(n)) {
+      return n as Record<string, unknown>;
+    }
     return { ...input };
   }
   return { text: "—" };
@@ -206,30 +303,54 @@ function llmOutputPayload(
  */
 export function queryThreadTraceEvents(db: Database.Database, threadKey: string): Record<string, unknown>[] {
   const key = threadKey.trim();
-  // #region agent log
-  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H3",location:"services/collector/src/thread-trace-events-query.ts:191",message:"queryThreadTraceEvents_enter",data:{threadKey:key},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (!key) {
     return [];
   }
 
-  const rows = db
+  // Prefer `opik_thread_turns` because some follow-up traces may not have a consistent `opik_traces.thread_id`.
+  // `opik_thread_turns` gives us an authoritative list of `primary_trace_id` for one logical conversation thread.
+  const rowsFromTurns = db
     .prepare(
-      `SELECT trace_id,
-              thread_id,
-              name,
-              input_json,
-              output_json,
-              metadata_json,
-              created_at_ms
-       FROM opik_traces
-       WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?
-       ORDER BY created_at_ms ASC, trace_id ASC`,
+      `SELECT ot.trace_id,
+              ot.thread_id,
+              ot.name,
+              ot.input_json,
+              ot.output_json,
+              ot.metadata_json,
+              ot.created_at_ms,
+              ot.updated_at_ms,
+              ot.ended_at_ms,
+              ot.duration_ms
+         FROM opik_thread_turns t
+         JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
+        WHERE t.thread_id = ?
+        ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
     )
     .all(key) as TraceRow[];
-  // #region agent log
-  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H3",location:"services/collector/src/thread-trace-events-query.ts:210",message:"queryThreadTraceEvents_rows_loaded",data:{threadKey:key,rowCount:rows.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+
+  let rows: TraceRow[];
+  if (rowsFromTurns.length > 0) {
+    rows = rowsFromTurns;
+  } else {
+    // Back-compat fallback for older DBs that don't have `opik_thread_turns`.
+    rows = db
+      .prepare(
+        `SELECT trace_id,
+                thread_id,
+                name,
+                input_json,
+                output_json,
+                metadata_json,
+              created_at_ms,
+              updated_at_ms,
+              ended_at_ms,
+              duration_ms
+         FROM opik_traces
+         WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?
+         ORDER BY created_at_ms ASC, trace_id ASC`,
+      )
+      .all(key) as TraceRow[];
+  }
 
   const events: Record<string, unknown>[] = [];
   let seq = 0;
@@ -240,27 +361,36 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       continue;
     }
     const created = typeof r.created_at_ms === "number" && Number.isFinite(r.created_at_ms) ? r.created_at_ms : 0;
+    const updated = typeof r.updated_at_ms === "number" && Number.isFinite(r.updated_at_ms) ? r.updated_at_ms : null;
+    const ended = typeof r.ended_at_ms === "number" && Number.isFinite(r.ended_at_ms) ? r.ended_at_ms : null;
+    const duration = typeof r.duration_ms === "number" && Number.isFinite(r.duration_ms) && r.duration_ms >= 0 ? r.duration_ms : null;
+    const computedEnded =
+      ended ?? (created > 0 && duration != null ? created + duration : null) ?? updated ?? (created > 0 ? created : null);
     const baseId = created + seq * 100;
     seq += 1;
 
     const input = safeObject(r.input_json);
     const output = safeObject(r.output_json);
     const metadata = safeObject(r.metadata_json);
-    // #region agent log
-    fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H1",location:"services/collector/src/thread-trace-events-query.ts:229",message:"llm_output_usage_source_shape",data:{traceId,threadKey:key,outputHasUsage:typeof output.usage==="object"&&output.usage!==null,outputHasUsageMetadata:typeof output.usageMetadata==="object"&&output.usageMetadata!==null,metadataHasUsage:typeof metadata.usage==="object"&&metadata.usage!==null,metadataHasTotalTokens:typeof metadata.total_tokens==="number"||typeof metadata.totalTokens==="number"},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     const agentName = agentNameFromMetadata(metadata);
     const chatTitle = typeof r.name === "string" && r.name.trim() ? r.name.trim() : null;
-    const when =
+    const startWhen =
       created > 0
         ? new Date(created).toISOString()
         : new Date().toISOString();
+    const endWhen =
+      computedEnded != null && computedEnded > 0
+        ? new Date(computedEnded).toISOString()
+        : startWhen;
 
     const runId =
       (typeof metadata.run_id === "string" && metadata.run_id.trim()) ||
       (typeof metadata.runId === "string" && metadata.runId.trim()) ||
       traceId;
+
+    const msgId = extractMsgIdFromTrace(metadata, input);
+    const asyncCommand = inferAsyncCommandTrace(metadata, chatTitle, input);
 
     events.push({
       id: baseId,
@@ -270,8 +400,14 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       agent_id: null,
       agent_name: agentName,
       chat_title: chatTitle,
-      client_ts: when,
-      created_at: when,
+      msg_id: msgId,
+      async_command: asyncCommand,
+      client_ts: startWhen,
+      created_at: startWhen,
+      started_at_ms: created || null,
+      ended_at_ms: computedEnded,
+      updated_at_ms: updated,
+      duration_ms: duration,
       payload: userPayloadFromInput(input),
     });
 
@@ -283,8 +419,14 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       run_id: runId,
       agent_name: agentName,
       chat_title: chatTitle,
-      client_ts: when,
-      created_at: when,
+      msg_id: msgId,
+      async_command: asyncCommand,
+      client_ts: startWhen,
+      created_at: startWhen,
+      started_at_ms: created || null,
+      ended_at_ms: computedEnded,
+      updated_at_ms: updated,
+      duration_ms: duration,
       payload: Object.keys(input).length > 0 ? { ...input, run_id: runId } : { prompt: "—", run_id: runId },
     });
 
@@ -296,17 +438,16 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       run_id: runId,
       agent_name: agentName,
       chat_title: chatTitle,
-      client_ts: when,
-      created_at: when,
+      msg_id: msgId,
+      async_command: asyncCommand,
+      client_ts: endWhen,
+      created_at: endWhen,
+      started_at_ms: created || null,
+      ended_at_ms: computedEnded,
+      updated_at_ms: updated,
+      duration_ms: duration,
       payload: llmOutputPayload(output, metadata),
     });
-    // #region agent log
-    {
-      const p = events[events.length - 1]?.payload;
-      const po = p && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
-      fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"H2",location:"services/collector/src/thread-trace-events-query.ts:280",message:"llm_output_payload_ready",data:{traceId,threadKey:key,payloadHasUsage:typeof po.usage==="object"&&po.usage!==null,payloadHasUsageMetadata:typeof po.usageMetadata==="object"&&po.usageMetadata!==null,payloadAssistantTexts:Array.isArray(po.assistantTexts)?po.assistantTexts.length:0},timestamp:Date.now()})}).catch(()=>{});
-    }
-    // #endregion
   }
 
   return events;

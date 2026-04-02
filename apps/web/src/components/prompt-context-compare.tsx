@@ -217,15 +217,26 @@ export function extractPromptStagesFromMetadata(meta: Record<string, unknown>): 
               ? o.body
               : "";
       if (text.trim()) {
+        const stageId = typeof o.id === "string" ? o.id : `stage-${idx}`;
+        const stageLabel = label;
+        const stageLooksLlmInput =
+          stageLabel.toLowerCase().includes("phasellminput") ||
+          stageLabel.toLowerCase().includes("llm_input") ||
+          stageId.toLowerCase().includes("phasellminput") ||
+          stageId.toLowerCase().includes("llm_input") ||
+          stageLabel.toLowerCase().includes("进入模型") ||
+          stageLabel.toLowerCase().includes("llm input");
         stages.push({
-          id: typeof o.id === "string" ? o.id : `stage-${idx}`,
-          label,
+          id: stageId,
+          label: stageLabel,
           text,
         });
         idx++;
       }
     }
-    if (stages.length >= 2) {
+    // Even if we only have a single stage (e.g. only `phaseLlmInput`),
+    // we still want to surface it in the inspector UI.
+    if (stages.length >= 1) {
       return stages;
     }
   }

@@ -1,19 +1,12 @@
 "use client";
 
-import { IconCopy, IconInfoCircle, IconApps, IconClockCircle, IconCommon } from "@arco-design/web-react/icon";
+import { IconInfoCircle, IconApps, IconClockCircle, IconCommon } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { spanTokenTotals } from "@/lib/span-token-display";
 import { formatDurationMs } from "@/lib/trace-records";
 import { cn, formatShortId } from "@/lib/utils";
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    /* ignore */
-  }
-}
 
 function modelEndpointLabel(span: SemanticSpanRow | null): string {
   if (!span) {
@@ -51,19 +44,6 @@ type Props = {
   /** Narrow right column: single-column stack, no multi-column grid. */
   layout?: "default" | "sidebar";
 };
-
-function CopyIconButton({ text, ariaLabel }: { text: string; ariaLabel: string }) {
-  return (
-    <button
-      type="button"
-      onClick={() => void copyText(text)}
-      className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700"
-      aria-label={ariaLabel}
-    >
-      <IconCopy className="size-3.5" />
-    </button>
-  );
-}
 
 export function TraceInspectBasicHeader({
   selectedSpan,
@@ -133,7 +113,14 @@ export function TraceInspectBasicHeader({
               <span className="truncate font-mono text-xs text-neutral-900 dark:text-neutral-100" title={serviceIdDisplay}>
                 {formatShortId(serviceIdDisplay) || serviceIdDisplay}
               </span>
-              {spanId ? <CopyIconButton text={spanId} ariaLabel={t("inspectCopyServiceIdAria")} /> : null}
+              {spanId ? (
+                <TraceCopyIconButton
+                  text={spanId}
+                  ariaLabel={t("inspectCopyServiceIdAria")}
+                  tooltipLabel={t("copy")}
+                  successLabel={t("copied")}
+                />
+              ) : null}
             </dd>
           </div>
           <div>
@@ -142,7 +129,14 @@ export function TraceInspectBasicHeader({
               <span className="truncate text-xs text-neutral-900 dark:text-neutral-100" title={endpointId}>
                 {endpointId}
               </span>
-              {endpointId !== "—" ? <CopyIconButton text={endpointId} ariaLabel={t("inspectCopyEndpointAria")} /> : null}
+              {endpointId !== "—" ? (
+                <TraceCopyIconButton
+                  text={endpointId}
+                  ariaLabel={t("inspectCopyEndpointAria")}
+                  tooltipLabel={t("copy")}
+                  successLabel={t("copied")}
+                />
+              ) : null}
             </dd>
           </div>
         </dl>
@@ -184,7 +178,14 @@ export function TraceInspectBasicHeader({
                 <span className="font-mono text-[11px] text-neutral-900 dark:text-neutral-100" title={traceId || undefined}>
                   {traceShort}
                 </span>
-                {traceId ? <CopyIconButton text={traceId} ariaLabel={t("inspectCopyTraceIdAria")} /> : null}
+                {traceId ? (
+                  <TraceCopyIconButton
+                    text={traceId}
+                    ariaLabel={t("inspectCopyTraceIdAria")}
+                    tooltipLabel={t("copy")}
+                    successLabel={t("copied")}
+                  />
+                ) : null}
               </span>
             </li>
             <li className="flex gap-1.5">
@@ -253,7 +254,12 @@ export function TraceInspectBasicHeader({
               {serviceIdDisplay}
             </span>
             {spanId ? (
-              <CopyIconButton text={spanId} ariaLabel={t("inspectCopyServiceIdAria")} />
+              <TraceCopyIconButton
+                text={spanId}
+                ariaLabel={t("inspectCopyServiceIdAria")}
+                tooltipLabel={t("copy")}
+                successLabel={t("copied")}
+              />
             ) : null}
           </div>
         </div>
@@ -264,7 +270,12 @@ export function TraceInspectBasicHeader({
               {endpointId}
             </span>
             {endpointId !== "—" ? (
-              <CopyIconButton text={endpointId} ariaLabel={t("inspectCopyEndpointAria")} />
+              <TraceCopyIconButton
+                text={endpointId}
+                ariaLabel={t("inspectCopyEndpointAria")}
+                tooltipLabel={t("copy")}
+                successLabel={t("copied")}
+              />
             ) : null}
           </div>
         </div>
@@ -311,7 +322,12 @@ export function TraceInspectBasicHeader({
                 {traceShort}
               </span>
               {traceId ? (
-                <CopyIconButton text={traceId} ariaLabel={t("inspectCopyTraceIdAria")} />
+                <TraceCopyIconButton
+                  text={traceId}
+                  ariaLabel={t("inspectCopyTraceIdAria")}
+                  tooltipLabel={t("copy")}
+                  successLabel={t("copied")}
+                />
               ) : null}
             </span>
           </li>

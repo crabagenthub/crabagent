@@ -4,7 +4,24 @@
  * Mirror of OpenClaw `src/auto-reply/reply/strip-inbound-meta.ts` — keep in sync when sentinels change.
  */
 
-const LEADING_TIMESTAMP_PREFIX_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\] */;
+/**
+ * 文首 `[Thu 2026-04-02 13:24 GMT+8]`、`[Thursday …]`、`[2026-04-02 …]` 等：括号内只要含日历日期即视为通道注入时间戳。
+ * 可连续多段（少数通道会重复前缀）。
+ */
+const LEADING_BRACKET_DATE_PREFIX_RE = /^\[[^\]]*(?:\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2})[^\]]*\]\s*/;
+
+/** 供列表/会话与 Collector 侧兜底对齐（仅剥文首日期括号块）。 */
+export function stripLeadingBracketDatePrefixes(text: string): string {
+  let s = text;
+  for (let i = 0; i < 8; i++) {
+    const next = s.replace(LEADING_BRACKET_DATE_PREFIX_RE, "");
+    if (next === s) {
+      break;
+    }
+    s = next;
+  }
+  return s;
+}
 
 const INBOUND_META_SENTINELS = [
   "Conversation info (untrusted metadata):",
@@ -507,7 +524,7 @@ export function extractInboundDisplayPreview(text: string | undefined | null): s
   if (typeof text !== "string" || !text.trim()) {
     return "";
   }
-  const withoutTs = text.replace(LEADING_TIMESTAMP_PREFIX_RE, "");
+  const withoutTs = stripLeadingBracketDatePrefixes(text);
   const conversationInfo =
     parseConversationInfoObjectFromText(withoutTs) ?? tryParseTruncatedConversationFence(withoutTs);
   let fromJson = summarizeConversationInfoForUi(conversationInfo);
@@ -530,7 +547,8 @@ export function extractInboundDisplayPreview(text: string | undefined | null): s
       fromJson = summarizeConversationInfoForUi(objSalv) ?? fromJson;
     }
   }
-  const strippedBody = stripInboundMetadata(text).trim();
+  // Use `withoutTs` so leading `[Thu ...]` timestamps are removed for UI display.
+  const strippedBody = stripInboundMetadata(withoutTs).trim();
   const fromOpenClawTag = extractUserTextAfterMessageIdTag(strippedBody);
   if (fromOpenClawTag) {
     return fromOpenClawTag;
@@ -795,7 +813,7 @@ export function stripInboundMetadata(text: string): string {
     return text;
   }
 
-  const withoutTimestamp = text.replace(LEADING_TIMESTAMP_PREFIX_RE, "");
+  const withoutTimestamp = stripLeadingBracketDatePrefixes(text);
   if (!SENTINEL_FAST_RE.test(withoutTimestamp)) {
     return withoutTimestamp;
   }

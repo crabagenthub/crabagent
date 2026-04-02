@@ -64,7 +64,7 @@ export function spanLargeFileWarning(row: SemanticSpanRow): boolean {
 }
 
 export function spanToolOversizedResult(row: SemanticSpanRow): boolean {
-  if (row.type !== "TOOL" && row.type !== "IO" && row.type !== "MEMORY") {
+  if (row.type !== "TOOL" && row.type !== "SKILL" && row.type !== "IO" && row.type !== "MEMORY") {
     return false;
   }
   return toolResultChars(row.output) >= LARGE_TOOL_RESULT_CHARS;

@@ -11,6 +11,10 @@ export type ConversationTimelineItem =
       thinking: string | null;
       memoryRefs: MemoryRefSnippet[];
       key: string;
+      /** Whether this assistant reply belongs to an async follow-up trace_root_id. */
+      asyncFollowup?: boolean;
+      /** For async follow-up: the closest llm_input/prompt for the same trace_root_id. */
+      systemInputText?: string | null;
     }
   | { kind: "collapsed"; events: TraceTimelineEvent[]; key: string };
 
@@ -213,6 +217,13 @@ export function buildConversationTimeline(
   const buffer: TraceTimelineEvent[] = [];
   let pendingLlmInput: TraceTimelineEvent | null = null;
   let seq = 0;
+  // For async follow-up, we want to show the corresponding input/prompt of the same trace_root_id.
+  type LlmInputCandidates = {
+    prompt: string | null;
+    listInputPreview: string | null;
+    fallbackText: string | null;
+  };
+  const lastLlmInputByTraceRootId = new Map<string, LlmInputCandidates>();
 
   const flushBuffer = () => {
     if (buffer.length === 0) {
@@ -246,12 +257,38 @@ export function buildConversationTimeline(
           : null;
       pendingLlmInput = null;
       const text = assistantTextFromLlmOutput(e) || "—";
+      const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
+      const asyncFollowup =
+        turn && traceRootId
+          ? Boolean(turn.mergedTraceRootIds?.includes(traceRootId))
+          : false;
+      const sysInput = (() => {
+        if (!traceRootId) return null;
+        const c = lastLlmInputByTraceRootId.get(traceRootId);
+        if (!c) return null;
+        const assistantTextTrim = text.trim();
+        const promptTrim = c.prompt?.trim() ?? "";
+        const listPreviewTrim = c.listInputPreview?.trim() ?? "";
+        if (promptTrim) {
+          // If we somehow picked the same text as the assistant output, prefer preview instead.
+          if (listPreviewTrim && promptTrim === assistantTextTrim && listPreviewTrim !== assistantTextTrim) {
+            return c.listInputPreview;
+          }
+          return c.prompt;
+        }
+        if (listPreviewTrim && listPreviewTrim !== assistantTextTrim) {
+          return c.listInputPreview;
+        }
+        return c.fallbackText;
+      })();
       items.push({
         kind: "assistant",
         text,
         thinking: thinking && thinking.length > 0 ? thinking : null,
         memoryRefs: memRefs,
         key: eventKey(e, i),
+        asyncFollowup: asyncFollowup || undefined,
+        systemInputText: asyncFollowup ? sysInput : undefined,
       });
       return;
     }
@@ -262,12 +299,37 @@ export function buildConversationTimeline(
         const memRefs = messagesOnly ? [] : memoryRefsFromEvents(buffer);
         flushBuffer();
         pendingLlmInput = null;
+        const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
+        const asyncFollowup =
+          turn && traceRootId
+            ? Boolean(turn.mergedTraceRootIds?.includes(traceRootId))
+            : false;
+        const sysInput = (() => {
+          if (!traceRootId) return null;
+          const c = lastLlmInputByTraceRootId.get(traceRootId);
+          if (!c) return null;
+          const assistantTextTrim = fromTranscript.trim();
+          const promptTrim = c.prompt?.trim() ?? "";
+          const listPreviewTrim = c.listInputPreview?.trim() ?? "";
+          if (promptTrim) {
+            if (listPreviewTrim && promptTrim === assistantTextTrim && listPreviewTrim !== assistantTextTrim) {
+              return c.listInputPreview;
+            }
+            return c.prompt;
+          }
+          if (listPreviewTrim && listPreviewTrim !== assistantTextTrim) {
+            return c.listInputPreview;
+          }
+          return c.fallbackText;
+        })();
         items.push({
           kind: "assistant",
           text: fromTranscript,
           thinking: null,
           memoryRefs: memRefs,
           key: eventKey(e, i),
+          asyncFollowup: asyncFollowup || undefined,
+          systemInputText: asyncFollowup ? sysInput : undefined,
         });
         return;
       }
@@ -277,6 +339,27 @@ export function buildConversationTimeline(
 
     if (ty === "llm_input") {
       pendingLlmInput = e;
+      const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
+      if (traceRootId) {
+        const p = payloadOf(e);
+        const prompt = typeof p.prompt === "string" && p.prompt.trim() ? p.prompt.trim() : null;
+        const listInputPreview =
+          typeof p.list_input_preview === "string" && p.list_input_preview.trim()
+            ? p.list_input_preview.trim()
+            : null;
+        const fallbackText =
+          (typeof p.text === "string" && p.text.trim()
+            ? p.text.trim()
+            : typeof p.body === "string" && p.body.trim()
+              ? p.body.trim()
+              : typeof p.message === "string" && p.message.trim()
+                ? p.message.trim()
+                : typeof p.content === "string" && p.content.trim()
+                  ? p.content.trim()
+                  : null) ?? null;
+
+        lastLlmInputByTraceRootId.set(traceRootId, { prompt, listInputPreview, fallbackText });
+      }
       return;
     }
 

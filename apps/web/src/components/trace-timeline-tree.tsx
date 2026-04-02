@@ -22,11 +22,17 @@ export type TraceTimelineEvent = {
   run_id?: string | null;
   /** Same id on message_received and correlated hooks (plugin). */
   msg_id?: string | null;
+  /** 异步跟进 trace（如钉钉）：会话列表合并到主命令展示。 */
+  async_command?: boolean | null;
   channel?: string | null;
   client_ts?: string | null;
   type?: string;
   payload?: unknown;
   created_at?: string;
+  started_at_ms?: number | null;
+  ended_at_ms?: number | null;
+  updated_at_ms?: number | null;
+  duration_ms?: number | null;
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {

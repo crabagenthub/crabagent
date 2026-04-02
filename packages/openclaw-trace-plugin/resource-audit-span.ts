@@ -102,6 +102,67 @@ function toolNameLooksGlob(name: string): boolean {
   return n.includes("glob") || n.includes("list_dir") || n.includes("listdir");
 }
 
+/** OpenClaw / 常见 agent 将 skill 执行建模为 tool 调用；名称或参数需至少一端可识别。 */
+function toolNameLooksSkill(name: string): boolean {
+  const n = name.toLowerCase().replace(/-/g, "_").trim();
+  if (!n) {
+    return false;
+  }
+  if (n === "skill" || n === "skills") {
+    return true;
+  }
+  if (n.startsWith("skills.") || n.startsWith("skill.")) {
+    return true;
+  }
+  if (n.includes("run_skill") || n.includes("invoke_skill") || n.includes("skills_run") || n.includes("skill_run")) {
+    return true;
+  }
+  if (n.endsWith(".skill") || n.endsWith("_skill")) {
+    return true;
+  }
+  return false;
+}
+
+function skillIdOrNameFromParams(params: Record<string, unknown>): { id?: string; name?: string } {
+  const nestedSkill = isPlainObj(params.skill) ? (params.skill as Record<string, unknown>) : null;
+  const id =
+    strOf(params.skill_id) ??
+    strOf(params.skillId) ??
+    strOf(params.skill_key) ??
+    strOf(params.skillKey) ??
+    (nestedSkill ? strOf(nestedSkill.id) ?? strOf(nestedSkill.key) : undefined);
+  const name =
+    strOf(params.skill_name) ??
+    strOf(params.skillName) ??
+    strOf(params.display_name) ??
+    strOf(params.displayName) ??
+    (nestedSkill ? strOf(nestedSkill.name) ?? strOf(nestedSkill.title) : undefined);
+  const asStringSkill = typeof params.skill === "string" ? strOf(params.skill) : undefined;
+  return {
+    id: id ?? asStringSkill,
+    name: name ?? (asStringSkill && !id ? asStringSkill : undefined),
+  };
+}
+
+function detectSkillInvocation(
+  toolName: string,
+  params: Record<string, unknown>,
+): { skill_id?: string; skill_name: string } | null {
+  const byName = toolNameLooksSkill(toolName);
+  const { id, name } = skillIdOrNameFromParams(params);
+  if (!byName && !id && !name) {
+    return null;
+  }
+  const skill_name = (name ?? id ?? toolName).trim();
+  if (!skill_name) {
+    return null;
+  }
+  return {
+    skill_id: id ?? undefined,
+    skill_name,
+  };
+}
+
 /** 从 tool 结果中抽取 memory / RAG hits，写入 output.top_k 以兼容 span-insights。 */
 function extractMemoryHits(result: unknown): Record<string, unknown>[] | undefined {
   if (Array.isArray(result)) {
@@ -226,6 +287,17 @@ export function enrichToolSpanResourceAudit(span: Record<string, unknown>): void
       access_mode: "read",
       chars,
     };
+    span.metadata = prevMeta;
+    return;
+  }
+
+  const skillInv = detectSkillInvocation(toolName, params);
+  if (skillInv) {
+    prevMeta.semantic_kind = "skill";
+    if (skillInv.skill_id) {
+      prevMeta.skill_id = skillInv.skill_id;
+    }
+    prevMeta.skill_name = skillInv.skill_name;
     span.metadata = prevMeta;
   }
 }

@@ -2,7 +2,8 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { IconBranch, IconCopy } from "@arco-design/web-react/icon";
+import { Popover } from "@arco-design/web-react";
+import { IconBranch, IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
 import { LocalizedLink } from "@/components/localized-link";
 import {
   ChatContainerContent,
@@ -256,6 +257,8 @@ function AssistantBubble({
   threadKey,
   msgId,
   onViewSteps,
+  asyncFollowup,
+  systemInputText,
   messagesOnly,
   compact,
 }: {
@@ -265,6 +268,8 @@ function AssistantBubble({
   threadKey: string;
   msgId: string | null;
   onViewSteps?: (() => void) | null;
+  asyncFollowup?: boolean;
+  systemInputText?: string | null;
   /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
   messagesOnly?: boolean;
   compact?: boolean;
@@ -281,6 +286,29 @@ function AssistantBubble({
 
   const showTraceLink = threadKey.trim().length > 0;
   const canCopy = text.trim().length > 0;
+  const asyncDetails = useMemo(() => {
+    if (!systemInputText || !asyncFollowup) {
+      return null;
+    }
+    const m = systemInputText.match(/\(([^)]+)\)/);
+    if (!m || !m[1]) {
+      return null;
+    }
+    const inside = m[1]!;
+    const parts = inside
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const parsed = parts.map((p) => {
+      const mm = /^([a-zA-Z0-9_ -]+)\s*(?:=)?\s*(.+)$/.exec(p);
+      if (!mm) {
+        return { k: p, v: "" };
+      }
+      return { k: mm[1]!.trim(), v: mm[2]!.trim() };
+    });
+    return parsed;
+  }, [systemInputText]);
+
 
   const bubbleText = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
   const bubblePad = compact ? "px-3 py-2" : "px-4 py-3";
@@ -297,6 +325,11 @@ function AssistantBubble({
   return (
     <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
       <div className="flex flex-wrap items-center gap-3 pl-0.5 text-xs text-neutral-500">
+        {asyncFollowup ? (
+          <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200/80">
+            异步
+          </span>
+        ) : null}
         {canCopy ? (
           <button
             type="button"
@@ -327,6 +360,42 @@ function AssistantBubble({
             <IconBranch className="size-3.5 shrink-0" />
             {t("convViewSteps")}
           </button>
+        ) : null}
+        {onViewSteps && asyncFollowup && systemInputText && systemInputText.trim().length > 0 ? (
+          <Popover
+            trigger="hover"
+            position="top"
+            content={
+              <div className="box-border max-h-[70vh] min-w-[14rem] min-w-0 w-[min(100vw-2rem,32rem)] overflow-y-auto overflow-x-auto rounded-lg border border-border bg-popover px-3 py-2">
+                {asyncDetails && asyncDetails.length > 0 ? (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {asyncDetails.map((d, idx) => (
+                      <span
+                        key={`${d.k}-${idx}`}
+                        className="inline-flex max-w-full items-center rounded-md border border-violet-200/80 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700 break-all whitespace-normal leading-none"
+                      >
+                        {d.k}
+                        {d.v ? `: ${d.v}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground">
+                  {systemInputText}
+                </pre>
+              </div>
+            }
+          >
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+              title={"系统输入"}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <IconInfoCircle className="size-3.5 shrink-0" aria-hidden />
+              系统输入
+            </button>
+          </Popover>
         ) : showTraceLink ? (
           <LocalizedLink
             href={traceHref}
@@ -338,6 +407,31 @@ function AssistantBubble({
           </LocalizedLink>
         ) : null}
       </div>
+
+      {asyncFollowup && systemInputText && systemInputText.trim().length > 0 ? (
+        <div className="rounded-lg border border-violet-200/80 bg-violet-50/60 px-3 py-2">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-900/80">
+            进入模型 Prompt
+          </p>
+          {asyncDetails && asyncDetails.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {asyncDetails.map((d, idx) => (
+                <span
+                  key={`prompt-${d.k}-${idx}`}
+                  className="inline-flex max-w-full items-center rounded-md border border-violet-200/80 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700 break-all whitespace-normal leading-none"
+                >
+                  {d.k}
+                  {d.v ? `: ${d.v}` : ""}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground">
+            {systemInputText}
+          </pre>
+        </div>
+      ) : null}
+
       {!messagesOnly && thinking ? (
         <button
           type="button"
@@ -480,6 +574,8 @@ function ConversationTimelineBlocks({
                 threadKey={threadKey}
                 msgId={msgId}
                 onViewSteps={onViewSteps}
+                asyncFollowup={item.asyncFollowup}
+                systemInputText={item.systemInputText ?? null}
                 messagesOnly={messagesOnly}
                 compact={compact}
               />
@@ -528,6 +624,12 @@ export function TraceConversationView({
       return events;
     }
     if (variant === "turnEmbed" && conversationTurns != null && conversationTurns.length > 0) {
+      // In tree mode, "turnEmbed" still uses a time-window slice [anchor, nextAnchor).
+      // For external parent turns we want to merge async/subagent descendants as well,
+      // which is only honored by `buildDetailEventList` (via `mergedTraceRootIds`).
+      if (turn.mergedTraceRootIds && turn.mergedTraceRootIds.length > 0) {
+        return buildDetailEventList(events, turn);
+      }
       return buildConversationTurnWindowEvents(events, turn, conversationTurns);
     }
     return buildDetailEventList(events, turn);

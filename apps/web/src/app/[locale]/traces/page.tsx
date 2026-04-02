@@ -23,7 +23,6 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
-import { SpanRecordInspectDrawer } from "@/components/span-record-inspect-drawer";
 import { OBSERVE_SPANS_TABLE_ID, SPANS_OPTIONAL_KEYS, SpansDataTable } from "@/components/spans-data-table";
 import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
 import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/components/threads-opik-table";
@@ -168,6 +167,7 @@ export default function TracesPage() {
   const [threadDrawerRow, setThreadDrawerRow] = useState<ThreadRecordRow | null>(null);
   const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
   const [inspectSpanRow, setInspectSpanRow] = useState<SpanRecordRow | null>(null);
+  const [inspectTraceInitialSpanId, setInspectTraceInitialSpanId] = useState<string | null>(null);
 
   const inspectPick = useMemo(() => pickObserveInspectFromSearchParams(searchParams), [searchParams]);
 
@@ -728,9 +728,8 @@ export default function TracesPage() {
         router.replace({ pathname, query: buildObserveQueryForPick(searchParams, null) });
         return;
       }
-      setInspectSpanRow(row);
       setThreadDrawerRow(null);
-      setInspectTraceRow(null);
+      setInspectSpanRow(row);
       const kindOk = listKind === "spans";
       if (!kindOk) {
         const q = buildObserveQueryForPick(searchParams, inspectPick);
@@ -761,6 +760,7 @@ export default function TracesPage() {
       setInspectTraceRow(null);
       setInspectSpanRow(null);
       setThreadDrawerRow(row);
+      setInspectTraceInitialSpanId(null);
       const q = buildObserveQueryForPick(searchParams, { kind: "thread", id: row.thread_id });
       delete q.kind;
       router.replace({ pathname, query: q });
@@ -772,6 +772,7 @@ export default function TracesPage() {
     (row: TraceRecordRow) => {
       setThreadDrawerRow(null);
       setInspectSpanRow(null);
+      setInspectTraceInitialSpanId(null);
       setInspectTraceRow(row);
       const q = buildObserveQueryForPick(searchParams, { kind: "trace", id: row.trace_id });
       q.kind = "traces";
@@ -783,7 +784,6 @@ export default function TracesPage() {
   const openSpanInspect = useCallback(
     (row: SpanRecordRow) => {
       setThreadDrawerRow(null);
-      setInspectTraceRow(null);
       setInspectSpanRow(row);
       const q = buildObserveQueryForPick(searchParams, { kind: "span", id: row.span_id });
       q.kind = "spans";
@@ -809,6 +809,7 @@ export default function TracesPage() {
         return;
       }
       setInspectSpanRow(null);
+      setInspectTraceInitialSpanId(null);
       const hit = traceRows.find((row) => row.trace_id === normalized);
       if (hit) {
         setInspectTraceRow(hit);
@@ -821,6 +822,30 @@ export default function TracesPage() {
     },
     [apiKey, baseUrl, traceRows],
   );
+
+  useEffect(() => {
+    if (!inspectSpanRow) {
+      return;
+    }
+    const traceId = inspectSpanRow.trace_id?.trim();
+    if (!traceId) {
+      return;
+    }
+    let cancelled = false;
+    const openMergedInspect = async () => {
+      const hit = traceRows.find((row) => row.trace_id === traceId);
+      const resolved = hit ?? (await resolveTraceRowForInspect(baseUrl, apiKey, traceId));
+      if (cancelled || !resolved) {
+        return;
+      }
+      setInspectTraceInitialSpanId(inspectSpanRow.span_id);
+      setInspectTraceRow(resolved);
+    };
+    void openMergedInspect();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, baseUrl, inspectSpanRow, traceRows]);
 
   useEffect(() => {
     if (!q.isSuccess || total <= 0) {
@@ -1122,6 +1147,8 @@ export default function TracesPage() {
         onOpenChange={(next) => {
           if (!next) {
             setInspectTraceRow(null);
+            setInspectTraceInitialSpanId(null);
+            setInspectSpanRow(null);
             if (threadDrawerRow) {
               const q = buildObserveQueryForPick(searchParams, { kind: "thread", id: threadDrawerRow.thread_id });
               delete q.kind;
@@ -1132,23 +1159,9 @@ export default function TracesPage() {
           }
         }}
         row={inspectTraceRow}
+        initialSpanId={inspectTraceInitialSpanId}
         rows={traceRows}
         onNavigate={(row) => openTraceInspect(row)}
-        baseUrl={baseUrl}
-        apiKey={apiKey}
-      />
-
-      <SpanRecordInspectDrawer
-        open={inspectSpanRow != null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setInspectSpanRow(null);
-            clearObserveInspectInUrl();
-          }
-        }}
-        row={inspectSpanRow}
-        rows={spanRows}
-        onNavigate={(row) => openSpanInspect(row)}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />

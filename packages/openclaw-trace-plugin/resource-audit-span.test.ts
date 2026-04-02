@@ -44,4 +44,32 @@ describe("enrichToolSpanResourceAudit", () => {
     enrichToolSpanResourceAudit(span);
     assert.equal(span.metadata, undefined);
   });
+
+  it("tags skills.run with semantic_kind skill from params", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "skills.run",
+      input: { params: { skillId: "weather_lookup", skillName: "Weather" } },
+      output: { result: { ok: true } },
+    };
+    enrichToolSpanResourceAudit(span);
+    const meta = span.metadata as Record<string, unknown>;
+    assert.equal(meta.semantic_kind, "skill");
+    assert.equal(meta.skill_id, "weather_lookup");
+    assert.equal(meta.skill_name, "Weather");
+  });
+
+  it("tags arbitrary tool when params carry skill_id only", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "custom_gateway_tool",
+      input: { params: { skill_id: "docs-qa" } },
+      output: { result: {} },
+    };
+    enrichToolSpanResourceAudit(span);
+    const meta = span.metadata as Record<string, unknown>;
+    assert.equal(meta.semantic_kind, "skill");
+    assert.equal(meta.skill_id, "docs-qa");
+    assert.equal(meta.skill_name, "docs-qa");
+  });
 });

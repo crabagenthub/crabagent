@@ -11,6 +11,7 @@ import {
   extractTraceBridgeKeysFromInboundMetadata,
   mirrorInboundPendingForAgents,
 } from "./inbound-mirror.js";
+import { stripLeadingBracketDatePrefixes } from "./strip-leading-bracket-date.js";
 import {
   extractLlmInputRoutingMeta,
   mergeOpenclawRoutingLayers,
@@ -243,17 +244,19 @@ export default {
         const sid = ctx.sessionId?.trim();
         if (sid) {
           const base = resolveOpenClawSessionsBasePathForAgent(api, ctx.agentId);
-          const fromStore = sessionStoreKeysForSessionId(base, sid);
-          for (const sk of fromStore) {
-            rt.mergePendingContext(sk, payload);
-          }
-          if (fromStore.length > 0) {
-            traceDbg("session_store_bridge", {
-              node: "merge_pending_session_store_keys",
-              sessionId: sid,
-              storeKeys: fromStore.slice(0, 8),
-              storeKeyCount: fromStore.length,
-            });
+          if (base) {
+            const fromStore = sessionStoreKeysForSessionId(base, sid);
+            for (const sk of fromStore) {
+              rt.mergePendingContext(sk, payload);
+            }
+            if (fromStore.length > 0) {
+              traceDbg("session_store_bridge", {
+                node: "merge_pending_session_store_keys",
+                sessionId: sid,
+                storeKeys: fromStore.slice(0, 8),
+                storeKeyCount: fromStore.length,
+              });
+            }
           }
         }
       }
@@ -365,7 +368,7 @@ export default {
       const inboundPayload = {
         message_received: {
           from: event.from,
-          content: String(event.content ?? "").slice(0, 16_384),
+          content: stripLeadingBracketDatePrefixes(String(event.content ?? "")).slice(0, 16_384),
           timestamp: event.timestamp,
           metadata: md,
         },

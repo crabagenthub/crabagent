@@ -1,51 +1,11 @@
 "use client";
 
-import { Message } from "@arco-design/web-react";
-import { IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
+import { IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import type { ThreadLlmUsageAggregate } from "@/lib/trace-payload-usage";
 import type { ThreadRecordRow } from "@/lib/thread-records";
 import { cn } from "@/lib/utils";
-
-function CopyIconButton({
-  text,
-  ariaLabel,
-  successLabel,
-  tooltipLabel,
-}: {
-  text: string;
-  ariaLabel: string;
-  successLabel: string;
-  tooltipLabel: string;
-}) {
-  const onClick = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      Message.success(successLabel);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            onClick={() => void onClick()}
-            className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-            aria-label={ariaLabel}
-          >
-            <IconCopy className="size-3.5" />
-          </button>
-        }
-      />
-      <TooltipContent>{tooltipLabel}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 function threadRowStatusPresentation(st: string | null | undefined): {
   labelKey: "statusRunning" | "statusSuccess" | "statusError" | "statusTimeout" | "statusOther";
@@ -153,7 +113,7 @@ export function ThreadConversationInspectHeader({
           {threadKey ? threadShort : "—"}
         </span>
         {threadKey ? (
-          <CopyIconButton
+          <TraceCopyIconButton
             text={threadKey}
             ariaLabel={t("threadDrawerCopyThreadId")}
             successLabel={t("threadDrawerCopyThreadIdSuccess")}

@@ -195,6 +195,19 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
     box-shadow: -8px 0 30px rgba(0, 0, 0, 0.08);
   }
 
+  svg.arco-icon {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 32px !important;
+  }
+
+  svg.arco-icon,
+  svg.arco-icon * {
+    stroke-linecap: square !important;
+    stroke-linejoin: miter-clip !important;
+    stroke-width: 5 !important;
+  }
+
   /** 主内容区：与 Trace 列表等页统一的左右、上下边距与最大宽度 */
   .ca-page {
     @apply mx-auto w-full max-w-[min(100%,1600px)] px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6;

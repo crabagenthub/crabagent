@@ -1,4 +1,6 @@
 import type Database from "better-sqlite3";
+import { normalizeOpikSpanInputForStorage, normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
+import { upsertThreadTurnFromTraceMetadata } from "./thread-turns-ingest.js";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -394,7 +396,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         proj,
         asStr(row.name),
         jsonCol(row.tags),
-        jsonCol(row.input),
+        jsonCol(normalizeOpikTraceInputForStorage(row.input)),
         jsonCol(row.output),
         jsonCol(mergedMetadata),
         jsonCol(row.error_info ?? row.errorInfo),
@@ -408,6 +410,47 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         asStr(row.created_from) ?? "opik-openclaw",
       );
       acc.traces += 1;
+      try {
+        const inputNorm = normalizeOpikTraceInputForStorage(row.input);
+        const previewFromInput = (() => {
+          if (!inputNorm || typeof inputNorm !== "object" || Array.isArray(inputNorm)) {
+            return null;
+          }
+          const p = inputNorm as Record<string, unknown>;
+          const listPreview = asStr(p.list_input_preview) ?? asStr((p as Record<string, unknown>).listInputPreview);
+          if (listPreview) {
+            return listPreview.slice(0, 500);
+          }
+          const prompt = asStr(p.prompt);
+          if (prompt) {
+            return prompt.slice(0, 500);
+          }
+          const ut = p.user_turn;
+          if (ut && typeof ut === "object" && !Array.isArray(ut)) {
+            const mr = (ut as Record<string, unknown>).message_received;
+            if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+              const c = (mr as Record<string, unknown>).content;
+              if (typeof c === "string" && c.trim()) {
+                return c.trim().slice(0, 500);
+              }
+            }
+          }
+          return null;
+        })();
+
+        const preview = previewFromInput ?? asStr(row.name)?.slice(0, 500) ?? null;
+        upsertThreadTurnFromTraceMetadata(db, {
+          traceId,
+          threadId: th,
+          workspaceName: ws,
+          projectName: proj,
+          metadata: mergedMetadata,
+          createdAtMs: createdMs,
+          previewText: preview,
+        });
+      } catch {
+        /* ignore turn upsert errors — trace already stored */
+      }
     } catch (e) {
       skipped.push({ reason: String(e), at: `traces[${i}]` });
     }
@@ -473,7 +516,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         asNum(row.end_time_ms ?? row.endTimeMs),
         asNum(row.duration_ms ?? row.durationMs),
         jsonCol(row.metadata),
-        jsonCol(row.input),
+        jsonCol(normalizeOpikSpanInputForStorage(row.input)),
         jsonCol(row.output),
         jsonCol(row.tags),
         jsonCol(row.usage),

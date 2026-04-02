@@ -20,6 +20,7 @@ import {
 } from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -82,18 +83,6 @@ function rowFullOutputText(row: TraceRecordRow): string {
   return typeof raw === "string" ? raw.trim() : "";
 }
 
-async function copyText(text: string, onSuccess: () => void): Promise<void> {
-  if (!text.trim()) {
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    onSuccess();
-  } catch {
-    // ignore
-  }
-}
-
 function TraceIdCell({ traceId }: { traceId: string }) {
   const t = useTranslations("Traces");
 
@@ -106,39 +95,14 @@ function TraceIdCell({ traceId }: { traceId: string }) {
       <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={traceId}>
         {formatShortId(traceId)}
       </span>
-      <TooltipProvider delay={80}>
-        <Tooltip>
-          <TooltipTrigger
-            delay={80}
-            render={(triggerProps) => (
-              <Button
-                {...triggerProps}
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                data-row-click-stop
-                className="shrink-0 p-1 text-neutral-800 hover:bg-neutral-100 hover:text-neutral-800"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  triggerProps.onClick?.(e);
-                  void copyText(traceId, () => {
-                    toast.success(t("copied"));
-                  });
-                }}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  triggerProps.onKeyDown?.(e);
-                }}
-                aria-label={t("copyIdAria", { kind: t("idKinds.trace_id") })}
-                title={t("copyIdAria", { kind: t("idKinds.trace_id") })}
-              >
-                <IconCopy className="size-3.5 text-neutral-800" />
-              </Button>
-            )}
-          />
-          <TooltipContent>{t("copy")}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <TraceCopyIconButton
+        text={traceId}
+        ariaLabel={t("copyIdAria", { kind: t("idKinds.trace_id") })}
+        tooltipLabel={t("copy")}
+        successLabel={t("copied")}
+        className="p-1 hover:bg-neutral-100"
+        stopPropagation
+      />
     </div>
   );
 }

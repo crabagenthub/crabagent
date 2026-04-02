@@ -18,6 +18,7 @@ import {
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
+import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
 import { queryObserveFacets } from "./observe-facets-query.js";
 import { applyOpikBatch } from "./opik-batch-ingest.js";
@@ -257,6 +258,21 @@ const handleThreadRecords = (c: Context) => {
 app.get("/v1/conversation/list", handleThreadRecords);
 /** @deprecated Use `GET /v1/conversation/list` */
 app.get("/v1/thread-records", handleThreadRecords);
+
+/** Thread turn tree (external + follow-ups) from `opik_thread_turns`; requires plugin `metadata.turn_id`. */
+app.get("/v1/conversation/:threadId/turns", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let threadId = c.req.param("threadId") ?? "";
+  try {
+    threadId = decodeURIComponent(threadId);
+  } catch {
+    /* keep raw */
+  }
+  const { thread_id, items } = queryThreadTurnsTree(db, threadId);
+  return c.json({ thread_id, items });
+});
 
 const handleSpanRecords = (c: Context) => {
   if (!checkApiKey(c)) {

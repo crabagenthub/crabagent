@@ -1,9 +1,10 @@
 "use client";
 
-import { IconRight, IconCopy, IconSearch } from "@arco-design/web-react/icon";
+import { IconRight, IconSearch } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { MessageHint } from "@/components/message-hint";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import {
   LARGE_TOOL_RESULT_CHARS,
@@ -152,14 +153,14 @@ function SpanInspectSection(props: {
             aria-label={t("spanInspectSearchAria")}
             onClick={(e) => e.stopPropagation()}
           />
-          <button
-            type="button"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={t("spanInspectCopyAria")}
-            onClick={() => void navigator.clipboard.writeText(copyPayload)}
-          >
-            <IconCopy className="size-4" />
-          </button>
+          <TraceCopyIconButton
+            text={copyPayload}
+            ariaLabel={t("spanInspectCopyAria")}
+            tooltipLabel={t("copy")}
+            successLabel={t("copied")}
+            className="size-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
+            iconClassName="size-4"
+          />
         </div>
       </div>
       {isOpen ? <div className="max-h-[min(55vh,28rem)] overflow-auto bg-background px-3 py-3 sm:px-4">{children}</div> : null}
@@ -237,21 +238,54 @@ export function TraceSpanRunPanel({
   );
 
   const hasPromptCompare = promptStages.length >= 2;
+  const llmInputStageText = useMemo(() => {
+    if (promptStages.length === 0) {
+      return null;
+    }
+    const norm = (s: string) => s.trim().toLowerCase();
+    const picked =
+      promptStages.find((s) => {
+        const id = norm(s.id ?? "");
+        const label = norm(s.label ?? "");
+        return (
+          id === "phasellminput" ||
+          label === "phasellminput" ||
+          id.includes("llm_input") ||
+          label.includes("llm_input") ||
+          label.includes("llminput") ||
+          label.includes("进入模型") ||
+          label.includes("llm input")
+        );
+      }) ??
+      // Fallback: if we only have 1 stage, it's very likely the llm input stage.
+      (promptStages.length === 1 ? promptStages[0]! : null);
+    return picked?.text?.trim().length ? picked.text : null;
+  }, [promptStages]);
 
-  const { input: inputBlocks, output: outputBlocks } = useMemo(
+  const { input: rawInputBlocks, output: outputBlocks } = useMemo(
     () => (span ? extractRunChatBlocks(span) : { input: [], output: [] }),
     [span],
   );
+
+  const inputBlocks = useMemo(() => {
+    if (llmInputStageText) {
+      return [{ role: "system" as const, content: llmInputStageText }];
+    }
+    return rawInputBlocks;
+  }, [llmInputStageText, rawInputBlocks]);
 
   const displayInputStr = useMemo(() => {
     if (!span) {
       return "";
     }
+    if (llmInputStageText) {
+      return llmInputStageText;
+    }
     if (inputBlocks.length > 0) {
       return inputBlocks.map((b) => `${roleLabel(t, b.role)}:\n${b.content}`).join("\n\n---\n\n");
     }
     return inputJson;
-  }, [span, inputBlocks, inputJson, t]);
+  }, [span, inputBlocks, inputJson, t, llmInputStageText]);
 
   const displayOutputStr = useMemo(() => {
     if (!span) {
@@ -475,7 +509,7 @@ export function TraceSpanRunPanel({
               <div className="space-y-4">
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase text-neutral-500">{t("inspectorTabInput")}</p>
-                  <HighlightedBlock text={inputJson} query={search} />
+                  <HighlightedBlock text={llmInputStageText ?? inputJson} query={search} />
                 </div>
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase text-neutral-500">{t("inspectorTabOutput")}</p>

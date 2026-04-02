@@ -202,6 +202,9 @@ function mapSpanTypeToApi(spanType: string, name: string, metadata: Record<strin
     if (sk === "memory") {
       return "MEMORY";
     }
+    if (sk === "skill") {
+      return "SKILL";
+    }
     return "TOOL";
   }
   if (spanType === "guardrail") {

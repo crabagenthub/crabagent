@@ -41,6 +41,24 @@ CREATE INDEX idx_opik_traces_project ON opik_traces(workspace_name, project_name
 CREATE INDEX idx_opik_traces_created ON opik_traces(created_at_ms DESC);
 CREATE INDEX idx_opik_traces_complete ON opik_traces(is_complete, ended_at_ms);
 
+CREATE TABLE opik_thread_turns (
+  turn_id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  workspace_name TEXT NOT NULL DEFAULT 'default',
+  project_name TEXT NOT NULL DEFAULT 'openclaw',
+  parent_turn_id TEXT,
+  run_kind TEXT NOT NULL
+    CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
+  primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+  sort_key INTEGER NOT NULL,
+  preview_text TEXT,
+  skills_used_json TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER
+);
+CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
+CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
+
 CREATE TABLE opik_spans (
   span_id TEXT PRIMARY KEY,
   trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,

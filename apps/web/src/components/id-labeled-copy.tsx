@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 
 export type TraceIdKind =
   | "trace_root"
@@ -77,29 +77,9 @@ export function IdLabeledCopy({
   valueClassName,
 }: Props) {
   const t = useTranslations("Traces");
-  const [copied, setCopied] = useState(false);
 
   const text = toCopyString(value);
   const kindLabel = t(TRACE_ID_KIND_TO_MSG[kind]);
-
-  const copy = useCallback(
-    async (e: React.MouseEvent) => {
-      if (stopPropagationOnCopy) {
-        e.stopPropagation();
-      }
-      if (!text) {
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      } catch {
-        // ignore
-      }
-    },
-    [text, stopPropagationOnCopy],
-  );
 
   if (!text) {
     return (
@@ -119,14 +99,14 @@ export function IdLabeledCopy({
   );
 
   const copyBtn = (
-    <button
-      type="button"
-      className="shrink-0 rounded-md border border-border bg-white px-2 py-0.5 text-[10px] font-medium text-neutral-600 shadow-sm hover:bg-neutral-50"
-      onClick={(e) => void copy(e)}
-      aria-label={t("copyIdAria", { kind: kindLabel })}
-    >
-      {copied ? t("copied") : t("copy")}
-    </button>
+    <TraceCopyIconButton
+      text={text}
+      ariaLabel={t("copyIdAria", { kind: kindLabel })}
+      tooltipLabel={t("copy")}
+      successLabel={t("copied")}
+      className="text-neutral-400 hover:bg-neutral-200/80 hover:text-neutral-700"
+      stopPropagation={Boolean(stopPropagationOnCopy)}
+    />
   );
 
   if (variant === "compact") {

@@ -20,6 +20,7 @@ import {
 } from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -92,39 +93,14 @@ function SpanIdCell({ spanId }: { spanId: string }) {
       <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={spanId}>
         {formatShortId(spanId)}
       </span>
-      <Tooltip>
-        <TooltipTrigger
-          delay={80}
-          render={(triggerProps) => (
-            <Button
-              {...triggerProps}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              data-row-click-stop
-              className="shrink-0 p-1 text-neutral-800 hover:bg-neutral-100 hover:text-neutral-800"
-              onClick={async (e) => {
-                e.stopPropagation();
-                triggerProps.onClick?.(e);
-                try {
-                  await navigator.clipboard.writeText(spanId);
-                  toast.success(t("copied"));
-                } catch {
-                  // ignore
-                }
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                triggerProps.onKeyDown?.(e);
-              }}
-              aria-label={t("traceInspectCopySpanId")}
-            >
-              <IconCopy className="size-3.5 text-neutral-800" />
-            </Button>
-          )}
-        />
-        <TooltipContent>{t("copy")}</TooltipContent>
-      </Tooltip>
+      <TraceCopyIconButton
+        text={spanId}
+        ariaLabel={t("traceInspectCopySpanId")}
+        tooltipLabel={t("copy")}
+        successLabel={t("copied")}
+        className="p-1 hover:bg-neutral-100"
+        stopPropagation
+      />
     </div>
   );
 }

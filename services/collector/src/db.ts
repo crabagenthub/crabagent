@@ -50,6 +50,24 @@ function opikSchemaDdl(): string {
     CREATE INDEX idx_opik_traces_created ON opik_traces(created_at_ms DESC);
     CREATE INDEX idx_opik_traces_complete ON opik_traces(is_complete, ended_at_ms);
 
+    CREATE TABLE opik_thread_turns (
+      turn_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      parent_turn_id TEXT,
+      run_kind TEXT NOT NULL
+        CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
+      primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      sort_key INTEGER NOT NULL,
+      preview_text TEXT,
+      skills_used_json TEXT,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER
+    );
+    CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
+    CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
+
     CREATE TABLE opik_spans (
       span_id TEXT PRIMARY KEY,
       trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
@@ -124,6 +142,7 @@ function dropAllTables(db: Database.Database) {
     DROP TABLE IF EXISTS opik_trace_feedback;
     DROP TABLE IF EXISTS opik_attachments;
     DROP TABLE IF EXISTS opik_spans;
+    DROP TABLE IF EXISTS opik_thread_turns;
     DROP TABLE IF EXISTS opik_traces;
     DROP TABLE IF EXISTS opik_threads;
 
@@ -182,6 +201,81 @@ function ensureOpikThreadsAgentChannelColumns(db: Database.Database): void {
   }
 }
 
+function opikThreadTurnsTableExists(db: Database.Database): boolean {
+  const row = db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'opik_thread_turns'`)
+    .get() as { ok: number } | undefined;
+  return row != null;
+}
+
+/** Create `opik_thread_turns` on existing DBs that predate the table. */
+function ensureOpikThreadTurnsTable(db: Database.Database): void {
+  if (!opikCoreTableExists(db) || opikThreadTurnsTableExists(db)) {
+    return;
+  }
+  db.exec(`
+    CREATE TABLE opik_thread_turns (
+      turn_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      parent_turn_id TEXT,
+      run_kind TEXT NOT NULL
+        CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
+      primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      sort_key INTEGER NOT NULL,
+      preview_text TEXT,
+      skills_used_json TEXT,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER
+    );
+    CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
+    CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
+  `);
+}
+
+/**
+ * Backfill missing `parent_turn_id` so async follow-ups attach under the latest external.
+ *
+ * Why: the plugin previously relied on in-memory `lastExternalTurnIdByThread`.
+ * After process restarts (or if external and async are recorded in different lifetimes),
+ * async nodes can be persisted as roots (parent_turn_id = NULL).
+ */
+function backfillThreadTurnParentIds(db: Database.Database): void {
+  // Only safe when opik_thread_turns exists.
+  if (!opikThreadTurnsTableExists(db)) {
+    return;
+  }
+
+  // Attach non-external nodes to the most recent earlier external within the same thread.
+  // Keep it deterministic using sort_key ordering.
+  db.exec(`
+    UPDATE opik_thread_turns AS t
+    SET parent_turn_id = (
+      SELECT p.turn_id
+      FROM opik_thread_turns AS p
+      WHERE p.thread_id = t.thread_id
+        AND p.workspace_name = t.workspace_name
+        AND p.project_name = t.project_name
+        AND p.run_kind = 'external'
+        AND p.sort_key < t.sort_key
+      ORDER BY p.sort_key DESC, p.turn_id ASC
+      LIMIT 1
+    )
+    WHERE t.parent_turn_id IS NULL
+      AND t.run_kind != 'external'
+      AND EXISTS (
+        SELECT 1
+        FROM opik_thread_turns AS p
+        WHERE p.thread_id = t.thread_id
+          AND p.workspace_name = t.workspace_name
+          AND p.project_name = t.project_name
+          AND p.run_kind = 'external'
+          AND p.sort_key < t.sort_key
+      );
+  `);
+}
+
 /**
  * 打开 SQLite：默认**保留已有数据**，仅在库中尚无 `opik_traces` 时创建 Opik 形态表。
  * 开发/清库：启动前设置 `CRABAGENT_DB_RESET=1`（或 `true`）会执行 `dropAllTables` 后重建。
@@ -204,6 +298,14 @@ export function openDatabase(dbPath: string): Database.Database {
     db.exec(opikSchemaDdl());
   } else {
     ensureOpikThreadsAgentChannelColumns(db);
+    ensureOpikThreadTurnsTable(db);
+  }
+
+  // Always attempt to backfill, it's a no-op for fully-populated rows.
+  try {
+    backfillThreadTurnParentIds(db);
+  } catch {
+    /* ignore backfill errors */
   }
 
   return db;

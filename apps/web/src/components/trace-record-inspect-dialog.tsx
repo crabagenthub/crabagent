@@ -1,15 +1,14 @@
 "use client";
 
-import { Message } from "@arco-design/web-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { IconRobot, IconInfoCircle, IconMessage, IconLanguage, IconSearch, IconEdit, IconClose, IconCopy } from "@arco-design/web-react/icon";
+import { IconRobot, IconInfoCircle, IconMessage, IconLanguage, IconSearch, IconEdit, IconClose } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageHint } from "@/components/message-hint";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
@@ -23,62 +22,19 @@ import {
   type TraceRecordRow,
 } from "@/lib/trace-records";
 import { spanTokenTotals } from "@/lib/span-token-display";
+import { collectSkillsUsedFromSemanticSpans } from "@/lib/trace-skills-used";
 import { cn, formatShortId } from "@/lib/utils";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   row: TraceRecordRow | null;
+  initialSpanId?: string | null;
   /** Same table page rows, for prev/next navigation in the dialog header. */
   rows: TraceRecordRow[];
   onNavigate: (row: TraceRecordRow) => void;
   baseUrl: string;
   apiKey: string;
 };
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function CopyValueButton({
-  text,
-  ariaLabel,
-  tooltipLabel,
-  successLabel,
-}: {
-  text: string;
-  ariaLabel: string;
-  tooltipLabel: string;
-  successLabel: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            onClick={() =>
-              void copyText(text).then((ok) => {
-                if (ok) {
-                  Message.success(successLabel);
-                }
-              })
-            }
-            className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-            aria-label={ariaLabel}
-          >
-            <IconCopy className="size-3.5" />
-          </button>
-        }
-      />
-      <TooltipContent>{tooltipLabel}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 function SidebarMetricRow({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -95,6 +51,7 @@ export function TraceRecordInspectDialog({
   open,
   onOpenChange,
   row,
+  initialSpanId = null,
   rows,
   onNavigate,
   baseUrl,
@@ -116,6 +73,7 @@ export function TraceRecordInspectDialog({
   });
 
   const items = useMemo(() => spansQuery.data?.items ?? [], [spansQuery.data?.items]);
+  const skillsUsed = useMemo(() => collectSkillsUsedFromSemanticSpans(items), [items]);
   const spanForest = useMemo(() => buildSpanForest(items), [items]);
   const filteredSpanForest = useMemo(() => filterSpanForest(spanForest, treeFilter), [spanForest, treeFilter]);
 
@@ -154,12 +112,15 @@ export function TraceRecordInspectDialog({
       return;
     }
     setSelectedSpanId((prev) => {
+      if (initialSpanId && items.some((s) => s.span_id === initialSpanId)) {
+        return initialSpanId;
+      }
       if (prev && items.some((s) => s.span_id === prev)) {
         return prev;
       }
       return spanForest[0]!.span_id;
     });
-  }, [spanForest, items, traceId]);
+  }, [initialSpanId, spanForest, items, traceId]);
 
   const selectedSpan = useMemo((): SemanticSpanRow | null => {
     if (!selectedSpanId) {
@@ -305,7 +266,7 @@ export function TraceRecordInspectDialog({
                           {spanId ? formatShortId(spanId) : "—"}
                         </span>
                         {spanId ? (
-                          <CopyValueButton
+                          <TraceCopyIconButton
                             text={spanId}
                             ariaLabel={t("traceInspectCopySpanId")}
                             tooltipLabel={t("copy")}
@@ -315,6 +276,22 @@ export function TraceRecordInspectDialog({
                       </div>
                     </div>
                   </div>
+                  {skillsUsed.length > 0 ? (
+                    <div className="mt-3 border-t border-neutral-200/80 pt-3 dark:border-neutral-700/80">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("inspectSkillsUsedLabel")}</div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {skillsUsed.map((s) => (
+                          <span
+                            key={`${s.skill_id ?? ""}:${s.label}`}
+                            className="rounded-md border border-violet-200/80 bg-violet-50/80 px-2 py-0.5 text-xs font-medium text-violet-900 dark:border-violet-800/50 dark:bg-violet-950/40 dark:text-violet-200"
+                            title={s.skill_id ? `${s.label} (${s.skill_id})` : s.label}
+                          >
+                            {s.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />
@@ -326,17 +303,16 @@ export function TraceRecordInspectDialog({
                 className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/60 lg:max-h-none lg:w-[min(100%,24rem)] lg:min-w-[280px] lg:max-w-[26rem] lg:shrink-0 lg:border-l lg:border-t-0"
                 aria-label={t("inspectBasicInfoTitle")}
               >
-                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-                  <section className="rounded-2xl border border-neutral-200/80 bg-white px-4 py-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-950/80">
-                    <div className="text-lg font-semibold text-foreground">{t("inspectDrawerTraceSummaryTitle")}</div>
-                    <div className="mt-3">
-                      <div className="text-xs text-neutral-500">{t("drawerMetaTraceIdLabel").replace(/[:：]\s*$/, "")}</div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <span className="min-w-0 truncate text-[1.05rem] font-semibold tracking-tight text-neutral-950 dark:text-neutral-50" title={traceId || undefined}>
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                    <div className="col-span-2 min-w-0">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaTraceIdLabel")}</div>
+                      <div className="mt-1 flex min-w-0 items-center gap-1">
+                        <span className="truncate text-sm text-neutral-900 dark:text-neutral-100" title={traceId || undefined}>
                           {traceId ? traceShort : "—"}
                         </span>
                         {traceId ? (
-                          <CopyValueButton
+                          <TraceCopyIconButton
                             text={traceId}
                             ariaLabel={t("inspectCopyTraceIdAria")}
                             tooltipLabel={t("copy")}
@@ -345,58 +321,57 @@ export function TraceRecordInspectDialog({
                         ) : null}
                       </div>
                     </div>
+                    <div className="min-w-0">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaAgentLabel")}</div>
+                      <div className="mt-1 truncate text-sm font-normal text-neutral-900 dark:text-neutral-100" title={traceAgent ?? undefined}>
+                        {traceAgent ?? "—"}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaChannelLabel")}</div>
+                      <div className="mt-1 truncate text-sm font-normal text-neutral-900 dark:text-neutral-100" title={traceChannel ?? undefined}>
+                        {traceChannel ?? "—"}
+                      </div>
+                    </div>
+                    <div className="col-span-2 min-w-0">
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("colStatus")}</div>
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className={cn("size-2 shrink-0 rounded-full", statusDotClass)} aria-hidden />
+                        <span className="break-words text-sm font-normal text-neutral-900 dark:text-neutral-100">
+                          {statusLabel}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
-                    <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4">
-                      <div className="min-w-0">
-                        <div className="text-xs text-neutral-500">{t("drawerMetaAgentLabel").replace(/[:：]\s*$/, "")}</div>
-                        <div className="mt-1 inline-flex min-w-0 items-center gap-1.5 text-sm text-neutral-900 dark:text-neutral-100">
-                          <IconRobot className="size-3.5 shrink-0 text-neutral-300" strokeWidth={2} aria-hidden />
-                          <span className="truncate font-medium">{traceAgent ?? "—"}</span>
-                        </div>
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-neutral-500">{t("drawerMetaChannelLabel").replace(/[:：]\s*$/, "")}</div>
-                        <div className="mt-1 inline-flex min-w-0 items-center gap-1.5 text-sm text-neutral-900 dark:text-neutral-100">
-                          <IconLanguage className="size-3.5 shrink-0 text-neutral-300" strokeWidth={2} aria-hidden />
-                          <span className="truncate font-medium">{traceChannel ?? "—"}</span>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500">{t("drawerMetaDurationTotalLabel").replace(/[:：]\s*$/, "")}</div>
-                        <div className="mt-1 text-sm font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{metaDuration}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500">{t("drawerMetaFirstSeenLabel").replace(/[:：]\s*$/, "")}</div>
-                        <div className="mt-1 text-sm font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{traceRowWhenLabel}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500">{t("drawerMetaStepsInTraceLabel").replace(/[:：]\s*$/, "")}</div>
-                        <div className="mt-1 text-sm font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{items.length}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500">{t("colStatus")}</div>
-                        <div className="mt-1 inline-flex items-center gap-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                          <span className={cn("size-2.5 rounded-full", statusDotClass)} aria-hidden />
-                          <span>{statusLabel}</span>
-                        </div>
+                  <div className="mt-4 border-t border-neutral-200/80 pt-4 dark:border-neutral-700/80">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
+                        <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
                       </div>
                     </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-amber-200/60 bg-white px-4 py-4 shadow-sm dark:border-amber-900/60 dark:bg-neutral-950/80">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg font-semibold text-neutral-950 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
-                      <IconInfoCircle className="size-4 text-neutral-400" aria-hidden />
+                    <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
+                      <dl className="m-0 space-y-2 text-xs leading-relaxed">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenInput")}</dt>
+                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenIn.toLocaleString()}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenOutput")}</dt>
+                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenOut.toLocaleString()}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenTotal")}</dt>
+                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenTotal.toLocaleString()}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenCache")}</dt>
+                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenCache.toLocaleString()}</dd>
+                        </div>
+                      </dl>
                     </div>
-                    <div className="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/35 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/10">
-                      <div className="space-y-3">
-                        <SidebarMetricRow label={t("threadSidebarTokenInput")} value={tokenIn.toLocaleString()} />
-                        <SidebarMetricRow label={t("threadSidebarTokenOutput")} value={tokenOut.toLocaleString()} />
-                        <SidebarMetricRow label={t("threadSidebarTokenTotal")} value={tokenTotal.toLocaleString()} accent />
-                        <SidebarMetricRow label={t("threadSidebarTokenCache")} value={tokenCache.toLocaleString()} />
-                      </div>
-                    </div>
-                  </section>
+                  </div>
                 </div>
               </aside>
             </div>

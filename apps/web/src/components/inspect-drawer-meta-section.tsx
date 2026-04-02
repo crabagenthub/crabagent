@@ -1,29 +1,10 @@
 "use client";
 
-import { IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
+import { IconInfoCircle } from "@arco-design/web-react/icon";
+import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { cn } from "@/lib/utils";
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    /* ignore */
-  }
-}
-
-function CopyIconButton({ text, ariaLabel }: { text: string; ariaLabel: string }) {
-  return (
-    <button
-      type="button"
-      onClick={() => void copyText(text)}
-      className="inline-flex shrink-0 rounded p-0.5 text-neutral-400 transition-colors hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-      aria-label={ariaLabel}
-    >
-      <IconCopy className="size-3.5" />
-    </button>
-  );
-}
 
 export type InspectDrawerMetaField = {
   label: string;
@@ -59,6 +40,7 @@ type Props = {
 
 export function InspectDrawerMetaSection({ title, fields, highlight, footerItems, className, variant = "default" }: Props) {
   const isSidebar = variant === "sidebar";
+  const t = useTranslations("Traces");
 
   return (
     <div className={cn("pt-1", className)}>
@@ -95,7 +77,12 @@ export function InspectDrawerMetaSection({ title, fields, highlight, footerItems
                 {f.value}
               </span>
               {f.copyText && f.copyAriaLabel ? (
-                <CopyIconButton text={f.copyText} ariaLabel={f.copyAriaLabel} />
+                <TraceCopyIconButton
+                  text={f.copyText}
+                  ariaLabel={f.copyAriaLabel}
+                  tooltipLabel={t("copy")}
+                  successLabel={t("copied")}
+                />
               ) : null}
             </div>
           </div>
