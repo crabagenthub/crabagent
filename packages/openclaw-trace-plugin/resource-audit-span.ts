@@ -78,6 +78,8 @@ function toolNameLooksMemory(name: string): boolean {
 function toolNameLooksFileRead(name: string): boolean {
   const n = name.toLowerCase();
   return (
+    n === "read" ||
+    n === "readfile" ||
     n === "read_file" ||
     n.includes("read_file") ||
     (n.includes("read") && n.includes("file")) ||
@@ -89,6 +91,8 @@ function toolNameLooksFileRead(name: string): boolean {
 function toolNameLooksFileWrite(name: string): boolean {
   const n = name.toLowerCase();
   return (
+    n === "write" ||
+    n === "writefile" ||
     n === "write_file" ||
     n.includes("write_file") ||
     (n.includes("write") && n.includes("file")) ||
@@ -99,7 +103,7 @@ function toolNameLooksFileWrite(name: string): boolean {
 
 function toolNameLooksGlob(name: string): boolean {
   const n = name.toLowerCase();
-  return n.includes("glob") || n.includes("list_dir") || n.includes("listdir");
+  return n === "glob" || n.includes("glob") || n.includes("list_dir") || n.includes("listdir");
 }
 
 /** OpenClaw / 常见 agent 将 skill 执行建模为 tool 调用；名称或参数需至少一端可识别。 */

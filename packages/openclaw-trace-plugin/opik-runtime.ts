@@ -728,6 +728,8 @@ type ActiveTurn = {
   threadId: string;
   llmSpanId: string | null;
   toolSpanByCallId: Map<string, string>;
+  /** Fallback when OpenClaw omits `toolCallId` on after_tool_call. */
+  lastToolSpanId?: string | null;
   spanSort: number;
   startedAt: number;
   threadRow: Record<string, unknown>;
@@ -1204,6 +1206,7 @@ export class OpikOpenClawRuntime {
       threadId,
       llmSpanId,
       toolSpanByCallId: new Map(),
+      lastToolSpanId: null,
       spanSort: 1,
       startedAt: startMs,
       threadRow,
@@ -1582,6 +1585,7 @@ export class OpikOpenClawRuntime {
     cur.spanSort += 1;
     const spanId = randomUUID();
     cur.toolSpanByCallId.set(id, spanId);
+    cur.lastToolSpanId = spanId;
     cur.spans.push({
       span_id: spanId,
       trace_id: cur.traceId,
@@ -1615,7 +1619,13 @@ export class OpikOpenClawRuntime {
     }
     const key = ev.toolCallId?.trim();
     const spanId = key ? cur.toolSpanByCallId.get(key) : undefined;
-    const span = spanId ? cur.spans.find((s) => s.span_id === spanId) : undefined;
+    let span = spanId ? cur.spans.find((s) => s.span_id === spanId) : undefined;
+    if (!span && (!key || !spanId) && cur.lastToolSpanId) {
+      const candidate = cur.spans.find((s) => s.span_id === cur.lastToolSpanId);
+      if (candidate && String(candidate.type ?? "") === "tool" && candidate.is_complete !== 1) {
+        span = candidate;
+      }
+    }
     if (!span) {
       this.debugTrace?.("after_tool_span_not_found", {
         sessionKey: sk,

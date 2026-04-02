@@ -20,6 +20,21 @@ describe("enrichToolSpanResourceAudit", () => {
     assert.ok(String(res.snippet).includes("hello"));
   });
 
+  it("tags ReadFile with file resource", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "ReadFile",
+      input: { params: { path: "/proj/IDENTITY.md" } },
+      output: { result: "identity content" },
+    };
+    enrichToolSpanResourceAudit(span);
+    const meta = span.metadata as Record<string, unknown>;
+    assert.equal(meta.semantic_kind, "file");
+    const res = meta.resource as Record<string, unknown>;
+    assert.equal(res.uri, "/proj/IDENTITY.md");
+    assert.equal(res.access_mode, "read");
+  });
+
   it("tags memory_search as MEMORY with top_k", () => {
     const span: Record<string, unknown> = {
       type: "tool",
