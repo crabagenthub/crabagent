@@ -396,7 +396,7 @@ function AssistantBubble({
               系统输入
             </button>
           </Popover>
-        ) : showTraceLink ? (
+        ) : !onViewSteps && showTraceLink ? (
           <LocalizedLink
             href={traceHref}
             title={t("convViewSteps")}
@@ -408,29 +408,10 @@ function AssistantBubble({
         ) : null}
       </div>
 
-      {asyncFollowup && systemInputText && systemInputText.trim().length > 0 ? (
-        <div className="rounded-lg border border-violet-200/80 bg-violet-50/60 px-3 py-2">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-900/80">
-            进入模型 Prompt
-          </p>
-          {asyncDetails && asyncDetails.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {asyncDetails.map((d, idx) => (
-                <span
-                  key={`prompt-${d.k}-${idx}`}
-                  className="inline-flex max-w-full items-center rounded-md border border-violet-200/80 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700 break-all whitespace-normal leading-none"
-                >
-                  {d.k}
-                  {d.v ? `: ${d.v}` : ""}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground">
-            {systemInputText}
-          </pre>
-        </div>
-      ) : null}
+      {/*
+        asyncFollowup 的「进入模型 Prompt」面板已移除；
+        系统输入仅通过右上角「系统输入」popover 入口展示。
+      */}
 
       {!messagesOnly && thinking ? (
         <button
