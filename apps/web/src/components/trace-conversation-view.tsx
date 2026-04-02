@@ -2,8 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { Popover } from "@arco-design/web-react";
-import { IconBranch, IconCopy, IconInfoCircle } from "@arco-design/web-react/icon";
+import { IconBranch, IconCopy } from "@arco-design/web-react/icon";
 import { LocalizedLink } from "@/components/localized-link";
 import {
   ChatContainerContent,
@@ -20,6 +19,30 @@ import { buildConversationTimeline, type ConversationTimelineItem, type MemoryRe
 import { cn } from "@/lib/utils";
 
 const TURN_DIVIDER = "#EEEEEE";
+
+function userBubbleSurfaceClassNames(compact: boolean) {
+  return cn(
+    "!bg-[#E8EBFF] max-w-full rounded-xl [border:0] shadow-none ring-0 outline-none ring-offset-0 [box-shadow:none] text-neutral-900",
+    compact ? "px-3 py-2 text-[13px] leading-snug" : "px-4 py-3 text-[15px] leading-relaxed",
+  );
+}
+
+/** 与用户侧消息相同的气泡：`Message` + 浅紫底 `MessageContent`。 */
+function UserConversationBubble({
+  children,
+  compact,
+}: {
+  children: ReactNode;
+  compact: boolean;
+}) {
+  return (
+    <Message className="max-w-[min(100%,70%)] flex-row-reverse">
+      <MessageContent markdown={false} className={userBubbleSurfaceClassNames(compact)}>
+        {children}
+      </MessageContent>
+    </Message>
+  );
+}
 
 function rowNumericId(e: TraceTimelineEvent): number {
   const n = e.id;
@@ -286,29 +309,9 @@ function AssistantBubble({
 
   const showTraceLink = threadKey.trim().length > 0;
   const canCopy = text.trim().length > 0;
-  const asyncDetails = useMemo(() => {
-    if (!systemInputText || !asyncFollowup) {
-      return null;
-    }
-    const m = systemInputText.match(/\(([^)]+)\)/);
-    if (!m || !m[1]) {
-      return null;
-    }
-    const inside = m[1]!;
-    const parts = inside
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-    const parsed = parts.map((p) => {
-      const mm = /^([a-zA-Z0-9_ -]+)\s*(?:=)?\s*(.+)$/.exec(p);
-      if (!mm) {
-        return { k: p, v: "" };
-      }
-      return { k: mm[1]!.trim(), v: mm[2]!.trim() };
-    });
-    return parsed;
-  }, [systemInputText]);
-
+  const splitAsyncUserStyleSystemInput = Boolean(
+    asyncFollowup && systemInputText && systemInputText.trim().length > 0,
+  );
 
   const bubbleText = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
   const bubblePad = compact ? "px-3 py-2" : "px-4 py-3";
@@ -322,96 +325,74 @@ function AssistantBubble({
       )
     ) : null;
 
-  return (
-    <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
-      <div className="flex flex-wrap items-center gap-3 pl-0.5 text-xs text-neutral-500">
-        {asyncFollowup ? (
-          <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200/80">
-            异步
-          </span>
-        ) : null}
-        {canCopy ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
-            title={copied ? t("detailCopied") : t("detailCopy")}
-            aria-label={t("detailCopy")}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(text.trim());
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1200);
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            <IconCopy className="size-3.5 shrink-0" />
-            {t("detailCopy")}
-          </button>
-        ) : null}
-        {onViewSteps ? (
-          <button
-            type="button"
-            title={t("convViewSteps")}
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
-            onClick={onViewSteps}
-          >
-            <IconBranch className="size-3.5 shrink-0" />
-            {t("convViewSteps")}
-          </button>
-        ) : null}
-        {onViewSteps && asyncFollowup && systemInputText && systemInputText.trim().length > 0 ? (
-          <Popover
-            trigger="hover"
-            position="top"
-            content={
-              <div className="box-border max-h-[70vh] min-w-[14rem] min-w-0 w-[min(100vw-2rem,32rem)] overflow-y-auto overflow-x-auto rounded-lg border border-border bg-popover px-3 py-2">
-                {asyncDetails && asyncDetails.length > 0 ? (
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    {asyncDetails.map((d, idx) => (
-                      <span
-                        key={`${d.k}-${idx}`}
-                        className="inline-flex max-w-full items-center rounded-md border border-violet-200/80 bg-violet-50 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700 break-all whitespace-normal leading-none"
-                      >
-                        {d.k}
-                        {d.v ? `: ${d.v}` : ""}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                <pre className="whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground">
-                  {systemInputText}
-                </pre>
-              </div>
-            }
-          >
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
-              title={"系统输入"}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <IconInfoCircle className="size-3.5 shrink-0" aria-hidden />
-              系统输入
-            </button>
-          </Popover>
-        ) : !onViewSteps && showTraceLink ? (
-          <LocalizedLink
-            href={traceHref}
-            title={t("convViewSteps")}
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
-          >
-            <IconBranch className="size-3.5 shrink-0" />
-            {t("convViewSteps")}
-          </LocalizedLink>
-        ) : null}
-      </div>
+  const systemInputBody = splitAsyncUserStyleSystemInput ? (
+    <pre className={cn("whitespace-pre-wrap break-words font-sans text-neutral-900 leading-relaxed", bubbleText)}>
+      {systemInputText}
+    </pre>
+  ) : null;
 
-      {/*
-        asyncFollowup 的「进入模型 Prompt」面板已移除；
-        系统输入仅通过右上角「系统输入」popover 入口展示。
-      */}
+  const showAsyncBadge = Boolean(asyncFollowup);
+  const showAssistantToolbar =
+    showAsyncBadge || canCopy || onViewSteps || (!onViewSteps && showTraceLink);
+
+  return (
+    <div className="flex w-full flex-col">
+      {splitAsyncUserStyleSystemInput ? (
+        <div className="mb-5 flex w-full shrink-0 justify-end">
+          <UserConversationBubble compact={compact ?? false}>{systemInputBody}</UserConversationBubble>
+        </div>
+      ) : null}
+
+      <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
+        {showAssistantToolbar ? (
+          <div className="flex flex-wrap items-center gap-3 pl-0.5 text-xs text-neutral-500">
+            {showAsyncBadge ? (
+              <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200/80">
+                异步
+              </span>
+            ) : null}
+            {canCopy ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+                title={copied ? t("detailCopied") : t("detailCopy")}
+                aria-label={t("detailCopy")}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(text.trim());
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1200);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                <IconCopy className="size-3.5 shrink-0" />
+                {t("detailCopy")}
+              </button>
+            ) : null}
+            {onViewSteps ? (
+              <button
+                type="button"
+                title={t("convViewSteps")}
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+                onClick={onViewSteps}
+              >
+                <IconBranch className="size-3.5 shrink-0" />
+                {t("convViewSteps")}
+              </button>
+            ) : showTraceLink ? (
+              <LocalizedLink
+                href={traceHref}
+                title={t("convViewSteps")}
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-neutral-800"
+              >
+                <IconBranch className="size-3.5 shrink-0" />
+                {t("convViewSteps")}
+              </LocalizedLink>
+            ) : null}
+          </div>
+        ) : null}
 
       {!messagesOnly && thinking ? (
         <button
@@ -468,6 +449,7 @@ function AssistantBubble({
           <p className={compact ? "text-xs" : "text-sm"}>—</p>
         </MessageContent>
       )}
+      </div>
     </div>
   );
 }
@@ -518,17 +500,9 @@ function ConversationTimelineBlocks({
                 className={cn("flex justify-end pb-5", showDivider && "mb-5 border-b")}
                 style={showDivider ? dividerStyle : undefined}
               >
-                <Message className="max-w-[min(100%,70%)] flex-row-reverse">
-                  <MessageContent
-                    markdown={false}
-                    className={cn(
-                      "!bg-[#E8EBFF] max-w-full rounded-xl [border:0] shadow-none ring-0 outline-none ring-offset-0 [box-shadow:none] text-neutral-900",
-                      compact ? "px-3 py-2 text-[13px] leading-snug" : "px-4 py-3 text-[15px] leading-relaxed",
-                    )}
-                  >
-                    <p className="whitespace-pre-wrap break-words">{item.text}</p>
-                  </MessageContent>
-                </Message>
+                <UserConversationBubble compact={compact ?? false}>
+                  <p className="whitespace-pre-wrap break-words">{item.text}</p>
+                </UserConversationBubble>
               </div>
             );
           }
