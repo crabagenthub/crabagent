@@ -118,8 +118,10 @@ export function ThreadDrawerMessageTranscript({
                   threadKey={threadKey}
                   onViewSteps={
                     onOpenTrace
-                      ? () => {
-                          const traceId = resolveEffectiveTraceRootId(turn, events);
+                      ? (detailTraceRootId) => {
+                          const traceId =
+                            (detailTraceRootId && detailTraceRootId.trim()) ||
+                            resolveEffectiveTraceRootId(turn, events);
                           if (traceId) {
                             onOpenTrace(traceId);
                           }

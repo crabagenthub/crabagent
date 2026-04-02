@@ -11,6 +11,8 @@ export type ConversationTimelineItem =
       thinking: string | null;
       memoryRefs: MemoryRefSnippet[];
       key: string;
+      /** `llm_output` / `agent_end` 行的 `trace_root_id`，用于「查看执行步骤」打开该条对应的 trace 详情。 */
+      detailTraceRootId?: string | null;
       /** Whether this assistant reply belongs to an async follow-up trace_root_id. */
       asyncFollowup?: boolean;
       /** For async follow-up: the closest llm_input/prompt for the same trace_root_id. */
@@ -31,56 +33,82 @@ function isUserTurnMessage(e: TraceTimelineEvent, turn: UserTurnListItem): boole
   return normType(e) === "message_received" && e.event_id === turn.listKey;
 }
 
-/** OpenClaw agent_end often carries the final `messages` transcript when no separate llm_output row exists. */
-function assistantTextFromAgentEnd(e: TraceTimelineEvent): string | null {
-  const p = payloadOf(e);
+function contentTextFromMessageLike(o: Record<string, unknown>): string | null {
+  const content = o.content;
+  if (typeof content === "string" && content.trim()) {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((x) => {
+        if (typeof x === "string") {
+          return x;
+        }
+        if (x && typeof x === "object" && !Array.isArray(x)) {
+          const t = (x as Record<string, unknown>).text;
+          return typeof t === "string" ? t : "";
+        }
+        return "";
+      })
+      .filter(Boolean);
+    const joined = parts.join("\n").trim();
+    if (joined) {
+      return joined;
+    }
+  }
+  return null;
+}
+
+function isAssistantLikeMessage(o: Record<string, unknown>): boolean {
+  const role = String(o.role ?? "").toLowerCase();
+  const typ = String(o.type ?? "").toLowerCase();
+  return (
+    role === "assistant" ||
+    role === "ai" ||
+    role === "model" ||
+    role === "bot" ||
+    typ === "ai" ||
+    typ === "aimessage" ||
+    typ === "assistant"
+  );
+}
+
+function isToolMessage(o: Record<string, unknown>): boolean {
+  return String(o.role ?? "").toLowerCase() === "tool";
+}
+
+/**
+ * OpenClaw 控制面里首条模型回复常标成「Tool」；transcript 里为 `role: "tool"`，须与 assistant 一并解析。
+ * 优先取从后往前的最后一条 assistant 类消息；若无则取最后一条 tool 正文。
+ */
+function transcriptTextFromPayloadMessages(p: Record<string, unknown>): string | null {
   const messages = p.messages;
   if (!Array.isArray(messages) || messages.length === 0) {
     return null;
   }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
-    if (!m || typeof m !== "object" || Array.isArray(m)) {
-      continue;
-    }
-    const o = m as Record<string, unknown>;
-    const role = String(o.role ?? "").toLowerCase();
-    const typ = String(o.type ?? "").toLowerCase();
-    const isAssistant =
-      role === "assistant" ||
-      role === "ai" ||
-      role === "model" ||
-      role === "bot" ||
-      typ === "ai" ||
-      typ === "aimessage" ||
-      typ === "assistant";
-    if (!isAssistant) {
-      continue;
-    }
-    const content = o.content;
-    if (typeof content === "string" && content.trim()) {
-      return content.trim();
-    }
-    if (Array.isArray(content)) {
-      const parts = content
-        .map((x) => {
-          if (typeof x === "string") {
-            return x;
-          }
-          if (x && typeof x === "object" && !Array.isArray(x)) {
-            const t = (x as Record<string, unknown>).text;
-            return typeof t === "string" ? t : "";
-          }
-          return "";
-        })
-        .filter(Boolean);
-      const joined = parts.join("\n").trim();
-      if (joined) {
-        return joined;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const pick = pass === 0 ? isAssistantLikeMessage : isToolMessage;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (!m || typeof m !== "object" || Array.isArray(m)) {
+        continue;
+      }
+      const o = m as Record<string, unknown>;
+      if (!pick(o)) {
+        continue;
+      }
+      const t = contentTextFromMessageLike(o);
+      if (t) {
+        return t;
       }
     }
   }
   return null;
+}
+
+/** OpenClaw agent_end often carries the final `messages` transcript when no separate llm_output row exists. */
+function assistantTextFromAgentEnd(e: TraceTimelineEvent): string | null {
+  return transcriptTextFromPayloadMessages(payloadOf(e));
 }
 
 export function assistantTextFromLlmOutput(e: TraceTimelineEvent): string {
@@ -115,7 +143,8 @@ export function assistantTextFromLlmOutput(e: TraceTimelineEvent): string {
       }
     }
   }
-  return "";
+  const fromMessages = transcriptTextFromPayloadMessages(p);
+  return fromMessages ?? "";
 }
 
 function thinkingSummaryFromLlmInput(e: TraceTimelineEvent): string {
@@ -287,6 +316,7 @@ export function buildConversationTimeline(
         thinking: thinking && thinking.length > 0 ? thinking : null,
         memoryRefs: memRefs,
         key: eventKey(e, i),
+        detailTraceRootId: traceRootId,
         asyncFollowup: asyncFollowup || undefined,
         systemInputText: asyncFollowup ? sysInput : undefined,
       });
@@ -328,6 +358,7 @@ export function buildConversationTimeline(
           thinking: null,
           memoryRefs: memRefs,
           key: eventKey(e, i),
+          detailTraceRootId: traceRootId,
           asyncFollowup: asyncFollowup || undefined,
           systemInputText: asyncFollowup ? sysInput : undefined,
         });

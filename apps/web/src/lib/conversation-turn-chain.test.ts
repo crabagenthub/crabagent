@@ -111,4 +111,45 @@ describe("会话抽屉：turn.listKey 与 llm_output 链路", () => {
     assert.equal(slice.length, 3);
     assert.equal(slice[2]!.type, "llm_output");
   });
+
+  it("llm_output 无 assistantTexts 但 payload.messages 含 role=tool 时仍能渲染助手正文（OpenClaw Tool 首条）", () => {
+    const tid = "trace-tool-role";
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 20,
+        event_id: `${tid}:recv`,
+        type: "message_received",
+        trace_root_id: tid,
+        payload: { text: "问" },
+      }),
+      ev({
+        id: 21,
+        event_id: `${tid}:llm_in`,
+        type: "llm_input",
+        trace_root_id: tid,
+        payload: {},
+      }),
+      ev({
+        id: 22,
+        event_id: `${tid}:llm_out`,
+        type: "llm_output",
+        trace_root_id: tid,
+        payload: {
+          messages: [
+            { role: "user", content: "问" },
+            { role: "tool", content: "你好！我是助手。" },
+          ],
+        },
+      }),
+    ];
+    const turns = buildUserTurnList(events);
+    const slice = buildConversationTurnWindowEvents(events, turns[0]!, turns);
+    const timeline = buildConversationTimeline(slice, turns[0]!);
+    const assistants = timeline.filter((x) => x.kind === "assistant");
+    assert.equal(assistants.length, 1);
+    assert.equal(
+      assistants[0]!.kind === "assistant" ? assistants[0]!.text : "",
+      "你好！我是助手。",
+    );
+  });
 });

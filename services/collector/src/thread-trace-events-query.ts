@@ -169,6 +169,11 @@ function roleLooksAssistantMessage(o: Record<string, unknown>): boolean {
   );
 }
 
+/** OpenClaw 首条回复在 UI 常标为 Tool；`messages` 里为 `role: "tool"`，须与 assistant 一并抽取。 */
+function roleLooksToolMessage(o: Record<string, unknown>): boolean {
+  return String(o.role ?? "").toLowerCase() === "tool";
+}
+
 function textFromMessageLike(o: Record<string, unknown>): string | null {
   const content = o.content;
   if (typeof content === "string" && content.trim()) {
@@ -210,18 +215,21 @@ function extractAssistantTextsFromOutputShape(output: Record<string, unknown>): 
   }
   const messages = output.messages;
   if (Array.isArray(messages)) {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const m = messages[i];
-      if (!m || typeof m !== "object" || Array.isArray(m)) {
-        continue;
-      }
-      const o = m as Record<string, unknown>;
-      if (!roleLooksAssistantMessage(o)) {
-        continue;
-      }
-      const t = textFromMessageLike(o);
-      if (t) {
-        return [t];
+    for (let pass = 0; pass < 2; pass += 1) {
+      const accept = pass === 0 ? roleLooksAssistantMessage : roleLooksToolMessage;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const m = messages[i];
+        if (!m || typeof m !== "object" || Array.isArray(m)) {
+          continue;
+        }
+        const o = m as Record<string, unknown>;
+        if (!accept(o)) {
+          continue;
+        }
+        const t = textFromMessageLike(o);
+        if (t) {
+          return [t];
+        }
       }
     }
   }

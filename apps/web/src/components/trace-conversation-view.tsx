@@ -483,7 +483,8 @@ function ConversationTimelineBlocks({
   items: ConversationTimelineItem[];
   threadKey: string;
   msgId: string | null;
-  onViewSteps?: (() => void) | null;
+  /** 每条助手气泡对应 `llm_output` 的 `trace_root_id`；异步跟进须打开该 id，而非整轮主 trace。 */
+  onViewSteps?: ((detailTraceRootId: string | null) => void) | null;
   messagesOnly?: boolean;
   compact?: boolean;
 }) {
@@ -554,7 +555,13 @@ function ConversationTimelineBlocks({
                 memoryRefs={item.memoryRefs}
                 threadKey={threadKey}
                 msgId={msgId}
-                onViewSteps={onViewSteps}
+                onViewSteps={
+                  onViewSteps
+                    ? () => {
+                        onViewSteps(item.detailTraceRootId ?? null);
+                      }
+                    : null
+                }
                 asyncFollowup={item.asyncFollowup}
                 systemInputText={item.systemInputText ?? null}
                 messagesOnly={messagesOnly}
@@ -592,7 +599,7 @@ export function TraceConversationView({
   turn: UserTurnListItem | null;
   /** Conversation id for full-page trace link (same as route `/traces/[threadKey]`). */
   threadKey: string;
-  onViewSteps?: (() => void) | null;
+  onViewSteps?: ((detailTraceRootId: string | null) => void) | null;
   /** `turnEmbed`: no outer chat chrome; for stacking in full-session transcript. */
   variant?: TraceConversationViewVariant;
   conversationTurns?: UserTurnListItem[];

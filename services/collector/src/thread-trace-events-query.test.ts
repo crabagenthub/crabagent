@@ -79,6 +79,35 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
+  it("messages 仅有 role=tool（OpenClaw「Tool」首条回复）时仍能填充 payload.assistantTexts", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-tool.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-tool";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId: "tr-tool",
+        threadId,
+        inputJson: JSON.stringify({ text: "hello" }),
+        outputJson: JSON.stringify({
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "tool", content: "你好！我是 Coco Pig。" },
+          ],
+        }),
+        metadataJson: "{}",
+        createdMs: now,
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { assistantTexts?: string[] };
+      assert.equal(p.assistantTexts?.[0], "你好！我是 Coco Pig。");
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
   it("output_json 仅有 LangChain 式 messages（无 assistantTexts）时仍能填充 payload.assistantTexts", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-b.db`);
     const db = openDatabase(dbPath);
