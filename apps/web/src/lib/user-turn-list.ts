@@ -29,8 +29,10 @@ export type UserTurnListItem = {
   msgId: string | null;
   /** 与主命令合并展示时的其它 trace_root_id（异步跟进等）。 */
   mergedTraceRootIds?: string[] | null;
-  /** 合并进来的异步跟进条数（等于 mergedTraceRootIds.length，便于模板使用）。 */
+  /** 合并进来的异步命令类 message_received 条数（左侧统计）。 */
   mergedAsyncFollowUpCount?: number;
+  /** 合并进来的子代理 / system 内流类 message_received 条数（左侧统计）。 */
+  mergedSubagentFollowUpCount?: number;
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {
@@ -279,7 +281,7 @@ function mergeMessageReceivedPrelims(
   sorted: TraceTimelineEvent[],
 ): UserTurnListItem {
   const g = [...group].sort((a, b) => rowNumericId(a.e) - rowNumericId(b.e));
-  const primaryIdx = g.findIndex((x) => !isAsyncFollowupMessage(x.e));
+  const primaryIdx = g.findIndex((x) => !isMergedChildFollowupMessage(x.e));
   const primary = g[primaryIdx >= 0 ? primaryIdx : 0]!;
   const primaryRoot = strOrNull(primary.e.trace_root_id);
   const extraRoots = [...new Set(g.map((x) => strOrNull(x.e.trace_root_id)).filter((r): r is string => Boolean(r)))].filter(
@@ -287,14 +289,37 @@ function mergeMessageReceivedPrelims(
   );
   const anchorForNextRun = g[g.length - 1]!.e;
   const merged = turnFromMessageReceived(primary.e, sorted, anchorForNextRun, extraRoots.length > 0 ? extraRoots : null);
-  const n = extraRoots.length;
-  return n > 0 ? { ...merged, mergedAsyncFollowUpCount: n } : merged;
+  if (extraRoots.length === 0) {
+    return merged;
+  }
+  let asyncFollowUps = 0;
+  let subagentFollowUps = 0;
+  for (const x of g) {
+    if (x.e === primary.e) {
+      continue;
+    }
+    if (isSubagentOrSystemFollowupMessage(x.e)) {
+      subagentFollowUps += 1;
+    } else if (isAsyncFollowupMessage(x.e)) {
+      asyncFollowUps += 1;
+    } else if (isMergedChildFollowupMessage(x.e)) {
+      asyncFollowUps += 1;
+    }
+  }
+  const out: UserTurnListItem = { ...merged };
+  if (asyncFollowUps > 0) {
+    out.mergedAsyncFollowUpCount = asyncFollowUps;
+  }
+  if (subagentFollowUps > 0) {
+    out.mergedSubagentFollowUpCount = subagentFollowUps;
+  }
+  return out;
 }
 
 /**
  * 将多条 message_received 合成一条左侧会话项：
  * - 同一 msg_id 的多次上报合并为一行；
- * - 异步跟进（async 标记或标题/元数据启发式）合并到**上一条**主消息（含上一条为带 msg_id 的 trace），不单独成行。
+ * - 异步跟进、subagent/system 内流等合并到**上一条**主消息（含上一条为带 msg_id 的 trace），不单独成行。
  */
 function buildMergedMessageReceivedTurnList(
   received: TraceTimelineEvent[],
@@ -311,7 +336,7 @@ function buildMergedMessageReceivedTurnList(
   let current: MessageReceivedPrelim[] = [];
 
   for (const p of prelims) {
-    if (isAsyncFollowupMessage(p.e)) {
+    if (isMergedChildFollowupMessage(p.e)) {
       if (current.length > 0) {
         current.push(p);
       } else if (groups.length > 0) {
@@ -463,6 +488,54 @@ function plainTextFromMessagePayload(payload: Record<string, unknown>): string {
 function displayInboundText(raw: string): string {
   const stripped = extractInboundDisplayPreview(raw).trim();
   return stripped.length > 0 ? stripped : "—";
+}
+
+function payloadRecord(e: TraceTimelineEvent): Record<string, unknown> {
+  return e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+    ? (e.payload as Record<string, unknown>)
+    : {};
+}
+
+function payloadRunKindLower(e: TraceTimelineEvent): string {
+  const payload = payloadRecord(e);
+  const md =
+    payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+      ? (payload.metadata as Record<string, unknown>)
+      : {};
+  const rk =
+    (typeof payload.run_kind === "string" ? payload.run_kind : "") ||
+    (typeof md.run_kind === "string" ? md.run_kind : "");
+  return rk.trim().toLowerCase();
+}
+
+/**
+ * Subagent / 系统内流等：与异步跟进一样并入上一条主 `message_received`，左侧列表不占单独一行。
+ */
+export function isSubagentOrSystemFollowupMessage(e: TraceTimelineEvent): boolean {
+  if ((e.type ?? "") !== "message_received") {
+    return false;
+  }
+  const rk = payloadRunKindLower(e);
+  if (rk === "subagent" || rk === "system") {
+    return true;
+  }
+  const title = (e.chat_title ?? "").toLowerCase();
+  if (/\bsubagent\b/.test(title) || title.includes("sub-agent")) {
+    return true;
+  }
+  const full = plainTextFromMessagePayload(payloadRecord(e)).toLowerCase();
+  if (full.includes("openclaw runtime context (internal)")) {
+    return true;
+  }
+  if (full.includes("runtime context (internal)") && full.includes("openclaw")) {
+    return true;
+  }
+  return false;
+}
+
+/** 左侧合并：异步跟进 ∪ subagent/system 内流。 */
+export function isMergedChildFollowupMessage(e: TraceTimelineEvent): boolean {
+  return isAsyncFollowupMessage(e) || isSubagentOrSystemFollowupMessage(e);
 }
 
 /**

@@ -246,7 +246,17 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     const mergedAsyncCount =
       typeof u.mergedAsyncFollowUpCount === "number" && u.mergedAsyncFollowUpCount > 0
         ? u.mergedAsyncFollowUpCount
-        : u.mergedTraceRootIds?.length ?? 0;
+        : 0;
+    const mergedSubagentCount =
+      typeof u.mergedSubagentFollowUpCount === "number" && u.mergedSubagentFollowUpCount > 0
+        ? u.mergedSubagentFollowUpCount
+        : 0;
+    const legacyMergedTotal =
+      mergedAsyncCount === 0 &&
+      mergedSubagentCount === 0 &&
+      (u.mergedTraceRootIds?.length ?? 0) > 0
+        ? u.mergedTraceRootIds!.length
+        : 0;
     return (
       <li
         key={u.listKey}
@@ -275,11 +285,23 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
           <span className="mt-0.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
             {u.preview || "—"}
           </span>
-          {mergedAsyncCount > 0 ? (
-            <div className="mt-1.5 border-l-2 border-violet-300/90 pl-2.5 dark:border-violet-500/45">
-              <p className="text-[10px] leading-snug text-muted-foreground">
-                {t("threadDrawerAsyncFollowUpsHint", { count: String(mergedAsyncCount) })}
-              </p>
+          {mergedAsyncCount > 0 || mergedSubagentCount > 0 || legacyMergedTotal > 0 ? (
+            <div className="mt-1.5 space-y-1 border-l-2 border-violet-300/90 pl-2.5 dark:border-violet-500/45">
+              {mergedAsyncCount > 0 ? (
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  {t("threadDrawerAsyncFollowUpsHint", { count: String(mergedAsyncCount) })}
+                </p>
+              ) : null}
+              {mergedSubagentCount > 0 ? (
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  {t("threadDrawerSubagentFollowUpsHint", { count: String(mergedSubagentCount) })}
+                </p>
+              ) : null}
+              {legacyMergedTotal > 0 ? (
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  {t("threadDrawerAsyncFollowUpsHint", { count: String(legacyMergedTotal) })}
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums">
