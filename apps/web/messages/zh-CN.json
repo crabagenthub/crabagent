@@ -634,6 +634,8 @@
     "convNoTurn": "请选择一条消息以查看对话视图。",
     "convViewTrace": "查看处理链路",
     "convViewSteps": "查看执行步骤",
+    "convAssistantBadgeAsync": "异步",
+    "convAssistantBadgeSubagent": "子代理",
     "convThumbUpAria": "点赞",
     "convThumbDownAria": "点踩",
     "traceInspectTitle": "消息",

@@ -1,5 +1,9 @@
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
-import type { UserTurnListItem } from "@/lib/user-turn-list";
+import {
+  isAsyncFollowupMessage,
+  isSubagentOrSystemFollowupMessage,
+  type UserTurnListItem,
+} from "@/lib/user-turn-list";
 
 export type MemoryRefSnippet = { label: string; excerpt: string };
 
@@ -13,9 +17,9 @@ export type ConversationTimelineItem =
       key: string;
       /** `llm_output` / `agent_end` 行的 `trace_root_id`，用于「查看执行步骤」打开该条对应的 trace 详情。 */
       detailTraceRootId?: string | null;
-      /** Whether this assistant reply belongs to an async follow-up trace_root_id. */
-      asyncFollowup?: boolean;
-      /** For async follow-up: the closest llm_input/prompt for the same trace_root_id. */
+      /** 合并进本轮的助手回复：异步命令 vs 子代理（用于角标文案）。 */
+      mergedReplyKind?: "async" | "subagent";
+      /** 合并回合：同 trace 上最近的 llm_input 正文（系统输入紫气泡等）。 */
       systemInputText?: string | null;
     }
   | { kind: "collapsed"; events: TraceTimelineEvent[]; key: string };
@@ -27,6 +31,27 @@ function payloadOf(e: TraceTimelineEvent): Record<string, unknown> {
 
 function normType(e: TraceTimelineEvent): string {
   return String(e.type ?? "").toLowerCase();
+}
+
+/** 根据同 trace 的 `message_received` 区分合并角标：子代理优先于异步。 */
+function classifyMergedAssistantReplyKind(events: TraceTimelineEvent[], traceRootId: string): "async" | "subagent" {
+  const tr = traceRootId.trim();
+  for (const e of events) {
+    if (normType(e) !== "message_received") {
+      continue;
+    }
+    const er = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (er !== tr) {
+      continue;
+    }
+    if (isSubagentOrSystemFollowupMessage(e)) {
+      return "subagent";
+    }
+    if (isAsyncFollowupMessage(e)) {
+      return "async";
+    }
+  }
+  return "async";
 }
 
 function isUserTurnMessage(e: TraceTimelineEvent, turn: UserTurnListItem): boolean {
@@ -287,10 +312,10 @@ export function buildConversationTimeline(
       pendingLlmInput = null;
       const text = assistantTextFromLlmOutput(e) || "—";
       const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
-      const asyncFollowup =
-        turn && traceRootId
-          ? Boolean(turn.mergedTraceRootIds?.includes(traceRootId))
-          : false;
+      const mergedReplyKind =
+        turn && traceRootId && turn.mergedTraceRootIds?.includes(traceRootId)
+          ? classifyMergedAssistantReplyKind(events, traceRootId)
+          : undefined;
       const sysInput = (() => {
         if (!traceRootId) return null;
         const c = lastLlmInputByTraceRootId.get(traceRootId);
@@ -317,8 +342,8 @@ export function buildConversationTimeline(
         memoryRefs: memRefs,
         key: eventKey(e, i),
         detailTraceRootId: traceRootId,
-        asyncFollowup: asyncFollowup || undefined,
-        systemInputText: asyncFollowup ? sysInput : undefined,
+        mergedReplyKind,
+        systemInputText: mergedReplyKind ? sysInput : undefined,
       });
       return;
     }
@@ -330,10 +355,10 @@ export function buildConversationTimeline(
         flushBuffer();
         pendingLlmInput = null;
         const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
-        const asyncFollowup =
-          turn && traceRootId
-            ? Boolean(turn.mergedTraceRootIds?.includes(traceRootId))
-            : false;
+        const mergedReplyKind =
+          turn && traceRootId && turn.mergedTraceRootIds?.includes(traceRootId)
+            ? classifyMergedAssistantReplyKind(events, traceRootId)
+            : undefined;
         const sysInput = (() => {
           if (!traceRootId) return null;
           const c = lastLlmInputByTraceRootId.get(traceRootId);
@@ -359,8 +384,8 @@ export function buildConversationTimeline(
           memoryRefs: memRefs,
           key: eventKey(e, i),
           detailTraceRootId: traceRootId,
-          asyncFollowup: asyncFollowup || undefined,
-          systemInputText: asyncFollowup ? sysInput : undefined,
+          mergedReplyKind,
+          systemInputText: mergedReplyKind ? sysInput : undefined,
         });
         return;
       }

@@ -280,7 +280,7 @@ function AssistantBubble({
   threadKey,
   msgId,
   onViewSteps,
-  asyncFollowup,
+  mergedReplyKind,
   systemInputText,
   messagesOnly,
   compact,
@@ -291,7 +291,8 @@ function AssistantBubble({
   threadKey: string;
   msgId: string | null;
   onViewSteps?: (() => void) | null;
-  asyncFollowup?: boolean;
+  /** 合并进本轮的助手回复类型；无则非合并主 trace 回复。 */
+  mergedReplyKind?: "async" | "subagent" | null;
   systemInputText?: string | null;
   /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
   messagesOnly?: boolean;
@@ -310,7 +311,7 @@ function AssistantBubble({
   const showTraceLink = threadKey.trim().length > 0;
   const canCopy = text.trim().length > 0;
   const splitAsyncUserStyleSystemInput = Boolean(
-    asyncFollowup && systemInputText && systemInputText.trim().length > 0,
+    mergedReplyKind && systemInputText && systemInputText.trim().length > 0,
   );
 
   const bubbleText = compact ? "text-[13px] leading-snug" : "text-[15px] leading-relaxed";
@@ -331,9 +332,9 @@ function AssistantBubble({
     </pre>
   ) : null;
 
-  const showAsyncBadge = Boolean(asyncFollowup);
+  const showMergedKindBadge = mergedReplyKind != null;
   const showAssistantToolbar =
-    showAsyncBadge || canCopy || onViewSteps || (!onViewSteps && showTraceLink);
+    showMergedKindBadge || canCopy || onViewSteps || (!onViewSteps && showTraceLink);
 
   return (
     <div className="flex w-full flex-col">
@@ -346,9 +347,9 @@ function AssistantBubble({
       <div className="flex w-full max-w-[min(100%,70%)] flex-col items-stretch gap-2 self-start">
         {showAssistantToolbar ? (
           <div className="flex flex-wrap items-center gap-3 pl-0.5 text-xs text-neutral-500">
-            {showAsyncBadge ? (
+            {showMergedKindBadge ? (
               <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200/80">
-                异步
+                {mergedReplyKind === "subagent" ? t("convAssistantBadgeSubagent") : t("convAssistantBadgeAsync")}
               </span>
             ) : null}
             {canCopy ? (
@@ -536,7 +537,7 @@ function ConversationTimelineBlocks({
                       }
                     : null
                 }
-                asyncFollowup={item.asyncFollowup}
+                mergedReplyKind={item.mergedReplyKind ?? null}
                 systemInputText={item.systemInputText ?? null}
                 messagesOnly={messagesOnly}
                 compact={compact}

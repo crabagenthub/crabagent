@@ -255,6 +255,28 @@ function extractAssistantTextsFromOutputShape(output: Record<string, unknown>): 
   return null;
 }
 
+/**
+ * 插件有时只把 completion 写在 `opik_spans`（llm span）上，而 `opik_traces.output_json` 仍为 {}（例如 llm_output hook 未命中、仅 span patch 入库）。
+ * 时间线只读 trace 行会丢助手气泡；此处用同 trace 下第一条 llm span 的 output 兜底。
+ */
+function mergeTraceOutputWithPrimaryLlmSpan(
+  traceOutput: Record<string, unknown>,
+  spanOutputJson: string | null | undefined,
+): Record<string, unknown> {
+  if (extractAssistantTextsFromOutputShape(traceOutput) != null) {
+    return { ...traceOutput };
+  }
+  const spanOut = safeObject(spanOutputJson);
+  if (Object.keys(spanOut).length === 0) {
+    return { ...traceOutput };
+  }
+  const fromSpan = extractAssistantTextsFromOutputShape(spanOut);
+  if (fromSpan == null || fromSpan.length === 0) {
+    return { ...traceOutput };
+  }
+  return { ...traceOutput, assistantTexts: fromSpan };
+}
+
 function llmOutputPayload(
   output: Record<string, unknown>,
   metadata: Record<string, unknown>,
@@ -363,6 +385,13 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
   const events: Record<string, unknown>[] = [];
   let seq = 0;
 
+  const selectPrimaryLlmSpanOutput = db.prepare(
+    `SELECT output_json FROM opik_spans
+      WHERE trace_id = ? AND span_type = 'llm'
+      ORDER BY COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC
+      LIMIT 1`,
+  );
+
   for (const r of rows) {
     const traceId = String(r.trace_id ?? "").trim();
     if (!traceId) {
@@ -378,7 +407,8 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     seq += 1;
 
     const input = safeObject(r.input_json);
-    const output = safeObject(r.output_json);
+    const spanOutRow = selectPrimaryLlmSpanOutput.get(traceId) as { output_json: string | null } | undefined;
+    const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), spanOutRow?.output_json ?? null);
     const metadata = safeObject(r.metadata_json);
 
     const agentName = agentNameFromMetadata(metadata);

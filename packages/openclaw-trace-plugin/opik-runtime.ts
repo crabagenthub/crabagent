@@ -1089,7 +1089,13 @@ export class OpikOpenClawRuntime {
         : [sk];
     const pendingKeys = this.expandPendingAliasKeysForUserTurn(basePendingKeys, sk);
     const peeked = this.peekPendingForSampling(pendingKeys, sk);
-    const forceTraceForUserMessage = pendingHasUserInboundMessage(peeked);
+    const promptStr = typeof ev.prompt === "string" ? ev.prompt : undefined;
+    const pendingForKind =
+      peeked && typeof peeked === "object" && !Array.isArray(peeked) ? peeked : ({} as Record<string, unknown>);
+    const inferredRunKind = inferThreadRunKind(pendingForKind, promptStr);
+    /** 异步完成后的跟进 LLM 往往已无 pending 用户句，不能仅靠采样，否则 Collector 漏整条回复（OpenClaw UI 仍可见）。 */
+    const forceTraceForUserMessage =
+      pendingHasUserInboundMessage(peeked) || inferredRunKind === "async_followup";
     if (!forceTraceForUserMessage && !shouldSample(sampleBps)) {
       /** 无用户 inbound 时仍可按采样跳过；有用户正文则强制本回合建 LLM trace。 */
       this.debugTrace?.("llm_input_sample_skipped", {
@@ -1122,7 +1128,6 @@ export class OpikOpenClawRuntime {
     const agLabel = threadAgentLabelFromPending(ctx, pendingRec) ?? threadAgentLabel(ctx);
     const chLabel =
       threadChannelLabelFromPending(ctx, pendingRec, threadId) ?? threadChannelLabel(ctx);
-    const promptStr = typeof ev.prompt === "string" ? ev.prompt : undefined;
     /** Leading field so DB previews / SUBSTR on input_json still catch user text if JSON is truncated. */
     const input = normalizeOpikTraceInputForStorage({
       list_input_preview: promptStr && promptStr.length > 0 ? promptStr.slice(0, 12_000) : undefined,

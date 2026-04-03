@@ -628,6 +628,8 @@
     "convNoTurn": "Select a message to see the conversation view.",
     "convViewTrace": "View pipeline",
     "convViewSteps": "View steps",
+    "convAssistantBadgeAsync": "Async",
+    "convAssistantBadgeSubagent": "subagent",
     "convThumbUpAria": "Thumbs up",
     "convThumbDownAria": "Thumbs down",
     "traceInspectTitle": "Message",

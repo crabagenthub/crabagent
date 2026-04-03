@@ -46,6 +46,20 @@ function insertMinimalTrace(
   );
 }
 
+function insertLlmSpanOutput(
+  db: ReturnType<typeof openDatabase>,
+  traceId: string,
+  outputJson: string,
+  sortIndex = 1,
+): void {
+  db.prepare(
+    `INSERT INTO opik_spans (
+      span_id, trace_id, parent_span_id, name, span_type,
+      output_json, is_complete, sort_index
+    ) VALUES (?, ?, NULL, 'llm', 'llm', ?, 1, ?)`,
+  ).run(`span-${traceId}`, traceId, outputJson, sortIndex);
+}
+
 describe("queryThreadTraceEvents / 合成时间线", () => {
   it("每条 trace 产生 message_received → llm_input → llm_output 且 event_id 后缀稳定", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}.db`);
@@ -131,6 +145,32 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
       const items = queryThreadTraceEvents(db, threadId);
       const p = items[2]!.payload as { assistantTexts?: string[] };
       assert.equal(p.assistantTexts?.[0], "world reply");
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
+  it("trace output_json 为空但 opik_spans 上 llm span 有正文时仍能填充 payload.assistantTexts", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-span-fb.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-span-fb";
+      const traceId = "tr-span-fb";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId,
+        threadId,
+        inputJson: JSON.stringify({ text: "hi" }),
+        outputJson: "{}",
+        metadataJson: "{}",
+        createdMs: now,
+      });
+      insertLlmSpanOutput(db, traceId, JSON.stringify({ assistantTexts: ["hey Lucbine, from span only"] }));
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { assistantTexts?: string[] };
+      assert.equal(p.assistantTexts?.[0], "hey Lucbine, from span only");
     } finally {
       db.close();
       fs.unlinkSync(dbPath);
