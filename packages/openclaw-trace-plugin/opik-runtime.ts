@@ -249,6 +249,46 @@ function isPlainObj(v: unknown): v is Record<string, unknown> {
   return Boolean(v && typeof v === "object" && !Array.isArray(v));
 }
 
+function normalizeAssistantTextList(v: unknown): string[] {
+  if (!Array.isArray(v)) {
+    return [];
+  }
+  return v
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** 同 trace 上多次 `llm_output`：避免后到空数组覆盖，或短片段覆盖长正文。 */
+function mergeAssistantTextsArrays(prev: unknown, incoming: unknown): string[] {
+  const a = normalizeAssistantTextList(prev);
+  const b = normalizeAssistantTextList(incoming);
+  if (b.length === 0) {
+    return a;
+  }
+  if (a.length === 0) {
+    return b;
+  }
+  const as = a.join("\n\n");
+  const bs = b.join("\n\n");
+  if (bs === as) {
+    return a;
+  }
+  if (bs.length > as.length && bs.includes(as)) {
+    return b;
+  }
+  if (as.length > bs.length && as.includes(bs)) {
+    return a;
+  }
+  if (bs.length > as.length) {
+    return b;
+  }
+  if (as.length > bs.length) {
+    return a;
+  }
+  return [...a, ...b];
+}
+
 function usagePartsPresent(parts: { total?: number; prompt?: number; completion?: number }): boolean {
   return parts.total != null || parts.prompt != null || parts.completion != null;
 }
@@ -754,6 +794,13 @@ export class OpikOpenClawRuntime {
   private readonly lateLlmOutputGraceMs = 120_000;
   /** Last `turn_id` for an `external` run per thread — async/subagent follow-ups attach via `parent_turn_id`. */
   private readonly lastExternalTurnIdByThread = new Map<string, string>();
+  /** Latest turn id per thread (any run_kind) — subagent anchor fallback when parent has no external yet. */
+  private readonly lastTurnIdByThread = new Map<string, string>();
+  /** Child sessionKey → parent thread anchor (set on `subagent_spawned`, cleared on `subagent_ended`). */
+  private readonly subagentAnchorByChild = new Map<
+    string,
+    { parentThreadId: string; anchorParentTurnId: string }
+  >();
   /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。 */
   private readonly persistPendingDir?: string;
   private readonly traceBareAgentEnds: boolean;
@@ -777,13 +824,67 @@ export class OpikOpenClawRuntime {
     }
   }
 
+  /**
+   * Parent session key + child `childSessionKey` from OpenClaw `subagent_spawned`.
+   * Collector grafts child-thread turns under the parent's latest external turn (or latest turn of any kind).
+   */
+  registerSubagentChildAnchor(parentSessionKey: string, childSessionKey: string): void {
+    const p = parentSessionKey.trim();
+    const c = childSessionKey.trim();
+    if (!p || !c || p === c) {
+      return;
+    }
+    const anchorTurn =
+      this.lastExternalTurnIdByThread.get(p) ?? this.lastTurnIdByThread.get(p) ?? null;
+    if (!anchorTurn) {
+      return;
+    }
+    this.subagentAnchorByChild.set(c, { parentThreadId: p, anchorParentTurnId: anchorTurn });
+  }
+
+  clearSubagentChildAnchor(childSessionKey: string): void {
+    this.subagentAnchorByChild.delete(childSessionKey.trim());
+  }
+
+  private turnMetadataFields(turnMeta: {
+    turnId: string;
+    runKind: ThreadRunKind;
+    parentTurnId: string | null;
+    anchorParentThreadId: string | null;
+    anchorParentTurnId: string | null;
+  }): Record<string, unknown> {
+    const o: Record<string, unknown> = {
+      turn_id: turnMeta.turnId,
+      run_kind: turnMeta.runKind,
+      parent_turn_id: turnMeta.parentTurnId,
+    };
+    if (turnMeta.anchorParentThreadId) {
+      o.anchor_parent_thread_id = turnMeta.anchorParentThreadId;
+    }
+    if (turnMeta.anchorParentTurnId) {
+      o.anchor_parent_turn_id = turnMeta.anchorParentTurnId;
+    }
+    return o;
+  }
+
   private computeTurnMetadata(
     threadId: string,
     pending: Record<string, unknown>,
     promptPreview: string | undefined,
-  ): { turnId: string; runKind: ThreadRunKind; parentTurnId: string | null } {
-    const runKind = inferThreadRunKind(pending, promptPreview);
+  ): {
+    turnId: string;
+    runKind: ThreadRunKind;
+    parentTurnId: string | null;
+    anchorParentThreadId: string | null;
+    anchorParentTurnId: string | null;
+  } {
+    const childAnchor = this.subagentAnchorByChild.get(threadId);
+    let runKind = inferThreadRunKind(pending, promptPreview);
+    if (childAnchor) {
+      runKind = "subagent";
+    }
     const turnId = randomUUID();
+    this.lastTurnIdByThread.set(threadId, turnId);
     let parentTurnId: string | null = null;
     // External is the only top-level; all non-external turns attach under the latest external (if any).
     if (runKind !== "external") {
@@ -791,7 +892,13 @@ export class OpikOpenClawRuntime {
     } else {
       this.lastExternalTurnIdByThread.set(threadId, turnId);
     }
-    return { turnId, runKind, parentTurnId };
+    return {
+      turnId,
+      runKind,
+      parentTurnId,
+      anchorParentThreadId: childAnchor?.parentThreadId ?? null,
+      anchorParentTurnId: childAnchor?.anchorParentTurnId ?? null,
+    };
   }
 
   private hydratePendingFromDisk(): void {
@@ -1167,9 +1274,7 @@ export class OpikOpenClawRuntime {
         usage: {},
         ...(runIdTrim.length > 0 ? { run_id: runIdTrim, runId: runIdTrim } : {}),
         agent_name: agLabel,
-        turn_id: turnMeta.turnId,
-        run_kind: turnMeta.runKind,
-        parent_turn_id: turnMeta.parentTurnId,
+        ...this.turnMetadataFields(turnMeta),
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
@@ -1261,9 +1366,7 @@ export class OpikOpenClawRuntime {
       input,
       metadata: {
         usage: {},
-        turn_id: turnMeta.turnId,
-        run_kind: turnMeta.runKind,
-        parent_turn_id: turnMeta.parentTurnId,
+        ...this.turnMetadataFields(turnMeta),
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
@@ -1379,14 +1482,12 @@ export class OpikOpenClawRuntime {
       metadata: {
         usage: {},
         agent_name: agLabel,
-        turn_id: turnMeta.turnId,
-        run_kind: turnMeta.runKind,
-        parent_turn_id: turnMeta.parentTurnId,
-      openclaw_context: {
-        messageProvider: ctx.messageProvider,
-        conversationId: ctx.conversationId,
-        agentId: ctx.agentId,
-      },
+        ...this.turnMetadataFields(turnMeta),
+        openclaw_context: {
+          messageProvider: ctx.messageProvider,
+          conversationId: ctx.conversationId,
+          agentId: ctx.agentId,
+        },
         trace_kind: (() => {
           const fr =
             pending.message_received &&
@@ -1443,6 +1544,7 @@ export class OpikOpenClawRuntime {
       model?: string;
       assistantTexts?: unknown;
       usage?: Record<string, unknown>;
+      usageMetadata?: Record<string, unknown>;
     },
     sessionAliasKeys?: string[],
   ): OpikBatchPayload | null {
@@ -1498,6 +1600,9 @@ export class OpikOpenClawRuntime {
           meta.usage = ev.usage;
           mergeTotalTokensFromUsage(meta, ev.usage);
         }
+        if (ev.usageMetadata && isPlainObj(ev.usageMetadata)) {
+          meta.usageMetadata = ev.usageMetadata;
+        }
         const tracePatch: Record<string, unknown> = {
           trace_id: late.traceId,
           thread_id: late.threadId,
@@ -1540,7 +1645,12 @@ export class OpikOpenClawRuntime {
     const t = nowMs();
     const span = cur.spans.find((s) => s.span_id === cur.llmSpanId);
     if (span) {
-      span.output = { assistantTexts: ev.assistantTexts };
+      const prevSpanOut = isPlainObj(span.output) ? (span.output as Record<string, unknown>) : {};
+      const mergedSpanAt = mergeAssistantTextsArrays(prevSpanOut.assistantTexts, ev.assistantTexts);
+      span.output =
+        mergedSpanAt.length > 0
+          ? { ...prevSpanOut, assistantTexts: mergedSpanAt }
+          : { ...prevSpanOut, assistantTexts: ev.assistantTexts };
       span.usage = ev.usage;
       span.model = ev.model ?? span.model;
       span.provider = ev.provider ?? span.provider;
@@ -1550,11 +1660,25 @@ export class OpikOpenClawRuntime {
     }
     const meta = { ...(cur.traceRow.metadata as Record<string, unknown>) };
     meta.usage = ev.usage ?? meta.usage;
-    meta.output_preview = Array.isArray(ev.assistantTexts)
-      ? String(ev.assistantTexts[0] ?? "").slice(0, 4000)
-      : undefined;
+    if (ev.usageMetadata && isPlainObj(ev.usageMetadata)) {
+      meta.usageMetadata = ev.usageMetadata;
+    }
+    const prevTraceOut = isPlainObj(cur.traceRow.output) ? (cur.traceRow.output as Record<string, unknown>) : {};
+    const mergedTraceAt = mergeAssistantTextsArrays(prevTraceOut.assistantTexts, ev.assistantTexts);
+    const nextOut: Record<string, unknown> = { ...prevTraceOut };
+    if (mergedTraceAt.length > 0) {
+      nextOut.assistantTexts = mergedTraceAt;
+    } else if (ev.assistantTexts !== undefined) {
+      nextOut.assistantTexts = ev.assistantTexts;
+    }
+    cur.traceRow.output = Object.keys(nextOut).length > 0 ? nextOut : cur.traceRow.output;
+    meta.output_preview =
+      mergedTraceAt.length > 0
+        ? String(mergedTraceAt[0] ?? "").slice(0, 4000)
+        : Array.isArray(ev.assistantTexts)
+          ? String(ev.assistantTexts[0] ?? "").slice(0, 4000)
+          : undefined;
     cur.traceRow.metadata = meta;
-    cur.traceRow.output = { assistantTexts: ev.assistantTexts };
     cur.traceRow.updated_at_ms = t;
     const metaOut = cur.traceRow.metadata as Record<string, unknown>;
     const uRec = ev.usage && isPlainObj(ev.usage) ? ev.usage : {};
@@ -1686,6 +1810,12 @@ export class OpikOpenClawRuntime {
       ...(cur.traceRow.metadata as object),
       messageCount: Array.isArray(ev.messages) ? ev.messages.length : undefined,
     };
+    if (Array.isArray(ev.messages) && ev.messages.length > 0) {
+      const prevOut = cur.traceRow.output;
+      const base: Record<string, unknown> = isPlainObj(prevOut) ? { ...(prevOut as Record<string, unknown>) } : {};
+      base.messages = ev.messages;
+      cur.traceRow.output = base;
+    }
     const usageFromMsgs = usageFromAgentEndMessages(ev.messages);
     if (usageFromMsgs) {
       const meta = cur.traceRow.metadata as Record<string, unknown>;

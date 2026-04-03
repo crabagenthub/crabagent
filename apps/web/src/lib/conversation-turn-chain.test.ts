@@ -5,7 +5,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
-import { buildConversationTurnWindowEvents, buildUserTurnList } from "./user-turn-list";
+import {
+  buildConversationTurnWindowEvents,
+  buildTranscriptEventList,
+  buildUserTurnList,
+} from "./user-turn-list";
 import { buildConversationTimeline } from "./trace-conversation-timeline";
 
 function ev(
@@ -150,6 +154,64 @@ describe("会话抽屉：turn.listKey 与 llm_output 链路", () => {
     assert.equal(
       assistants[0]!.kind === "assistant" ? assistants[0]!.text : "",
       "你好！我是助手。",
+    );
+  });
+
+  it("buildTranscriptEventList：同 msg_id 的 llm_output 排在用户锚点之前时仍并入会话正文", () => {
+    const sharedMsg = "msg-shared-union";
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 50,
+        event_id: "orphan-llm:out",
+        type: "llm_output",
+        trace_root_id: "trace-x",
+        msg_id: sharedMsg,
+        payload: { assistantTexts: ["需要批准天气查询（前置）"] },
+      }),
+      ev({
+        id: 100,
+        event_id: "trace-1:recv",
+        type: "message_received",
+        trace_root_id: "trace-1",
+        msg_id: sharedMsg,
+        payload: { text: "user turn" },
+      }),
+      ev({
+        id: 101,
+        event_id: "trace-1:llm_in",
+        type: "llm_input",
+        trace_root_id: "trace-1",
+        msg_id: sharedMsg,
+      }),
+      ev({
+        id: 102,
+        event_id: "trace-1:llm_out",
+        type: "llm_output",
+        trace_root_id: "trace-1",
+        msg_id: sharedMsg,
+        payload: { assistantTexts: ["后置回复"] },
+      }),
+    ];
+    const turns = buildUserTurnList(events);
+    assert.equal(turns.length, 1);
+    const turn = turns[0]!;
+    const windowOnly = buildConversationTurnWindowEvents(events, turn, turns);
+    const unioned = buildTranscriptEventList(events, turn, turns);
+    assert.equal(
+      windowOnly.some((e) => e.event_id === "orphan-llm:out"),
+      false,
+      "pure window drops pre-anchor llm_output",
+    );
+    assert.equal(
+      unioned.some((e) => e.event_id === "orphan-llm:out"),
+      true,
+      "transcript union keeps same-msg_id llm_output",
+    );
+    const timeline = buildConversationTimeline(unioned, turn, { messagesOnly: true });
+    const assistants = timeline.filter((x) => x.kind === "assistant");
+    assert.equal(assistants.length, 2);
+    assert.ok(
+      assistants.some((a) => a.kind === "assistant" && a.text.includes("需要批准天气")),
     );
   });
 });

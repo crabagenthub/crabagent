@@ -62,6 +62,8 @@ function opikSchemaDdl(): string {
       sort_key INTEGER NOT NULL,
       preview_text TEXT,
       skills_used_json TEXT,
+      anchor_parent_thread_id TEXT,
+      anchor_parent_turn_id TEXT,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER
     );
@@ -226,12 +228,29 @@ function ensureOpikThreadTurnsTable(db: Database.Database): void {
       sort_key INTEGER NOT NULL,
       preview_text TEXT,
       skills_used_json TEXT,
+      anchor_parent_thread_id TEXT,
+      anchor_parent_turn_id TEXT,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER
     );
     CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
     CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
   `);
+}
+
+/** Cross-thread subagent link: parent session external (or latest) turn id for left-nav grafting. */
+function ensureOpikThreadTurnsAnchorColumns(db: Database.Database): void {
+  if (!opikThreadTurnsTableExists(db)) {
+    return;
+  }
+  const cols = db.prepare(`PRAGMA table_info(opik_thread_turns)`).all() as { name: string }[];
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has("anchor_parent_thread_id")) {
+    db.exec(`ALTER TABLE opik_thread_turns ADD COLUMN anchor_parent_thread_id TEXT`);
+  }
+  if (!names.has("anchor_parent_turn_id")) {
+    db.exec(`ALTER TABLE opik_thread_turns ADD COLUMN anchor_parent_turn_id TEXT`);
+  }
 }
 
 /**
@@ -299,6 +318,7 @@ export function openDatabase(dbPath: string): Database.Database {
   } else {
     ensureOpikThreadsAgentChannelColumns(db);
     ensureOpikThreadTurnsTable(db);
+    ensureOpikThreadTurnsAnchorColumns(db);
   }
 
   // Always attempt to backfill, it's a no-op for fully-populated rows.

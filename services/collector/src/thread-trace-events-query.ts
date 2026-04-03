@@ -198,6 +198,28 @@ function textFromMessageLike(o: Record<string, unknown>): string | null {
   return null;
 }
 
+/** 按时间顺序拼接所有 assistant/tool 段，对齐 OpenClaw 单条 Tool 卡内多段正文。 */
+function transcriptJoinedFromAssistantAndToolMessages(messages: unknown[]): string | null {
+  const chunks: string[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object" || Array.isArray(m)) {
+      continue;
+    }
+    const o = m as Record<string, unknown>;
+    if (!roleLooksAssistantMessage(o) && !roleLooksToolMessage(o)) {
+      continue;
+    }
+    const t = textFromMessageLike(o);
+    if (t && t.trim()) {
+      chunks.push(t.trim());
+    }
+  }
+  if (chunks.length === 0) {
+    return null;
+  }
+  return chunks.join("\n\n");
+}
+
 /**
  * Normalize trace `output_json` into `assistantTexts[]` for the synthetic `llm_output` row.
  * OpenClaw / ingest often stores `messages`, `result`, or plain strings instead of `assistantTexts`.
@@ -277,19 +299,123 @@ function mergeTraceOutputWithPrimaryLlmSpan(
   return { ...traceOutput, assistantTexts: fromSpan };
 }
 
+/** True when usage object carries any token counter (incl. OpenClaw `input`/`output`). */
+function usageHasTokenSignals(u: unknown): boolean {
+  if (!u || typeof u !== "object" || Array.isArray(u)) {
+    return false;
+  }
+  const o = u as Record<string, unknown>;
+  for (const k of [
+    "input",
+    "output",
+    "inputTokens",
+    "outputTokens",
+    "total_tokens",
+    "totalTokens",
+    "totalTokenCount",
+    "prompt_tokens",
+    "completion_tokens",
+    "input_tokens",
+    "output_tokens",
+    "prompt_token_count",
+    "completion_token_count",
+    "candidatesTokenCount",
+    "promptTokenCount",
+    "inputTokenCount",
+    "outputTokenCount",
+  ]) {
+    const v = o[k];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      return true;
+    }
+    if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) {
+      return true;
+    }
+  }
+  const um = o.usageMetadata;
+  if (um && typeof um === "object" && !Array.isArray(um)) {
+    const m = um as Record<string, unknown>;
+    for (const kk of ["totalTokenCount", "totalTokens", "promptTokenCount", "candidatesTokenCount"]) {
+      const v = m[kk];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function pickContextWindowTokens(input: Record<string, unknown>, metadata: Record<string, unknown>): number | null {
+  const tryNum = (v: unknown): number | null => {
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+      return Math.trunc(v);
+    }
+    return null;
+  };
+  const routing = input.openclaw_routing;
+  if (routing && typeof routing === "object" && !Array.isArray(routing)) {
+    const n = tryNum((routing as Record<string, unknown>).max_context_tokens);
+    if (n != null) {
+      return n;
+    }
+  }
+  for (const k of [
+    "max_context_tokens",
+    "contextTokens",
+    "context_tokens",
+    "contextWindow",
+    "context_window_tokens",
+  ] as const) {
+    const n = tryNum(metadata[k] ?? input[k]);
+    if (n != null) {
+      return n;
+    }
+  }
+  return null;
+}
+
 function llmOutputPayload(
   output: Record<string, unknown>,
   metadata: Record<string, unknown>,
+  spanUsage: Record<string, unknown> | null,
+  spanModel: string | null,
+  spanProvider: string | null,
+  contextWindowTokens: number | null,
 ): Record<string, unknown> {
   const out = { ...output };
+  if (Array.isArray(out.messages) && out.messages.length > 0) {
+    const joined = transcriptJoinedFromAssistantAndToolMessages(out.messages as unknown[]);
+    if (joined) {
+      const atArr = Array.isArray(out.assistantTexts)
+        ? out.assistantTexts.filter((x): x is string => typeof x === "string").map((s) => s.trim())
+        : [];
+      const atJoined = atArr.join("\n\n").trim();
+      if (joined.length > atJoined.length || atJoined.length === 0) {
+        out.assistantTexts = [joined];
+      }
+    }
+  }
   const mdUsage = metadata.usage;
-  if (
+  if (mdUsage && typeof mdUsage === "object" && !Array.isArray(mdUsage) && usageHasTokenSignals(mdUsage)) {
+    const base =
+      out.usage && typeof out.usage === "object" && !Array.isArray(out.usage)
+        ? (out.usage as Record<string, unknown>)
+        : {};
+    out.usage = { ...base, ...(mdUsage as Record<string, unknown>) };
+  } else if (
     (out.usage == null || typeof out.usage !== "object" || Array.isArray(out.usage)) &&
     mdUsage &&
     typeof mdUsage === "object" &&
     !Array.isArray(mdUsage)
   ) {
     out.usage = { ...(mdUsage as Record<string, unknown>) };
+  }
+  if (spanUsage && usageHasTokenSignals(spanUsage) && !usageHasTokenSignals(out.usage)) {
+    const base =
+      out.usage && typeof out.usage === "object" && !Array.isArray(out.usage)
+        ? (out.usage as Record<string, unknown>)
+        : {};
+    out.usage = { ...base, ...spanUsage };
   }
   const mdUsageMetadata = metadata.usageMetadata;
   if (
@@ -323,6 +449,15 @@ function llmOutputPayload(
     if (!Array.isArray(existing) || existing.length === 0) {
       out.assistantTexts = [output.output.trim()];
     }
+  }
+  if (contextWindowTokens != null && contextWindowTokens > 0) {
+    out.context_window_tokens = contextWindowTokens;
+  }
+  if (out.model == null && spanModel != null && spanModel.trim()) {
+    out.model = spanModel.trim();
+  }
+  if (out.provider == null && spanProvider != null && spanProvider.trim()) {
+    out.provider = spanProvider.trim();
   }
   return out;
 }
@@ -385,8 +520,8 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
   const events: Record<string, unknown>[] = [];
   let seq = 0;
 
-  const selectPrimaryLlmSpanOutput = db.prepare(
-    `SELECT output_json FROM opik_spans
+  const selectPrimaryLlmSpanRow = db.prepare(
+    `SELECT output_json, usage_json, model, provider FROM opik_spans
       WHERE trace_id = ? AND span_type = 'llm'
       ORDER BY COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC
       LIMIT 1`,
@@ -407,9 +542,19 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     seq += 1;
 
     const input = safeObject(r.input_json);
-    const spanOutRow = selectPrimaryLlmSpanOutput.get(traceId) as { output_json: string | null } | undefined;
-    const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), spanOutRow?.output_json ?? null);
+    const spanRow = selectPrimaryLlmSpanRow.get(traceId) as {
+      output_json: string | null;
+      usage_json: string | null;
+      model: string | null;
+      provider: string | null;
+    } | undefined;
+    const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), spanRow?.output_json ?? null);
     const metadata = safeObject(r.metadata_json);
+    const spanUsageRaw = safeObject(spanRow?.usage_json ?? null);
+    const spanUsageForPayload = Object.keys(spanUsageRaw).length > 0 ? spanUsageRaw : null;
+    const spanModel = typeof spanRow?.model === "string" && spanRow.model.trim() ? spanRow.model.trim() : null;
+    const spanProvider = typeof spanRow?.provider === "string" && spanRow.provider.trim() ? spanRow.provider.trim() : null;
+    const contextWindowTokens = pickContextWindowTokens(input, metadata);
 
     const agentName = agentNameFromMetadata(metadata);
     const chatTitle = typeof r.name === "string" && r.name.trim() ? r.name.trim() : null;
@@ -468,6 +613,23 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       payload: Object.keys(input).length > 0 ? { ...input, run_id: runId } : { prompt: "—", run_id: runId },
     });
 
+    const llmOutPayload = llmOutputPayload(
+      output,
+      metadata,
+      spanUsageForPayload,
+      spanModel,
+      spanProvider,
+      contextWindowTokens,
+    ) as Record<string, unknown>;
+    const inModel = input.model;
+    if (llmOutPayload.model == null && typeof inModel === "string" && inModel.trim()) {
+      llmOutPayload.model = inModel.trim();
+    }
+    const inProvider = input.provider;
+    if (llmOutPayload.provider == null && typeof inProvider === "string" && inProvider.trim()) {
+      llmOutPayload.provider = inProvider.trim();
+    }
+
     events.push({
       id: baseId + 2,
       event_id: `${traceId}:llm_out`,
@@ -484,7 +646,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       ended_at_ms: computedEnded,
       updated_at_ms: updated,
       duration_ms: duration,
-      payload: llmOutputPayload(output, metadata),
+      payload: llmOutPayload,
     });
   }
 

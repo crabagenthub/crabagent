@@ -13,9 +13,11 @@ import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import {
   buildConversationTurnWindowEvents,
   buildDetailEventList,
+  buildTranscriptEventList,
   type UserTurnListItem,
 } from "@/lib/user-turn-list";
 import { buildConversationTimeline, type ConversationTimelineItem, type MemoryRefSnippet } from "@/lib/trace-conversation-timeline";
+import { ConversationTurnMetaBar } from "@/components/conversation-turn-meta-bar";
 import { cn } from "@/lib/utils";
 
 const TURN_DIVIDER = "#EEEEEE";
@@ -60,6 +62,113 @@ function sortChronological(events: TraceTimelineEvent[]): TraceTimelineEvent[] {
     const tb = String(b.client_ts ?? b.created_at ?? "");
     return ta.localeCompare(tb);
   });
+}
+
+/**
+ * 与 OpenClaw `agents[].id` / 入库 `agent_name` 同形的纯小写 snake_case，不宜当作 footer 里的「会话助手展示名」。
+ * 此类值在 UI 上应回退为字面 `Assistant`，而不是把技术 id 当成名字。
+ */
+function isLikelyTechnicalAgentSlug(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 2) {
+    return true;
+  }
+  if (/[\s\u4e00-\u9fff]/.test(t)) {
+    return false;
+  }
+  if (/[A-Z]/.test(t)) {
+    return false;
+  }
+  return /^[a-z][a-z0-9_]*$/.test(t);
+}
+
+function pickDisplayableSessionAssistantLabel(raw: string | null | undefined): string | null {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s || isLikelyTechnicalAgentSlug(s)) {
+    return null;
+  }
+  return s;
+}
+
+function friendlySessionNameFromPayloadRecord(pl: Record<string, unknown>): string | null {
+  const tryKeys = (o: Record<string, unknown>, keys: readonly string[]) => {
+    for (const k of keys) {
+      const hit = pickDisplayableSessionAssistantLabel(typeof o[k] === "string" ? o[k] : null);
+      if (hit) {
+        return hit;
+      }
+    }
+    return null;
+  };
+
+  const ut = pl.user_turn;
+  if (ut && typeof ut === "object" && !Array.isArray(ut)) {
+    const mr = (ut as Record<string, unknown>).message_received;
+    if (mr && typeof mr === "object" && !Array.isArray(mr)) {
+      const md = (mr as Record<string, unknown>).metadata;
+      if (md && typeof md === "object" && !Array.isArray(md)) {
+        const m = md as Record<string, unknown>;
+        const fromMeta = tryKeys(m, [
+          "displayAgentName",
+          "agentDisplayName",
+          "assistantDisplayName",
+          "agentName",
+          "assistantName",
+        ]);
+        if (fromMeta) {
+          return fromMeta;
+        }
+      }
+    }
+  }
+
+  const occ = pl.openclaw_context;
+  if (occ && typeof occ === "object" && !Array.isArray(occ)) {
+    const hit = tryKeys(occ as Record<string, unknown>, [
+      "displayAgentName",
+      "agentDisplayName",
+      "agentName",
+      "assistantName",
+    ]);
+    if (hit) {
+      return hit;
+    }
+  }
+
+  const oc = pl.openclaw;
+  if (oc && typeof oc === "object" && !Array.isArray(oc)) {
+    const hit = tryKeys(oc as Record<string, unknown>, ["agentName", "displayAgentName", "assistantName"]);
+    if (hit) {
+      return hit;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * OpenClaw：整会话共用一个可读 `assistantName`。
+ * 忽略与 agentId 同源的技术 slug（如 `daily_reddit_digest`），无可用展示名时返回 null → footer 用 `Assistant`。
+ */
+function sessionAssistantDisplayNameFromThreadEvents(events: TraceTimelineEvent[]): string | null {
+  const sorted = sortChronological(events);
+  for (const e of sorted) {
+    const p = e.payload;
+    if (!p || typeof p !== "object" || Array.isArray(p)) {
+      continue;
+    }
+    const hit = friendlySessionNameFromPayloadRecord(p as Record<string, unknown>);
+    if (hit) {
+      return hit;
+    }
+  }
+  for (const e of sorted) {
+    const hit = pickDisplayableSessionAssistantLabel(e.agent_name);
+    if (hit) {
+      return hit;
+    }
+  }
+  return null;
 }
 
 function estimateStepsDurationMs(events: TraceTimelineEvent[]): number | null {
@@ -284,6 +393,7 @@ function AssistantBubble({
   systemInputText,
   messagesOnly,
   compact,
+  turnMetaBelowBubble,
 }: {
   text: string;
   thinking: string | null;
@@ -297,6 +407,8 @@ function AssistantBubble({
   /** 会话抽屉等场景：仅展示对话正文，不展示 thinking / 查看链路。 */
   messagesOnly?: boolean;
   compact?: boolean;
+  /** OpenClaw 风格：角色 / 时间 / tokens / ctx% / 模型（紧挨助手气泡下方）。 */
+  turnMetaBelowBubble?: ReactNode;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
@@ -451,6 +563,7 @@ function AssistantBubble({
         </MessageContent>
       )}
       </div>
+      {turnMetaBelowBubble}
     </div>
   );
 }
@@ -462,6 +575,7 @@ function ConversationTimelineBlocks({
   onViewSteps,
   messagesOnly,
   compact,
+  sessionAssistantName,
 }: {
   items: ConversationTimelineItem[];
   threadKey: string;
@@ -470,6 +584,8 @@ function ConversationTimelineBlocks({
   onViewSteps?: ((detailTraceRootId: string | null) => void) | null;
   messagesOnly?: boolean;
   compact?: boolean;
+  /** OpenClaw 会话级 `assistantName`；缺省由父组件从整段 events 推导。 */
+  sessionAssistantName: string | null;
 }) {
   const t = useTranslations("Traces");
   const hasAssistant = items.some((i) => i.kind === "assistant");
@@ -541,6 +657,18 @@ function ConversationTimelineBlocks({
                 systemInputText={item.systemInputText ?? null}
                 messagesOnly={messagesOnly}
                 compact={compact}
+                turnMetaBelowBubble={
+                  messagesOnly && item.sourceEvent ? (
+                    <ConversationTurnMetaBar
+                      sourceEvent={item.sourceEvent}
+                      modelLabel={item.modelLabel ?? null}
+                      footerGroupRole={item.footerGroupRole ?? "assistant"}
+                      sessionAssistantName={sessionAssistantName}
+                      compact={compact}
+                      className="max-w-[min(100%,70%)] pl-0.5"
+                    />
+                  ) : null
+                }
               />
             </div>
           );
@@ -569,6 +697,11 @@ export function TraceConversationView({
   messagesOnly = false,
   /** 缩小正文字号（如会话抽屉对话区）。 */
   compact = false,
+  /**
+   * OpenClaw 控制面会话级 `assistantName`；不传则从 `events` 中首次出现的 agent 元数据推导，
+   * 再缺省为字面 `Assistant`（与 `grouped-render` 一致）。
+   */
+  sessionAssistantName: sessionAssistantNameProp = null,
 }: {
   events: TraceTimelineEvent[];
   turn: UserTurnListItem | null;
@@ -580,6 +713,7 @@ export function TraceConversationView({
   conversationTurns?: UserTurnListItem[];
   messagesOnly?: boolean;
   compact?: boolean;
+  sessionAssistantName?: string | null;
 }) {
   const t = useTranslations("Traces");
   const scopedEvents = useMemo(() => {
@@ -590,17 +724,29 @@ export function TraceConversationView({
       // In tree mode, "turnEmbed" still uses a time-window slice [anchor, nextAnchor).
       // For external parent turns we want to merge async/subagent descendants as well,
       // which is only honored by `buildDetailEventList` (via `mergedTraceRootIds`).
+      if (messagesOnly) {
+        return buildTranscriptEventList(events, turn, conversationTurns);
+      }
       if (turn.mergedTraceRootIds && turn.mergedTraceRootIds.length > 0) {
         return buildDetailEventList(events, turn);
       }
       return buildConversationTurnWindowEvents(events, turn, conversationTurns);
     }
     return buildDetailEventList(events, turn);
-  }, [events, turn, variant, conversationTurns]);
+  }, [events, turn, variant, conversationTurns, messagesOnly]);
   const items = useMemo(
     () => buildConversationTimeline(scopedEvents, turn, { messagesOnly }),
     [scopedEvents, turn, messagesOnly],
   );
+
+  const sessionAssistantName = useMemo(() => {
+    const fromProp = typeof sessionAssistantNameProp === "string" ? sessionAssistantNameProp.trim() : "";
+    const propLabel = fromProp ? pickDisplayableSessionAssistantLabel(fromProp) : null;
+    if (propLabel) {
+      return propLabel;
+    }
+    return sessionAssistantDisplayNameFromThreadEvents(events);
+  }, [sessionAssistantNameProp, events]);
 
   if (!turn && items.length === 0) {
     return (
@@ -618,6 +764,7 @@ export function TraceConversationView({
       onViewSteps={onViewSteps}
       messagesOnly={messagesOnly}
       compact={compact}
+      sessionAssistantName={sessionAssistantName}
     />
   );
 

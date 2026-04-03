@@ -837,6 +837,23 @@ export function buildConversationTurnWindowEvents(
   return slice.length > 0 ? slice : buildDetailEventList(events, turn);
 }
 
+/**
+ * 会话抽屉「仅对话」：按 trace/msg_id 的 detail 列表 ∪ 用户锚点时间窗口，去重后按时间排序。
+ * 单独用窗口会漏掉锚点外、但仍属同轮同 msg 的 trace 行；单独用 detail 会漏未写入 mergedTraceRootIds 的根。
+ */
+export function buildTranscriptEventList(
+  events: TraceTimelineEvent[],
+  turn: UserTurnListItem,
+  orderedTurns: UserTurnListItem[],
+): TraceTimelineEvent[] {
+  const detail = buildDetailEventList(events, turn);
+  const windowed =
+    orderedTurns.length === 0
+      ? detail
+      : buildConversationTurnWindowEvents(events, turn, orderedTurns);
+  return [...mergeTraceEventsDedupe(detail, windowed)].sort(compareTimelineChrono);
+}
+
 /** Sidebar / header: prefer precomputed linkedRunId, else first llm run in the same trace_root slice. */
 export function resolveLinkedRunIdForTurn(
   turn: UserTurnListItem,

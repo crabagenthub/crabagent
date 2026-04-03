@@ -636,6 +636,7 @@
     "convViewSteps": "查看执行步骤",
     "convAssistantBadgeAsync": "异步",
     "convAssistantBadgeSubagent": "子代理",
+    "convMetaRoleAssistant": "助手",
     "convThumbUpAria": "点赞",
     "convThumbDownAria": "点踩",
     "traceInspectTitle": "消息",

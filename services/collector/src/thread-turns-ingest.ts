@@ -15,7 +15,8 @@ function str(v: unknown): string | null {
 
 /**
  * After a trace row is upserted, upsert `opik_thread_turns` when `metadata.turn_id` is set.
- * Plugin is responsible for emitting `turn_id`, `run_kind`, `parent_turn_id`.
+ * Plugin may emit `anchor_parent_thread_id` + `anchor_parent_turn_id` for subagent sessions
+ * (cross-thread graft in `queryThreadTurnsTree`).
  */
 export function upsertThreadTurnFromTraceMetadata(
   db: Database.Database,
@@ -41,6 +42,8 @@ export function upsertThreadTurnFromTraceMetadata(
   const rk = parseThreadRunKind(meta.run_kind);
   const runKind: ThreadRunKind = rk ?? "external";
   const parentTurnId = str(meta.parent_turn_id);
+  const anchorParentThreadId = str(meta.anchor_parent_thread_id);
+  const anchorParentTurnId = str(meta.anchor_parent_turn_id);
   const sortKey = Number.isFinite(opts.createdAtMs) ? Math.floor(opts.createdAtMs) : Date.now();
 
   const stmt = db.prepare(`
@@ -48,8 +51,9 @@ export function upsertThreadTurnFromTraceMetadata(
       turn_id, thread_id, workspace_name, project_name,
       parent_turn_id, run_kind, primary_trace_id,
       sort_key, preview_text, skills_used_json,
+      anchor_parent_thread_id, anchor_parent_turn_id,
       created_at_ms, updated_at_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
     ON CONFLICT(turn_id) DO UPDATE SET
       thread_id = excluded.thread_id,
       workspace_name = excluded.workspace_name,
@@ -59,6 +63,8 @@ export function upsertThreadTurnFromTraceMetadata(
       primary_trace_id = excluded.primary_trace_id,
       sort_key = excluded.sort_key,
       preview_text = COALESCE(excluded.preview_text, opik_thread_turns.preview_text),
+      anchor_parent_thread_id = COALESCE(excluded.anchor_parent_thread_id, opik_thread_turns.anchor_parent_thread_id),
+      anchor_parent_turn_id = COALESCE(excluded.anchor_parent_turn_id, opik_thread_turns.anchor_parent_turn_id),
       updated_at_ms = excluded.updated_at_ms
   `);
   const now = Date.now();
@@ -72,6 +78,8 @@ export function upsertThreadTurnFromTraceMetadata(
     opts.traceId,
     sortKey,
     opts.previewText,
+    anchorParentThreadId,
+    anchorParentTurnId,
     sortKey,
     now,
   );

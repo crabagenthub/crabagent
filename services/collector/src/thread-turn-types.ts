@@ -32,6 +32,9 @@ export type ThreadTurnRow = {
   sort_key: number;
   preview_text: string | null;
   skills_used_json: string | null;
+  /** Subagent: parent session thread_id for cross-thread graft (see `queryThreadTurnsTree`). */
+  anchor_parent_thread_id?: string | null;
+  anchor_parent_turn_id?: string | null;
   created_at_ms: number;
   updated_at_ms: number | null;
 };

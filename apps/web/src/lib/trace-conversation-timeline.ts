@@ -21,6 +21,14 @@ export type ConversationTimelineItem =
       mergedReplyKind?: "async" | "subagent";
       /** 合并回合：同 trace 上最近的 llm_input 正文（系统输入紫气泡等）。 */
       systemInputText?: string | null;
+      /** 会话抽屉 messagesOnly：OpenClaw 风格元数据条（与 `modelLabel` 同用）。 */
+      sourceEvent?: TraceTimelineEvent;
+      modelLabel?: string | null;
+      /**
+       * OpenClaw `renderMessageGroup`：`tool` 分组 footer 为固定 "Tool"，否则为会话级 `assistantName`。
+       * 由 `payload.messages` 中「从后往前第一条有正文的 assistant vs tool」推断。
+       */
+      footerGroupRole?: "assistant" | "tool";
     }
   | { kind: "collapsed"; events: TraceTimelineEvent[]; key: string };
 
@@ -100,6 +108,51 @@ function isAssistantLikeMessage(o: Record<string, unknown>): boolean {
 
 function isToolMessage(o: Record<string, unknown>): boolean {
   return String(o.role ?? "").toLowerCase() === "tool";
+}
+
+/**
+ * 对齐 OpenClaw `normalizeRoleForGrouping` + 分组 footer：从 `messages` 尾部找第一条有正文的
+ * assistant 或 tool；assistant 优先于更靠后的 tool（与 `transcriptTextFromPayloadMessages` 两遍扫描一致）。
+ */
+function footerGroupRoleFromMessagesInPayload(p: Record<string, unknown>): "assistant" | "tool" | null {
+  const messages = p.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+  for (let pass = 0; pass < 2; pass += 1) {
+    const pick = pass === 0 ? isAssistantLikeMessage : isToolMessage;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (!m || typeof m !== "object" || Array.isArray(m)) {
+        continue;
+      }
+      const o = m as Record<string, unknown>;
+      if (!pick(o)) {
+        continue;
+      }
+      const t = contentTextFromMessageLike(o);
+      if (t?.trim()) {
+        return pass === 0 ? "assistant" : "tool";
+      }
+    }
+  }
+  return null;
+}
+
+/** `llm_output` / `agent_end` payload：无 `messages` 时视为 assistant 分组（与 OpenClaw 仅 assistant 气泡一致）。 */
+export function footerGroupRoleFromLlmLikePayload(p: Record<string, unknown>): "assistant" | "tool" {
+  const direct = footerGroupRoleFromMessagesInPayload(p);
+  if (direct != null) {
+    return direct;
+  }
+  const nested = p.output;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const inner = footerGroupRoleFromMessagesInPayload(nested as Record<string, unknown>);
+    if (inner != null) {
+      return inner;
+    }
+  }
+  return "assistant";
 }
 
 /**
@@ -276,6 +329,8 @@ export function buildConversationTimeline(
     prompt: string | null;
     listInputPreview: string | null;
     fallbackText: string | null;
+    model: string | null;
+    provider: string | null;
   };
   const lastLlmInputByTraceRootId = new Map<string, LlmInputCandidates>();
 
@@ -335,6 +390,11 @@ export function buildConversationTimeline(
         }
         return c.fallbackText;
       })();
+      const pOut = payloadOf(e);
+      const modelFromOut =
+        typeof pOut.model === "string" && pOut.model.trim() ? pOut.model.trim() : null;
+      const cands = traceRootId ? lastLlmInputByTraceRootId.get(traceRootId) : undefined;
+      const modelLabel = modelFromOut ?? cands?.model ?? null;
       items.push({
         kind: "assistant",
         text,
@@ -344,6 +404,9 @@ export function buildConversationTimeline(
         detailTraceRootId: traceRootId,
         mergedReplyKind,
         systemInputText: mergedReplyKind ? sysInput : undefined,
+        sourceEvent: messagesOnly ? e : undefined,
+        modelLabel: messagesOnly ? modelLabel : undefined,
+        footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pOut) : undefined,
       });
       return;
     }
@@ -377,6 +440,11 @@ export function buildConversationTimeline(
           }
           return c.fallbackText;
         })();
+        const pEnd = payloadOf(e);
+        const modelFromEnd =
+          typeof pEnd.model === "string" && pEnd.model.trim() ? pEnd.model.trim() : null;
+        const candsEnd = traceRootId ? lastLlmInputByTraceRootId.get(traceRootId) : undefined;
+        const modelLabelEnd = modelFromEnd ?? candsEnd?.model ?? null;
         items.push({
           kind: "assistant",
           text: fromTranscript,
@@ -386,6 +454,9 @@ export function buildConversationTimeline(
           detailTraceRootId: traceRootId,
           mergedReplyKind,
           systemInputText: mergedReplyKind ? sysInput : undefined,
+          sourceEvent: messagesOnly ? e : undefined,
+          modelLabel: messagesOnly ? modelLabelEnd : undefined,
+          footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pEnd) : undefined,
         });
         return;
       }
@@ -413,8 +484,10 @@ export function buildConversationTimeline(
                 : typeof p.content === "string" && p.content.trim()
                   ? p.content.trim()
                   : null) ?? null;
+        const model = typeof p.model === "string" && p.model.trim() ? p.model.trim() : null;
+        const provider = typeof p.provider === "string" && p.provider.trim() ? p.provider.trim() : null;
 
-        lastLlmInputByTraceRootId.set(traceRootId, { prompt, listInputPreview, fallbackText });
+        lastLlmInputByTraceRootId.set(traceRootId, { prompt, listInputPreview, fallbackText, model, provider });
       }
       return;
     }

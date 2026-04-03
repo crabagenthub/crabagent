@@ -51,13 +51,22 @@ function insertLlmSpanOutput(
   traceId: string,
   outputJson: string,
   sortIndex = 1,
+  opts?: { usageJson?: string | null; model?: string | null; provider?: string | null },
 ): void {
   db.prepare(
     `INSERT INTO opik_spans (
       span_id, trace_id, parent_span_id, name, span_type,
-      output_json, is_complete, sort_index
-    ) VALUES (?, ?, NULL, 'llm', 'llm', ?, 1, ?)`,
-  ).run(`span-${traceId}`, traceId, outputJson, sortIndex);
+      output_json, usage_json, model, provider, is_complete, sort_index
+    ) VALUES (?, ?, NULL, 'llm', 'llm', ?, ?, ?, ?, 1, ?)`,
+  ).run(
+    `span-${traceId}`,
+    traceId,
+    outputJson,
+    opts?.usageJson ?? null,
+    opts?.model ?? null,
+    opts?.provider ?? null,
+    sortIndex,
+  );
 }
 
 describe("queryThreadTraceEvents / 合成时间线", () => {
@@ -151,6 +160,38 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
+  it("output_json 含多条 role=tool 时按顺序拼成一条 assistantTexts", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-multi-tool.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-multi-tool";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId: "tr-mt",
+        threadId,
+        inputJson: JSON.stringify({ text: "q" }),
+        outputJson: JSON.stringify({
+          messages: [
+            { role: "user", content: "q" },
+            { role: "tool", content: "需要批准天气查询：\n/approve x allow-once" },
+            { role: "tool", content: "关于邮件 —— 说明段落" },
+          ],
+        }),
+        metadataJson: "{}",
+        createdMs: now,
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { assistantTexts?: string[] };
+      const joined = p.assistantTexts?.[0] ?? "";
+      assert.ok(joined.includes("需要批准天气查询"));
+      assert.ok(joined.includes("关于邮件"));
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
   it("trace output_json 为空但 opik_spans 上 llm span 有正文时仍能填充 payload.assistantTexts", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-span-fb.db`);
     const db = openDatabase(dbPath);
@@ -222,6 +263,67 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
       const items = queryThreadTraceEvents(db, threadId);
       const p = items[2]!.payload as { assistantTexts?: string[] };
       assert.ok(!Array.isArray(p.assistantTexts) || p.assistantTexts.length === 0);
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
+  it("output_json.usage 为空对象时仍合并 metadata.usage 的 token", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-usage-md.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-usage-md";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId: "tr-usage-md",
+        threadId,
+        inputJson: JSON.stringify({ text: "q" }),
+        outputJson: JSON.stringify({ usage: {}, assistantTexts: ["ok"] }),
+        metadataJson: JSON.stringify({
+          usage: { prompt_tokens: 22_800, completion_tokens: 276 },
+        }),
+        createdMs: now,
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { usage?: Record<string, unknown> };
+      assert.equal(Number(p.usage?.prompt_tokens), 22_800);
+      assert.equal(Number(p.usage?.completion_tokens), 276);
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
+  it("trace 与 metadata 均无 token 时从 llm span usage_json 兜底", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-usage-span.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-usage-span";
+      const traceId = "tr-usage-span";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId,
+        threadId,
+        inputJson: JSON.stringify({ text: "q" }),
+        outputJson: JSON.stringify({ usage: {}, assistantTexts: ["hi"] }),
+        metadataJson: "{}",
+        createdMs: now,
+      });
+      insertLlmSpanOutput(db, traceId, "{}", 1, {
+        usageJson: JSON.stringify({ input: 100, output: 20 }),
+        model: "minimax/m2",
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as {
+        usage?: Record<string, unknown>;
+        model?: string;
+      };
+      assert.equal(Number((p.usage as { input?: number })?.input), 100);
+      assert.equal(Number((p.usage as { output?: number })?.output), 20);
+      assert.equal(p.model, "minimax/m2");
     } finally {
       db.close();
       fs.unlinkSync(dbPath);

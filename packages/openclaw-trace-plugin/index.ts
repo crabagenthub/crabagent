@@ -135,42 +135,6 @@ function collectorHostLabel(baseUrl: string): string {
   }
 }
 
-function batchContainsDailyDigest(b: OpikBatchPayload): boolean {
-  const traces = b.traces ?? [];
-  for (const t of traces) {
-    const tid = String(t.thread_id ?? "").toLowerCase();
-    const md = t.metadata && typeof t.metadata === "object" ? JSON.stringify(t.metadata).toLowerCase() : "";
-    if (tid.includes("daily_reddit_digest") || md.includes("daily_reddit_digest")) {
-      return true;
-    }
-  }
-  return false;
-}
-
-let lastDailyDigestProbeAt = 0;
-
-function probeDailyDigest(data: Record<string, unknown>): void {
-  const sid = "24bc8e";
-  const marker = "daily_reddit_digest";
-  const vals = [
-    data.agentId,
-    data.agentName,
-    data.sessionKey,
-    data.sessionId,
-    data.threadKey,
-    data.eventFrom,
-  ]
-    .map((v) => (typeof v === "string" ? v : ""))
-    .join(" ");
-  if (!vals.toLowerCase().includes(marker)) {
-    return;
-  }
-  lastDailyDigestProbeAt = Date.now();
-  // #region agent log
-  fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:sid,runId:"pre-fix",hypothesisId:"D1",location:"packages/openclaw-trace-plugin/index.ts:145",message:"daily_digest_hook_probe",data,timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-}
-
 export default {
   id: PLUGIN_ID,
   name: "Crabagent Trace (Opik layout)",
@@ -321,15 +285,6 @@ export default {
             void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, b).catch(() => {});
           }
         }
-        if (batchContainsDailyDigest(b)) {
-          probeDailyDigest({
-            hook: "queue_push",
-            source,
-            traceRows: b.traces?.length ?? 0,
-            spanRows: b.spans?.length ?? 0,
-            threadKeys: (b.traces ?? []).slice(0, 8).map((t) => String(t.thread_id ?? "")),
-          });
-        }
         traceDbg("queue_push", {
           node: "memory_queue",
           source,
@@ -384,15 +339,6 @@ export default {
         keys: traceSessionKeyCandidates(ctx, event.from),
         contentLen: String(event.content ?? "").length,
         preview: String(event.content ?? "").slice(0, 160),
-      });
-      probeDailyDigest({
-        hook: "message_received",
-        agentId: ctx.agentId,
-        agentName: ctx.agentName,
-        sessionId: ctx.sessionId,
-        sessionKey: effectiveSk(ctx, event.from),
-        eventFrom: event.from,
-        contentLen: String(event.content ?? "").length,
       });
       const deferKeys = traceSessionKeyCandidatesForInbound(ctx, event.from);
       const deferPrimary = effectiveSk(ctx, event.from);
@@ -535,16 +481,6 @@ export default {
         promptChars: typeof event.prompt === "string" ? event.prompt.length : 0,
         closedPriorTurnBatch: Boolean(prev && batchNonEmpty(prev)),
       });
-      probeDailyDigest({
-        hook: "llm_input",
-        agentId: ctx.agentId,
-        agentName: ctx.agentName,
-        sessionId: ctx.sessionId,
-        sessionKey: sk,
-        runId: event.runId,
-        provider: event.provider,
-        model: event.model,
-      });
       pushIfAny(prev, "llm_input_close_prior_turn");
     });
 
@@ -560,12 +496,16 @@ export default {
         console.error(`[${PLUGIN_ID}] pickLlmOutputUsage failed: ${msg}`);
         usage = undefined;
       }
-      const payload = {
+      const payload: Record<string, unknown> = {
         provider: event.provider,
         model: event.model,
         assistantTexts: event.assistantTexts,
         usage,
       };
+      const um = event.usageMetadata;
+      if (um && typeof um === "object" && !Array.isArray(um)) {
+        payload.usageMetadata = um;
+      }
       /** 延后到微任务，避免部分通道在同步 hook 链里被阻塞；逻辑仍在单线程内顺序执行。 */
       const skAliasList = traceSessionKeyCandidatesForPending(ctx);
       queueMicrotask(() => {
@@ -638,15 +578,6 @@ export default {
             : [],
         queuedNonEmptyBatch: Boolean(batch && batchNonEmpty(batch)),
       });
-      probeDailyDigest({
-        hook: "agent_end",
-        agentId: ctx.agentId,
-        agentName: ctx.agentName,
-        sessionId: ctx.sessionId,
-        sessionKey: effectiveSk(ctx),
-        queuedBatch: Boolean(batch && batchNonEmpty(batch)),
-        success: event.success !== false,
-      });
       pushIfAny(batch, "agent_end");
     });
 
@@ -672,6 +603,9 @@ export default {
       const event = ev as SubagentSpawnedEvent;
       const ctx = c as SubagentCtx;
       const childSk = event.childSessionKey?.trim();
+      if (childSk) {
+        getRuntime().registerSubagentChildAnchor(effectiveSk(ctx as AgentCtx), childSk);
+      }
       const childCtx: AgentCtx = {
         ...ctx,
         sessionKey: childSk || ctx.sessionKey,
@@ -688,6 +622,9 @@ export default {
       const event = ev as SubagentEndedEvent;
       const ctx = c as AgentCtx;
       const targetSk = event.targetSessionKey?.trim();
+      if (targetSk) {
+        getRuntime().clearSubagentChildAnchor(targetSk);
+      }
       const targetCtx: AgentCtx = {
         ...ctx,
         sessionKey: targetSk || ctx.sessionKey,
@@ -741,16 +678,7 @@ export default {
         const tick = async () => {
           try {
             const cfg = getCfg();
-            if (Date.now() - lastDailyDigestProbeAt <= 120_000) {
-              // #region agent log
-              fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D3",location:"packages/openclaw-trace-plugin/index.ts:703",message:"flush_tick_start_near_daily_window",data:{collectorBaseUrlSet:Boolean(cfg.collectorBaseUrl),collectorHost:cfg.collectorBaseUrl?collectorHostLabel(cfg.collectorBaseUrl):"",apiKeySet:Boolean(cfg.collectorApiKey)},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
-            }
             if (!cfg.collectorBaseUrl) {
-              probeDailyDigest({
-                hook: "flush_tick_skip",
-                reason: "collector_base_url_empty",
-              });
               if (!warnedNoBaseUrl) {
                 warnedNoBaseUrl = true;
                 serviceCtx.logger.warn(
@@ -763,31 +691,8 @@ export default {
             const room = Math.max(0, 50 - fromOutbox.length);
             const fromQueue = getQueue().drainBatch(room);
             const merged = mergeOpikBatches([...fromOutbox, ...fromQueue]);
-            if (Date.now() - lastDailyDigestProbeAt <= 120_000) {
-              const qHasDaily = fromQueue.some((b) => batchContainsDailyDigest(b));
-              const mHasDaily = batchContainsDailyDigest(merged);
-              // #region agent log
-              fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D4",location:"packages/openclaw-trace-plugin/index.ts:719",message:"flush_drain_snapshot_near_daily_window",data:{outboxBatches:fromOutbox.length,room,queueBatches:fromQueue.length,queueHasDaily:qHasDaily,mergedTraceRows:merged.traces?.length??0,mergedSpanRows:merged.spans?.length??0,mergedHasDaily:mHasDaily},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
-            }
             if (!batchNonEmpty(merged)) {
               return;
-            }
-            const nearDailyDigest = Date.now() - lastDailyDigestProbeAt <= 120_000;
-            if (batchContainsDailyDigest(merged)) {
-              probeDailyDigest({
-                hook: "flush_merge",
-                outboxBatches: fromOutbox.length,
-                memQueueBatches: fromQueue.length,
-                traceRows: merged.traces?.length ?? 0,
-                spanRows: merged.spans?.length ?? 0,
-                collectorHost: collectorHostLabel(cfg.collectorBaseUrl),
-              });
-            }
-            if (nearDailyDigest) {
-              // #region agent log
-              fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D2",location:"packages/openclaw-trace-plugin/index.ts:724",message:"flush_merge_near_daily_window",data:{traceRows:merged.traces?.length??0,spanRows:merged.spans?.length??0,collectorHost:collectorHostLabel(cfg.collectorBaseUrl),apiKeySet:Boolean(cfg.collectorApiKey)},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
             }
             traceDbg("flush_merge", {
               node: "pre_post_collector",
@@ -812,19 +717,6 @@ export default {
                 ...summarizeOpikBatch(merged),
               });
               return;
-            }
-            if (batchContainsDailyDigest(merged)) {
-              probeDailyDigest({
-                hook: "flush_post_result",
-                ok: result.ok,
-                status: result.status,
-                bodyPreview: result.body.slice(0, 180),
-              });
-            }
-            if (nearDailyDigest) {
-              // #region agent log
-              fetch("http://127.0.0.1:7342/ingest/45ba6de0-4f15-4d47-9000-fc5a8d9d6812",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"24bc8e"},body:JSON.stringify({sessionId:"24bc8e",runId:"pre-fix",hypothesisId:"D2",location:"packages/openclaw-trace-plugin/index.ts:760",message:"flush_post_near_daily_window",data:{ok:result.ok,status:result.status,bodyPreview:result.body.slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
             }
             traceDbg(result.ok ? "flush_ok" : "flush_fail", {
               node: result.ok ? "collector_ingest_ok" : "collector_ingest_fail",

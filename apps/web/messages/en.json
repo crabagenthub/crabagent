@@ -630,6 +630,7 @@
     "convViewSteps": "View steps",
     "convAssistantBadgeAsync": "Async",
     "convAssistantBadgeSubagent": "subagent",
+    "convMetaRoleAssistant": "Assistant",
     "convThumbUpAria": "Thumbs up",
     "convThumbDownAria": "Thumbs down",
     "traceInspectTitle": "Message",
