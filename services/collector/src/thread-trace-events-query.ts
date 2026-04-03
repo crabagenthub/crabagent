@@ -103,6 +103,11 @@ function inferAsyncCommandTrace(
   return false;
 }
 
+function runKindFromMetadata(metadata: Record<string, unknown>): string | null {
+  const v = strTrim(metadata.run_kind) ?? strTrim(metadata.runKind);
+  return v ?? null;
+}
+
 function agentNameFromMetadata(metadata: Record<string, unknown>): string | null {
   for (const k of ["agent_name", "agentName", "agent"] as const) {
     const v = metadata[k];
@@ -473,25 +478,50 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
   }
 
   // Prefer `opik_thread_turns` because some follow-up traces may not have a consistent `opik_traces.thread_id`.
-  // `opik_thread_turns` gives us an authoritative list of `primary_trace_id` for one logical conversation thread.
-  const rowsFromTurns = db
-    .prepare(
-      `SELECT ot.trace_id,
-              ot.thread_id,
-              ot.name,
-              ot.input_json,
-              ot.output_json,
-              ot.metadata_json,
-              ot.created_at_ms,
-              ot.updated_at_ms,
-              ot.ended_at_ms,
-              ot.duration_ms
-         FROM opik_thread_turns t
-         JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
-        WHERE t.thread_id = ?
-        ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
-    )
-    .all(key) as TraceRow[];
+  // Include:
+  // - turns whose `thread_id` is this session (主会话);
+  // - subagent turns stored under **子** `thread_id` but grafted via `anchor_parent_thread_id`（与 plugin / thread-turns-query 一致）。
+  // 否则主会话 API 拿不到子 trace，`mergedTraceRootIds` 与「查看子代理会话」均无法工作。
+  let rowsFromTurns: TraceRow[];
+  try {
+    rowsFromTurns = db
+      .prepare(
+        `SELECT ot.trace_id,
+                ot.thread_id,
+                ot.name,
+                ot.input_json,
+                ot.output_json,
+                ot.metadata_json,
+                ot.created_at_ms,
+                ot.updated_at_ms,
+                ot.ended_at_ms,
+                ot.duration_ms
+           FROM opik_thread_turns t
+           JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
+          WHERE t.thread_id = ? OR t.anchor_parent_thread_id = ?
+          ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
+      )
+      .all(key, key) as TraceRow[];
+  } catch {
+    rowsFromTurns = db
+      .prepare(
+        `SELECT ot.trace_id,
+                ot.thread_id,
+                ot.name,
+                ot.input_json,
+                ot.output_json,
+                ot.metadata_json,
+                ot.created_at_ms,
+                ot.updated_at_ms,
+                ot.ended_at_ms,
+                ot.duration_ms
+           FROM opik_thread_turns t
+           JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
+          WHERE t.thread_id = ?
+          ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
+      )
+      .all(key) as TraceRow[];
+  }
 
   let rows: TraceRow[];
   if (rowsFromTurns.length > 0) {
@@ -574,12 +604,17 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
 
     const msgId = extractMsgIdFromTrace(metadata, input);
     const asyncCommand = inferAsyncCommandTrace(metadata, chatTitle, input);
+    const threadIdRow =
+      typeof r.thread_id === "string" && r.thread_id.trim() ? r.thread_id.trim() : null;
+    const runKindRow = runKindFromMetadata(metadata);
 
     events.push({
       id: baseId,
       event_id: `${traceId}:recv`,
       type: "message_received",
       trace_root_id: traceId,
+      thread_id: threadIdRow,
+      run_kind: runKindRow,
       agent_id: null,
       agent_name: agentName,
       chat_title: chatTitle,
@@ -599,6 +634,8 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       event_id: `${traceId}:llm_in`,
       type: "llm_input",
       trace_root_id: traceId,
+      thread_id: threadIdRow,
+      run_kind: runKindRow,
       run_id: runId,
       agent_name: agentName,
       chat_title: chatTitle,
@@ -635,6 +672,8 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       event_id: `${traceId}:llm_out`,
       type: "llm_output",
       trace_root_id: traceId,
+      thread_id: threadIdRow,
+      run_kind: runKindRow,
       run_id: runId,
       agent_name: agentName,
       chat_title: chatTitle,

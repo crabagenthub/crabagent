@@ -14,6 +14,8 @@ export type TraceTimelineEvent = {
   id?: number;
   event_id?: string;
   trace_root_id?: string | null;
+  /** `opik_traces.thread_id`（子 agent 会话与主会话可能不同）。 */
+  thread_id?: string | null;
   session_id?: string | null;
   session_key?: string | null;
   agent_id?: string | null;
@@ -22,6 +24,8 @@ export type TraceTimelineEvent = {
   run_id?: string | null;
   /** Same id on message_received and correlated hooks (plugin). */
   msg_id?: string | null;
+  /** Collector 从 trace metadata 拷贝，用于 subagent / 异步等判别（不必依赖 message_received payload）。 */
+  run_kind?: string | null;
   /** 异步跟进 trace（如钉钉）：会话列表合并到主命令展示。 */
   async_command?: boolean | null;
   channel?: string | null;

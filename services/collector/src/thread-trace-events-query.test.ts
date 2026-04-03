@@ -46,6 +46,41 @@ function insertMinimalTrace(
   );
 }
 
+function insertThreadTurn(
+  db: ReturnType<typeof openDatabase>,
+  opts: {
+    turnId: string;
+    threadId: string;
+    traceId: string;
+    runKind: string;
+    sortKey: number;
+    createdMs: number;
+    parentTurnId?: string | null;
+    anchorParentThreadId?: string | null;
+    anchorParentTurnId?: string | null;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO opik_thread_turns (
+      turn_id, thread_id, workspace_name, project_name,
+      parent_turn_id, run_kind, primary_trace_id, sort_key,
+      preview_text, skills_used_json, anchor_parent_thread_id, anchor_parent_turn_id,
+      created_at_ms, updated_at_ms
+    ) VALUES (?, ?, 'default', 'openclaw', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+  ).run(
+    opts.turnId,
+    opts.threadId,
+    opts.parentTurnId ?? null,
+    opts.runKind,
+    opts.traceId,
+    opts.sortKey,
+    opts.anchorParentThreadId ?? null,
+    opts.anchorParentTurnId ?? null,
+    opts.createdMs,
+    opts.createdMs,
+  );
+}
+
 function insertLlmSpanOutput(
   db: ReturnType<typeof openDatabase>,
   traceId: string,
@@ -324,6 +359,78 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
       assert.equal(Number((p.usage as { input?: number })?.input), 100);
       assert.equal(Number((p.usage as { output?: number })?.output), 20);
       assert.equal(p.model, "minimax/m2");
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
+  it("主会话查询包含 anchor 到本 thread 的 subagent turn（子 trace 的 thread_id 为子会话）", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-graft.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const parentMain = "agent:main:main";
+      const childSub = "agent:main:subagent:d04d0177-08cb-48bf-b925-d9b160ee3d7b";
+      const turnParent = "turn-parent-ext";
+      const now = Date.now();
+
+      insertMinimalTrace(db, {
+        traceId: "tr-main",
+        threadId: parentMain,
+        inputJson: JSON.stringify({ text: "hi" }),
+        outputJson: JSON.stringify({ assistantTexts: ["from main"] }),
+        metadataJson: JSON.stringify({ run_id: "run-main", turn_id: turnParent, run_kind: "external" }),
+        createdMs: now,
+      });
+      insertThreadTurn(db, {
+        turnId: turnParent,
+        threadId: parentMain,
+        traceId: "tr-main",
+        runKind: "external",
+        sortKey: now,
+        createdMs: now,
+      });
+
+      insertMinimalTrace(db, {
+        traceId: "tr-sub",
+        threadId: childSub,
+        inputJson: JSON.stringify({
+          openclaw: { sessionKey: childSub },
+          text: "sub",
+        }),
+        outputJson: JSON.stringify({ assistantTexts: ["from subagent"] }),
+        metadataJson: JSON.stringify({
+          run_id: "run-sub",
+          turn_id: "turn-sub-1",
+          run_kind: "subagent",
+          anchor_parent_thread_id: parentMain,
+          anchor_parent_turn_id: turnParent,
+        }),
+        createdMs: now + 50,
+      });
+      insertThreadTurn(db, {
+        turnId: "turn-sub-1",
+        threadId: childSub,
+        traceId: "tr-sub",
+        runKind: "subagent",
+        sortKey: now + 50,
+        createdMs: now + 50,
+        anchorParentThreadId: parentMain,
+        anchorParentTurnId: turnParent,
+      });
+
+      const items = queryThreadTraceEvents(db, parentMain);
+      assert.equal(items.length, 6, "main + grafted subagent → 2 traces × 3 events");
+      const subOut = items.find((e) => (e as { type?: string }).type === "llm_output" && e.trace_root_id === "tr-sub") as
+        | { thread_id?: string; trace_root_id?: string }
+        | undefined;
+      assert.ok(subOut, "subagent llm_output present in parent thread timeline");
+      assert.equal(subOut.thread_id, childSub, "events carry child opik_traces.thread_id for UI subagent link");
+      assert.equal((subOut as { run_kind?: string | null }).run_kind, "subagent");
+      const subRecv = items.find(
+        (e) => (e as { type?: string }).type === "message_received" && e.trace_root_id === "tr-sub",
+      ) as { run_kind?: string | null } | undefined;
+      assert.equal(subRecv?.run_kind, "subagent");
     } finally {
       db.close();
       fs.unlinkSync(dbPath);

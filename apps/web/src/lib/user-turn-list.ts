@@ -508,6 +508,16 @@ function payloadRunKindLower(e: TraceTimelineEvent): string {
   return rk.trim().toLowerCase();
 }
 
+/** 优先合成事件顶层 `run_kind`（collector），再读 message_received payload。 */
+function eventRunKindLower(e: TraceTimelineEvent): string {
+  const topRaw = (e as { run_kind?: unknown }).run_kind;
+  const top = typeof topRaw === "string" ? topRaw.trim().toLowerCase() : "";
+  if (top) {
+    return top;
+  }
+  return payloadRunKindLower(e);
+}
+
 /**
  * Subagent / 系统内流等：与异步跟进一样并入上一条主 `message_received`，左侧列表不占单独一行。
  */
@@ -515,7 +525,7 @@ export function isSubagentOrSystemFollowupMessage(e: TraceTimelineEvent): boolea
   if ((e.type ?? "") !== "message_received") {
     return false;
   }
-  const rk = payloadRunKindLower(e);
+  const rk = eventRunKindLower(e);
   if (rk === "subagent" || rk === "system") {
     return true;
   }
@@ -529,6 +539,33 @@ export function isSubagentOrSystemFollowupMessage(e: TraceTimelineEvent): boolea
   }
   if (full.includes("runtime context (internal)") && full.includes("openclaw")) {
     return true;
+  }
+  return false;
+}
+
+/**
+ * 同 trace 上是否存在 subagent/system 运行类别（含 llm_* 行上的顶层 run_kind）。
+ */
+export function traceHasSubagentOrSystemRunKind(
+  events: readonly TraceTimelineEvent[],
+  traceRootId: string,
+): boolean {
+  const tr = traceRootId.trim();
+  if (!tr) {
+    return false;
+  }
+  for (const e of events) {
+    const er = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (er !== tr) {
+      continue;
+    }
+    if ((e.type ?? "") === "message_received" && isSubagentOrSystemFollowupMessage(e)) {
+      return true;
+    }
+    const rk = eventRunKindLower(e);
+    if (rk === "subagent" || rk === "system") {
+      return true;
+    }
   }
   return false;
 }
@@ -656,6 +693,67 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
       msgId: eventMsgId(e),
     };
   });
+}
+
+/**
+ * 合并展示中的 subagent 回合：`trace_root_id` 对应子 trace，其 `thread_id` 或 payload.openclaw.sessionKey
+ * 常为子会话路由键；与主会话 `parentThreadKey` 不同时可打开子会话 Drawer。
+ */
+export function resolveSubagentSessionThreadKey(
+  events: readonly TraceTimelineEvent[],
+  subagentTraceRootId: string | null | undefined,
+  parentThreadKey: string,
+): string | null {
+  const root = typeof subagentTraceRootId === "string" ? subagentTraceRootId.trim() : "";
+  const parent = parentThreadKey.trim();
+  if (!root || !parent) {
+    return null;
+  }
+
+  for (const e of events) {
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (tr !== root) {
+      continue;
+    }
+    const tidRaw = (e as { thread_id?: unknown }).thread_id;
+    const tid = typeof tidRaw === "string" ? tidRaw.trim() : "";
+    if (tid && tid !== parent) {
+      return tid;
+    }
+  }
+
+  for (const e of events) {
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (tr !== root) {
+      continue;
+    }
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+    const oc = payload.openclaw;
+    if (oc && typeof oc === "object" && !Array.isArray(oc)) {
+      const sk = typeof (oc as Record<string, unknown>).sessionKey === "string"
+        ? (oc as Record<string, unknown>).sessionKey!.trim()
+        : "";
+      if (sk && sk !== parent) {
+        return sk;
+      }
+    }
+    const rout = payload.openclaw_routing;
+    if (rout && typeof rout === "object" && !Array.isArray(rout)) {
+      const o = rout as Record<string, unknown>;
+      for (const k of ["sessionKey", "session_key", "threadKey", "thread_key"] as const) {
+        const v = o[k];
+        const sk = typeof v === "string" ? v.trim() : "";
+        if (sk && sk !== parent) {
+          return sk;
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 /** All events sharing the same ingest `trace_root_id` (one internal trace chain). */

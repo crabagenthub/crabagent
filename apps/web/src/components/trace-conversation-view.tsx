@@ -394,6 +394,8 @@ function AssistantBubble({
   messagesOnly,
   compact,
   turnMetaBelowBubble,
+  subagentSessionThreadKey,
+  onOpenSubagentSession,
 }: {
   text: string;
   thinking: string | null;
@@ -409,6 +411,9 @@ function AssistantBubble({
   compact?: boolean;
   /** OpenClaw 风格：角色 / 时间 / tokens / ctx% / 模型（紧挨助手气泡下方）。 */
   turnMetaBelowBubble?: ReactNode;
+  /** 合并 subagent 且可解析出子会话 thread key 时，供「查看子会话」使用。 */
+  subagentSessionThreadKey?: string | null;
+  onOpenSubagentSession?: ((childThreadKey: string) => void) | null;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
@@ -564,6 +569,19 @@ function AssistantBubble({
       )}
       </div>
       {turnMetaBelowBubble}
+      {subagentSessionThreadKey &&
+      subagentSessionThreadKey.trim() &&
+      onOpenSubagentSession ? (
+        <div className="mt-1.5 max-w-[min(100%,70%)] pl-0.5">
+          <button
+            type="button"
+            className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+            onClick={() => onOpenSubagentSession(subagentSessionThreadKey.trim())}
+          >
+            {t("convOpenSubagentSession")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -576,6 +594,7 @@ function ConversationTimelineBlocks({
   messagesOnly,
   compact,
   sessionAssistantName,
+  onOpenSubagentSession,
 }: {
   items: ConversationTimelineItem[];
   threadKey: string;
@@ -586,6 +605,8 @@ function ConversationTimelineBlocks({
   compact?: boolean;
   /** OpenClaw 会话级 `assistantName`；缺省由父组件从整段 events 推导。 */
   sessionAssistantName: string | null;
+  /** 会话抽屉：打开合并 subagent 的子会话。 */
+  onOpenSubagentSession?: ((childThreadKey: string) => void) | null;
 }) {
   const t = useTranslations("Traces");
   const hasAssistant = items.some((i) => i.kind === "assistant");
@@ -657,6 +678,8 @@ function ConversationTimelineBlocks({
                 systemInputText={item.systemInputText ?? null}
                 messagesOnly={messagesOnly}
                 compact={compact}
+                subagentSessionThreadKey={item.subagentSessionThreadKey ?? null}
+                onOpenSubagentSession={onOpenSubagentSession ?? null}
                 turnMetaBelowBubble={
                   messagesOnly && item.sourceEvent ? (
                     <ConversationTurnMetaBar
@@ -702,6 +725,7 @@ export function TraceConversationView({
    * 再缺省为字面 `Assistant`（与 `grouped-render` 一致）。
    */
   sessionAssistantName: sessionAssistantNameProp = null,
+  onOpenSubagentSession = null,
 }: {
   events: TraceTimelineEvent[];
   turn: UserTurnListItem | null;
@@ -714,6 +738,8 @@ export function TraceConversationView({
   messagesOnly?: boolean;
   compact?: boolean;
   sessionAssistantName?: string | null;
+  /** 打开合并 subagent 的子 thread（如会话抽屉内嵌套加载）。 */
+  onOpenSubagentSession?: ((childThreadKey: string) => void) | null;
 }) {
   const t = useTranslations("Traces");
   const scopedEvents = useMemo(() => {
@@ -735,8 +761,12 @@ export function TraceConversationView({
     return buildDetailEventList(events, turn);
   }, [events, turn, variant, conversationTurns, messagesOnly]);
   const items = useMemo(
-    () => buildConversationTimeline(scopedEvents, turn, { messagesOnly }),
-    [scopedEvents, turn, messagesOnly],
+    () =>
+      buildConversationTimeline(scopedEvents, turn, {
+        messagesOnly,
+        parentThreadKey: threadKey.trim() || null,
+      }),
+    [scopedEvents, turn, messagesOnly, threadKey],
   );
 
   const sessionAssistantName = useMemo(() => {
@@ -765,6 +795,7 @@ export function TraceConversationView({
       messagesOnly={messagesOnly}
       compact={compact}
       sessionAssistantName={sessionAssistantName}
+      onOpenSubagentSession={onOpenSubagentSession}
     />
   );
 

@@ -78,9 +78,51 @@ type Props = {
   onOpenTrace?: (traceId: string) => void;
 };
 
+/** 钻取子 agent 会话：沿用父行的 workspace/project，其余列表字段占位。 */
+function syntheticDrillThreadRow(childThreadId: string, parent: ThreadRecordRow): ThreadRecordRow {
+  return {
+    thread_id: childThreadId.trim(),
+    workspace_name: parent.workspace_name,
+    project_name: parent.project_name,
+    first_seen_ms: parent.first_seen_ms,
+    last_seen_ms: parent.last_seen_ms,
+    metadata: {},
+    agent_name: null,
+    channel_name: null,
+    trace_count: 0,
+    first_message_preview: null,
+    last_message_preview: null,
+    latest_input_preview: null,
+    total_tokens: 0,
+    total_cost: null,
+    duration_ms: null,
+    status: null,
+  };
+}
+
 export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, apiKey, onOpenTrace }: Props) {
   const t = useTranslations("Traces");
-  const threadKey = row?.thread_id ?? "";
+  const [drillRow, setDrillRow] = useState<ThreadRecordRow | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setDrillRow(null);
+    }
+  }, [open]);
+
+  const activeRow = drillRow ?? row;
+  const threadKey = activeRow?.thread_id ?? "";
+
+  const openSubagentSession = useCallback(
+    (childKey: string) => {
+      const k = childKey.trim();
+      if (!k || !row) {
+        return;
+      }
+      setDrillRow(syntheticDrillThreadRow(k, row));
+    },
+    [row],
+  );
 
   const eventsQuery = useQuery({
     queryKey: ["trace-events", baseUrl, apiKey, threadKey],
@@ -224,7 +266,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
 
   const threadShort = formatShortId(threadKey);
 
-  const listTotalTokens = row != null ? row.total_tokens : 0;
+  const listTotalTokens = activeRow != null ? activeRow.total_tokens : 0;
   const threadUsage = useMemo(() => aggregateThreadLlmOutputUsage(merged), [merged]);
 
   const turnRail = userTurns.map((u, turnIdx) => {
@@ -378,7 +420,16 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {drillRow ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                onClick={() => setDrillRow(null)}
+              >
+                {t("threadDrawerBackParentSession")}
+              </button>
+            ) : null}
             <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
               <IconMessage className="size-4 shrink-0" strokeWidth={2} aria-hidden />
             </span>
@@ -451,6 +502,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 threadKey={threadKey}
                 selectedListKey={selectedListKey}
                 onOpenTrace={onOpenTrace}
+                onOpenSubagentSession={openSubagentSession}
               />
               <aside
                 className="flex min-h-0 w-[min(100%,21rem)] shrink-0 flex-col border-border bg-muted/10 dark:bg-neutral-900/25"
@@ -459,7 +511,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
                   <ThreadConversationInspectHeader
                     variant="sidebar"
-                    row={row}
+                    row={activeRow}
                     threadKey={threadKey}
                     threadShort={threadShort}
                     listTotalTokens={listTotalTokens}

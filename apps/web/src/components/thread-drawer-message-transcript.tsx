@@ -18,6 +18,8 @@ type Props = {
   threadKey: string;
   selectedListKey: string;
   onOpenTrace?: (traceId: string) => void;
+  /** 打开合并 subagent 对应的子 thread 会话（抽屉内钻取）。 */
+  onOpenSubagentSession?: (childThreadKey: string) => void;
 };
 
 export function ThreadDrawerMessageTranscript({
@@ -27,6 +29,7 @@ export function ThreadDrawerMessageTranscript({
   threadKey,
   selectedListKey,
   onOpenTrace,
+  onOpenSubagentSession,
 }: Props) {
   const t = useTranslations("Traces");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -132,6 +135,7 @@ export function ThreadDrawerMessageTranscript({
                   conversationTurns={userTurns}
                   messagesOnly
                   compact
+                  onOpenSubagentSession={onOpenSubagentSession ?? null}
                 />
               </section>
             );

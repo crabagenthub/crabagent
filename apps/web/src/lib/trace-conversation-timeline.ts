@@ -2,6 +2,8 @@ import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import {
   isAsyncFollowupMessage,
   isSubagentOrSystemFollowupMessage,
+  resolveSubagentSessionThreadKey,
+  traceHasSubagentOrSystemRunKind,
   type UserTurnListItem,
 } from "@/lib/user-turn-list";
 
@@ -29,6 +31,8 @@ export type ConversationTimelineItem =
        * 由 `payload.messages` 中「从后往前第一条有正文的 assistant vs tool」推断。
        */
       footerGroupRole?: "assistant" | "tool";
+      /** 合并 subagent 时可打开的子会话 thread key（与主会话不同时）。 */
+      subagentSessionThreadKey?: string | null;
     }
   | { kind: "collapsed"; events: TraceTimelineEvent[]; key: string };
 
@@ -43,6 +47,9 @@ function normType(e: TraceTimelineEvent): string {
 
 /** 根据同 trace 的 `message_received` 区分合并角标：子代理优先于异步。 */
 function classifyMergedAssistantReplyKind(events: TraceTimelineEvent[], traceRootId: string): "async" | "subagent" {
+  if (traceHasSubagentOrSystemRunKind(events, traceRootId)) {
+    return "subagent";
+  }
   const tr = traceRootId.trim();
   for (const e of events) {
     if (normType(e) !== "message_received") {
@@ -307,6 +314,8 @@ function eventKey(e: TraceTimelineEvent, i: number): string {
 export type BuildConversationTimelineOptions = {
   /** 仅保留用户气泡与助手回复，不插入折叠链路、不附带 thinking / memoryRefs。 */
   messagesOnly?: boolean;
+  /** 主会话 thread key；用于解析 subagent 子会话。 */
+  parentThreadKey?: string | null;
 };
 
 /** Build chat-style timeline: user message, collapsed pipeline steps, assistant turns. */
@@ -316,6 +325,7 @@ export function buildConversationTimeline(
   opts?: BuildConversationTimelineOptions,
 ): ConversationTimelineItem[] {
   const messagesOnly = opts?.messagesOnly === true;
+  const parentThreadKey = typeof opts?.parentThreadKey === "string" ? opts.parentThreadKey.trim() : "";
   const items: ConversationTimelineItem[] = [];
   if (turn) {
     items.push({ kind: "user", text: turn.fullText, key: `user:${turn.listKey}` });
@@ -368,7 +378,9 @@ export function buildConversationTimeline(
       const text = assistantTextFromLlmOutput(e) || "—";
       const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
       const mergedReplyKind =
-        turn && traceRootId && turn.mergedTraceRootIds?.includes(traceRootId)
+        turn &&
+        traceRootId &&
+        turn.mergedTraceRootIds?.some((id) => String(id).trim() === traceRootId.trim())
           ? classifyMergedAssistantReplyKind(events, traceRootId)
           : undefined;
       const sysInput = (() => {
@@ -395,6 +407,13 @@ export function buildConversationTimeline(
         typeof pOut.model === "string" && pOut.model.trim() ? pOut.model.trim() : null;
       const cands = traceRootId ? lastLlmInputByTraceRootId.get(traceRootId) : undefined;
       const modelLabel = modelFromOut ?? cands?.model ?? null;
+      const mergedIncludesSubTrace =
+        Boolean(traceRootId) &&
+        Boolean(turn?.mergedTraceRootIds?.some((id) => String(id).trim() === String(traceRootId).trim()));
+      const subKey =
+        mergedIncludesSubTrace && parentThreadKey && traceRootId
+          ? resolveSubagentSessionThreadKey(events, traceRootId, parentThreadKey)
+          : null;
       items.push({
         kind: "assistant",
         text,
@@ -407,6 +426,7 @@ export function buildConversationTimeline(
         sourceEvent: messagesOnly ? e : undefined,
         modelLabel: messagesOnly ? modelLabel : undefined,
         footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pOut) : undefined,
+        subagentSessionThreadKey: subKey,
       });
       return;
     }
@@ -419,7 +439,9 @@ export function buildConversationTimeline(
         pendingLlmInput = null;
         const traceRootId = typeof e.trace_root_id === "string" ? e.trace_root_id : null;
         const mergedReplyKind =
-          turn && traceRootId && turn.mergedTraceRootIds?.includes(traceRootId)
+          turn &&
+          traceRootId &&
+          turn.mergedTraceRootIds?.some((id) => String(id).trim() === traceRootId.trim())
             ? classifyMergedAssistantReplyKind(events, traceRootId)
             : undefined;
         const sysInput = (() => {
@@ -445,6 +467,13 @@ export function buildConversationTimeline(
           typeof pEnd.model === "string" && pEnd.model.trim() ? pEnd.model.trim() : null;
         const candsEnd = traceRootId ? lastLlmInputByTraceRootId.get(traceRootId) : undefined;
         const modelLabelEnd = modelFromEnd ?? candsEnd?.model ?? null;
+        const mergedIncludesSubTraceEnd =
+          Boolean(traceRootId) &&
+          Boolean(turn?.mergedTraceRootIds?.some((id) => String(id).trim() === String(traceRootId).trim()));
+        const subKeyEnd =
+          mergedIncludesSubTraceEnd && parentThreadKey && traceRootId
+            ? resolveSubagentSessionThreadKey(events, traceRootId, parentThreadKey)
+            : null;
         items.push({
           kind: "assistant",
           text: fromTranscript,
@@ -457,6 +486,7 @@ export function buildConversationTimeline(
           sourceEvent: messagesOnly ? e : undefined,
           modelLabel: messagesOnly ? modelLabelEnd : undefined,
           footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pEnd) : undefined,
+          subagentSessionThreadKey: subKeyEnd,
         });
         return;
       }

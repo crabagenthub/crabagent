@@ -13,14 +13,27 @@ function slugify(raw: string): string {
     .replace(/[^a-z0-9_-]/g, "");
 }
 
+/** Session / channel id 等会出现在 kind 字段；不是 Traces.openclawRouteKind_* 文案键。 */
+function looksLikeUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
+}
+
 function translateOrFallback(t: TracesTranslate, messageKey: string, fallback: string): string {
-  const out = t(messageKey);
-  return out === messageKey ? fallback : out;
+  try {
+    const out = t(messageKey);
+    return out === messageKey ? fallback : out;
+  } catch {
+    return fallback;
+  }
 }
 
 function hintIfAny(t: TracesTranslate, messageKey: string): string | undefined {
-  const out = t(messageKey);
-  return out === messageKey ? undefined : out;
+  try {
+    const out = t(messageKey);
+    return out === messageKey ? undefined : out;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 类型（KIND）：direct / group 等 */
@@ -31,9 +44,16 @@ export function displayOpenclawKind(
   if (raw === undefined || raw.trim() === "") {
     return { text: EM_DASH };
   }
-  const slug = slugify(raw) || raw.trim().toLowerCase();
+  const trimmed = raw.trim();
+  if (looksLikeUuid(trimmed)) {
+    return { text: trimmed };
+  }
+  const slug = slugify(raw) || trimmed.toLowerCase();
+  if (looksLikeUuid(slug)) {
+    return { text: trimmed };
+  }
   const base = `openclawRouteKind_${slug}`;
-  const text = translateOrFallback(t, base, raw.trim());
+  const text = translateOrFallback(t, base, trimmed);
   const title = hintIfAny(t, `${base}Hint`);
   return { text, title };
 }

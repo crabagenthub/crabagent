@@ -630,6 +630,8 @@
     "convViewSteps": "View steps",
     "convAssistantBadgeAsync": "Async",
     "convAssistantBadgeSubagent": "subagent",
+    "convOpenSubagentSession": "View subagent session",
+    "threadDrawerBackParentSession": "Back to main session",
     "convMetaRoleAssistant": "Assistant",
     "convThumbUpAria": "Thumbs up",
     "convThumbDownAria": "Thumbs down",
