@@ -18,6 +18,8 @@ import {
 } from "@/lib/user-turn-list";
 import { buildConversationTimeline, type ConversationTimelineItem, type MemoryRefSnippet } from "@/lib/trace-conversation-timeline";
 import { ConversationTurnMetaBar } from "@/components/conversation-turn-meta-bar";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
+import { toast } from "@/components/ui/feedback";
 import { cn } from "@/lib/utils";
 
 const TURN_DIVIDER = "#EEEEEE";
@@ -479,6 +481,7 @@ function AssistantBubble({
                   try {
                     await navigator.clipboard.writeText(text.trim());
                     setCopied(true);
+                    toast.success(t("copySuccessToast"));
                     window.setTimeout(() => setCopied(false), 1200);
                   } catch {
                     /* ignore */
@@ -635,12 +638,23 @@ function ConversationTimelineBlocks({
             return (
               <div
                 key={item.key}
-                className={cn("flex justify-end pb-5", showDivider && "mb-5 border-b")}
+                className={cn("flex flex-col items-end pb-5", showDivider && "mb-5 border-b")}
                 style={showDivider ? dividerStyle : undefined}
               >
                 <UserConversationBubble compact={compact ?? false}>
                   <p className="whitespace-pre-wrap break-words">{item.text}</p>
                 </UserConversationBubble>
+                {item.text.trim() ? (
+                  <div className="mt-1 flex max-w-[min(100%,70%)] justify-end pl-0.5">
+                    <TraceCopyIconButton
+                      text={item.text}
+                      ariaLabel={t("detailCopy")}
+                      tooltipLabel={t("copy")}
+                      successLabel={t("copySuccessToast")}
+                      className="p-0.5 hover:bg-neutral-200/80"
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           }

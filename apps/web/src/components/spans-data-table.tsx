@@ -97,7 +97,7 @@ function SpanIdCell({ spanId }: { spanId: string }) {
         text={spanId}
         ariaLabel={t("traceInspectCopySpanId")}
         tooltipLabel={t("copy")}
-        successLabel={t("copied")}
+        successLabel={t("copySuccessToast")}
         className="p-1 hover:bg-neutral-100"
         stopPropagation
       />

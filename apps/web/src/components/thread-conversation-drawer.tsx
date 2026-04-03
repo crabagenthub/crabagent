@@ -21,6 +21,7 @@ import {
   type TurnListStatus,
 } from "@/lib/user-turn-list";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { IconCode, IconDashboard, IconMessage, IconClose, IconCommon,IconClockCircle } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import { cn, formatShortId } from "@/lib/utils";
@@ -312,12 +313,13 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
             />
           </div>
         </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1 self-start">
         <button
           type="button"
           aria-label={t("threadDrawerTurnItemAria", { n: String(turnIdx + 1) })}
           onClick={() => setSelectedListKey(u.listKey)}
           className={cn(
-            "min-w-0 flex-1 self-start rounded-md border px-2 py-1.5 text-left transition",
+            "min-w-0 w-full rounded-md border px-2 py-1.5 text-left transition",
             active
               ? "border-primary bg-background shadow-sm ring-1 ring-primary/25"
               : "border-transparent bg-transparent hover:bg-muted/50",
@@ -412,6 +414,25 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
             )}
           </div>
         </button>
+        {typeof u.traceRootId === "string" && u.traceRootId.trim() ? (
+          <div className="flex items-center gap-1 px-0.5">
+            <span
+              className="min-w-0 truncate font-mono text-[10px] text-muted-foreground"
+              title={u.traceRootId.trim()}
+            >
+              {formatShortId(u.traceRootId.trim())}
+            </span>
+            <TraceCopyIconButton
+              text={u.traceRootId.trim()}
+              ariaLabel={t("copyIdAria", { kind: t("idKinds.trace_root") })}
+              tooltipLabel={t("copy")}
+              successLabel={t("copySuccessToast")}
+              className="p-0.5 hover:bg-muted/80"
+              stopPropagation
+            />
+          </div>
+        ) : null}
+        </div>
       </li>
     );
   });

@@ -760,6 +760,8 @@
     "deleteSessionUnavailable": "该分组没有 session_id，无法调用服务端按会话删除（可能仅有 session_key）。",
     "copy": "复制",
     "copied": "已复制",
+    "copySuccessToast": "复制成功",
+    "copySpanIdAria": "复制 Span ID",
     "copyIdAria": "复制 {kind}",
     "eventSample": "样例事件",
     "idKinds": {

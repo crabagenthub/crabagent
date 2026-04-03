@@ -270,7 +270,7 @@ export function TraceRecordInspectDialog({
                             text={spanId}
                             ariaLabel={t("traceInspectCopySpanId")}
                             tooltipLabel={t("copy")}
-                            successLabel={t("copied")}
+                            successLabel={t("copySuccessToast")}
                           />
                         ) : null}
                       </div>
@@ -316,7 +316,7 @@ export function TraceRecordInspectDialog({
                             text={traceId}
                             ariaLabel={t("inspectCopyTraceIdAria")}
                             tooltipLabel={t("copy")}
-                            successLabel={t("copied")}
+                            successLabel={t("copySuccessToast")}
                           />
                         ) : null}
                       </div>

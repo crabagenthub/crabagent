@@ -1,8 +1,8 @@
 "use client";
 
-import { Message } from "@arco-design/web-react";
 import { IconCopy } from "@arco-design/web-react/icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/feedback";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -39,19 +39,18 @@ export function TraceCopyIconButton({
         render={
           <button
             type="button"
-            onClick={() =>
-              void copyText(text).then((ok) => {
-                if (ok) {
-                  Message.success(successLabel);
-                }
-              })
-            }
-            onMouseDown={(e) => {
+            onClick={(e) => {
+              // 勿在 onClickCapture 里 stopPropagation：会阻断同一 button 上 onClick（冒泡阶段），复制永远不执行。
               if (stopPropagation) {
                 e.stopPropagation();
               }
+              void copyText(text).then((ok) => {
+                if (ok) {
+                  toast.success(successLabel);
+                }
+              });
             }}
-            onClickCapture={(e) => {
+            onMouseDown={(e) => {
               if (stopPropagation) {
                 e.stopPropagation();
               }

@@ -103,7 +103,7 @@ export function IdLabeledCopy({
       text={text}
       ariaLabel={t("copyIdAria", { kind: kindLabel })}
       tooltipLabel={t("copy")}
-      successLabel={t("copied")}
+      successLabel={t("copySuccessToast")}
       className="text-neutral-400 hover:bg-neutral-200/80 hover:text-neutral-700"
       stopPropagation={Boolean(stopPropagationOnCopy)}
     />

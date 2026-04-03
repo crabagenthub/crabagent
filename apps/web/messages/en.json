@@ -754,6 +754,8 @@
     "deleteSessionUnavailable": "This bucket has no session_id; server delete is unavailable. Events may still use only session_key.",
     "copy": "Copy",
     "copied": "Copied",
+    "copySuccessToast": "Copied successfully",
+    "copySpanIdAria": "Copy span ID",
     "copyIdAria": "Copy {kind}",
     "eventSample": "Sample event",
     "idKinds": {

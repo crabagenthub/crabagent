@@ -13,6 +13,7 @@ import {
   spanLargeFileWarning,
   spanToolOversizedResult,
 } from "@/lib/span-insights";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { cn } from "@/lib/utils";
 
 function typeBadgeClass(spanType: string): string {
@@ -246,6 +247,7 @@ function TreeNodeRow({
   if (variant === "inspect") {
     return (
       <div className="select-none">
+        <div className="flex items-start gap-0.5" style={{ marginLeft: depth * 12 }}>
         <div
           role="button"
           tabIndex={0}
@@ -258,14 +260,13 @@ function TreeNodeRow({
           }}
           title={decisionBranch ? t("semanticDecisionNodeTitle") : undefined}
           className={cn(
-            "relative flex w-full flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-left text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "relative min-w-0 flex-1 flex flex-col gap-1.5 rounded-lg border px-2.5 py-2 text-left text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             active
               ? "border-sky-300 bg-sky-50 shadow-sm ring-2 ring-sky-200/80"
               : decisionBranch
                 ? "border-amber-200/90 bg-amber-50/50 hover:border-amber-300 hover:bg-amber-50/80"
                 : "border-neutral-200/90 bg-white hover:border-neutral-300 hover:bg-neutral-50/80",
           )}
-          style={{ marginLeft: depth * 12 }}
         >
           {largeFile || fatTool ? (
             <span className="absolute right-2.5 top-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-900">
@@ -338,6 +339,17 @@ function TreeNodeRow({
             </div>
           </div>
         </div>
+        {node.span_id.trim() ? (
+          <TraceCopyIconButton
+            text={node.span_id}
+            ariaLabel={t("copySpanIdAria")}
+            tooltipLabel={t("copy")}
+            successLabel={t("copySuccessToast")}
+            className="mt-1 shrink-0 p-0.5 hover:bg-neutral-200/80"
+            stopPropagation
+          />
+        ) : null}
+        </div>
         {node.children.length > 0 ? (
           <div className="mt-2 space-y-2 border-l border-neutral-200 pl-2">
             {node.children.map((ch) => (
@@ -360,19 +372,19 @@ function TreeNodeRow({
 
   return (
     <div className="select-none">
+      <div className="flex items-start gap-0.5" style={{ marginLeft: depth * 14 }}>
       <button
         type="button"
         onClick={() => onSelect(node.span_id)}
         title={decisionBranch ? t("semanticDecisionNodeTitle") : undefined}
         className={[
-          "flex w-full flex-col gap-1 rounded-xl border px-3 py-2 text-left text-sm transition",
+          "flex min-w-0 flex-1 flex-col gap-1 rounded-xl border px-3 py-2 text-left text-sm transition",
           active
             ? "border-primary bg-white shadow-md ring-2 ring-primary/35"
             : decisionBranch
               ? "border-amber-300/90 bg-amber-50/40 ring-2 ring-amber-400/55 hover:border-amber-400 hover:bg-amber-50/70"
               : "border-border/80 bg-white/90 hover:border-border hover:bg-white",
         ].join(" ")}
-        style={{ marginLeft: depth * 14 }}
       >
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${typeBadgeClass(node.type)}`}>
@@ -416,6 +428,17 @@ function TreeNodeRow({
           </p>
         ) : null}
       </button>
+      {node.span_id.trim() ? (
+        <TraceCopyIconButton
+          text={node.span_id}
+          ariaLabel={t("copySpanIdAria")}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="mt-1.5 shrink-0 p-0.5 hover:bg-neutral-200/80"
+          stopPropagation
+        />
+      ) : null}
+      </div>
       {node.children.length > 0 ? (
         <div className="mt-2 space-y-2 border-l border-border/60 pl-2">
           {node.children.map((ch) => (

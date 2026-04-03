@@ -99,7 +99,7 @@ function TraceIdCell({ traceId }: { traceId: string }) {
         text={traceId}
         ariaLabel={t("copyIdAria", { kind: t("idKinds.trace_id") })}
         tooltipLabel={t("copy")}
-        successLabel={t("copied")}
+        successLabel={t("copySuccessToast")}
         className="p-1 hover:bg-neutral-100"
         stopPropagation
       />

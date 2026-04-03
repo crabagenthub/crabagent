@@ -81,7 +81,7 @@ export function InspectDrawerMetaSection({ title, fields, highlight, footerItems
                   text={f.copyText}
                   ariaLabel={f.copyAriaLabel}
                   tooltipLabel={t("copy")}
-                  successLabel={t("copied")}
+                  successLabel={t("copySuccessToast")}
                 />
               ) : null}
             </div>

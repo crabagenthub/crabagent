@@ -238,7 +238,7 @@ export function SpanRecordInspectDrawer({
                       text={row.span_id}
                       ariaLabel={t("inspectCopyServiceIdAria")}
                       tooltipLabel={t("copy")}
-                      successLabel={t("copied")}
+                      successLabel={t("copySuccessToast")}
                     />
                   </div>
                 </div>

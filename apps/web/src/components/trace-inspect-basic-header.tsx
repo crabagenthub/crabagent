@@ -118,7 +118,7 @@ export function TraceInspectBasicHeader({
                   text={spanId}
                   ariaLabel={t("inspectCopyServiceIdAria")}
                   tooltipLabel={t("copy")}
-                  successLabel={t("copied")}
+                  successLabel={t("copySuccessToast")}
                 />
               ) : null}
             </dd>
@@ -134,7 +134,7 @@ export function TraceInspectBasicHeader({
                   text={endpointId}
                   ariaLabel={t("inspectCopyEndpointAria")}
                   tooltipLabel={t("copy")}
-                  successLabel={t("copied")}
+                  successLabel={t("copySuccessToast")}
                 />
               ) : null}
             </dd>
@@ -183,7 +183,7 @@ export function TraceInspectBasicHeader({
                     text={traceId}
                     ariaLabel={t("inspectCopyTraceIdAria")}
                     tooltipLabel={t("copy")}
-                    successLabel={t("copied")}
+                    successLabel={t("copySuccessToast")}
                   />
                 ) : null}
               </span>
@@ -258,7 +258,7 @@ export function TraceInspectBasicHeader({
                 text={spanId}
                 ariaLabel={t("inspectCopyServiceIdAria")}
                 tooltipLabel={t("copy")}
-                successLabel={t("copied")}
+                successLabel={t("copySuccessToast")}
               />
             ) : null}
           </div>
@@ -274,7 +274,7 @@ export function TraceInspectBasicHeader({
                 text={endpointId}
                 ariaLabel={t("inspectCopyEndpointAria")}
                 tooltipLabel={t("copy")}
-                successLabel={t("copied")}
+                successLabel={t("copySuccessToast")}
               />
             ) : null}
           </div>
@@ -326,7 +326,7 @@ export function TraceInspectBasicHeader({
                   text={traceId}
                   ariaLabel={t("inspectCopyTraceIdAria")}
                   tooltipLabel={t("copy")}
-                  successLabel={t("copied")}
+                  successLabel={t("copySuccessToast")}
                 />
               ) : null}
             </span>

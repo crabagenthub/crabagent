@@ -157,7 +157,7 @@ function SpanInspectSection(props: {
             text={copyPayload}
             ariaLabel={t("spanInspectCopyAria")}
             tooltipLabel={t("copy")}
-            successLabel={t("copied")}
+            successLabel={t("copySuccessToast")}
             className="size-8 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
             iconClassName="size-4"
           />

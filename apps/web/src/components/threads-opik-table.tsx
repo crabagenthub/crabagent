@@ -3,7 +3,6 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
-import { IconCopy } from "@arco-design/web-react/icon";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
@@ -127,7 +126,7 @@ function ThreadIdCell({ threadId }: { threadId: string }) {
         text={threadId}
         ariaLabel={t("threadDrawerCopyThreadId")}
         tooltipLabel={t("copy")}
-        successLabel={t("copied")}
+        successLabel={t("copySuccessToast")}
         className="p-1 hover:bg-neutral-100"
         stopPropagation
       />
