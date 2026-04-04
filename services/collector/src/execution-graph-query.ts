@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { TRACE_ROW_TOKEN_INTEGER_EXPR } from "./opik-tokens-sql.js";
 import { queryTracesInConversationScope, type TraceRowScoped } from "./thread-scope-query.js";
 import { mapSpanTypeToApi, parseUsageExtended } from "./semantic-spans-query.js";
 
@@ -32,6 +33,50 @@ function parseToolExecutionModeFromTraceMeta(
   return null;
 }
 
+/** 与 trace-records-query 中 trace 行 `end_time` 推导一致。 */
+function traceEndTimeMs(tr: TraceRowScoped): number | null {
+  const created = tr.created_at_ms != null ? Number(tr.created_at_ms) : NaN;
+  const ended = tr.ended_at_ms != null ? Number(tr.ended_at_ms) : NaN;
+  const dur = tr.duration_ms != null ? Number(tr.duration_ms) : 0;
+  const updated = tr.updated_at_ms != null ? Number(tr.updated_at_ms) : NaN;
+  if (Number.isFinite(ended)) return ended;
+  if (Number.isFinite(created) && dur > 0) return created + dur;
+  if (Number.isFinite(updated)) return updated;
+  if (Number.isFinite(created)) return created;
+  return null;
+}
+
+function traceDurationMs(tr: TraceRowScoped, endMs: number | null): number | null {
+  const created = tr.created_at_ms != null ? Number(tr.created_at_ms) : NaN;
+  if (endMs != null && Number.isFinite(created) && endMs >= created) {
+    return endMs - created;
+  }
+  const d = tr.duration_ms != null ? Number(tr.duration_ms) : NaN;
+  if (Number.isFinite(d) && d > 0) return d;
+  return null;
+}
+
+function loadTraceTokenTotals(db: Database.Database, traceIds: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (traceIds.length === 0) return out;
+  const ph = traceIds.map(() => "?").join(", ");
+  const sql = `SELECT t.trace_id, CAST(COALESCE(${TRACE_ROW_TOKEN_INTEGER_EXPR}, 0) AS INTEGER) AS total_tokens
+FROM opik_traces t WHERE t.trace_id IN (${ph})`;
+  const rows = db.prepare(sql).all(...traceIds) as { trace_id: string; total_tokens: number | null }[];
+  for (const r of rows) {
+    out.set(String(r.trace_id), Number(r.total_tokens) || 0);
+  }
+  return out;
+}
+
+function spanWallDurationMs(startMs: number | null, endMs: number | null): number | null {
+  if (startMs == null || endMs == null) return null;
+  const a = Number(startMs);
+  const b = Number(endMs);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  return b - a;
+}
+
 export type ExecutionGraphNode = {
   id: string;
   trace_id: string;
@@ -48,9 +93,11 @@ export type ExecutionGraphNode = {
   total_tokens: number;
   /** Trace header: `opik_traces.created_at_ms`. */
   created_at_ms: number | null;
-  /** Span: wall-clock start/end (epoch ms). */
+  /** Span：span 起止；Trace 头：与 trace 列表同源（created / 推导 end）。 */
   start_time_ms: number | null;
   end_time_ms: number | null;
+  /** Trace 头：墙钟耗时；Span：`end_time_ms - start_time_ms`（可算时）。 */
+  duration_ms: number | null;
   /**
    * 来自 `opik_traces.metadata_json.tool_execution_mode`：本回合工具批次的并发 / 串行调度。
    * 标在 trace 头节点与 LLM span 上；其它 span 为 null。
@@ -308,11 +355,15 @@ function buildExecutionGraphFromTraces(
   /** Trace header id prefix */
   const th = (traceId: string) => `th:${traceId}`;
 
+  const traceTokenById = loadTraceTokenTotals(db, traceIds);
+
   for (const tr of traceRows) {
     const tid = tr.trace_id;
     const tt = String(tr.trace_type ?? "external");
     const createdRaw = tr.created_at_ms != null ? Number(tr.created_at_ms) : NaN;
     const createdAtMs = Number.isFinite(createdRaw) ? createdRaw : null;
+    const endMs = traceEndTimeMs(tr);
+    const durMs = traceDurationMs(tr, endMs);
     nodes.push({
       id: th(tid),
       trace_id: tid,
@@ -323,10 +374,11 @@ function buildExecutionGraphFromTraces(
       name: tr.name ?? tt,
       model: null,
       provider: null,
-      total_tokens: 0,
+      total_tokens: traceTokenById.get(tid) ?? 0,
       created_at_ms: createdAtMs,
-      start_time_ms: null,
-      end_time_ms: null,
+      start_time_ms: createdAtMs,
+      end_time_ms: endMs,
+      duration_ms: durMs,
       tool_execution_mode: traceToolModeById.get(tid) ?? null,
     });
   }
@@ -344,6 +396,8 @@ function buildExecutionGraphFromTraces(
     const tok = usage.total_tokens != null && Number.isFinite(usage.total_tokens) ? Math.max(0, usage.total_tokens) : 0;
     const stRaw = s.start_time_ms != null ? Number(s.start_time_ms) : NaN;
     const enRaw = s.end_time_ms != null ? Number(s.end_time_ms) : NaN;
+    const startMs = Number.isFinite(stRaw) ? stRaw : null;
+    const endMs = Number.isFinite(enRaw) ? enRaw : null;
     const traceIdStr = String(s.trace_id);
     const tem =
       kind === "LLM" ? traceToolModeById.get(traceIdStr) ?? null : null;
@@ -359,8 +413,9 @@ function buildExecutionGraphFromTraces(
       provider: s.provider != null ? String(s.provider) : null,
       total_tokens: tok,
       created_at_ms: null,
-      start_time_ms: Number.isFinite(stRaw) ? stRaw : null,
-      end_time_ms: Number.isFinite(enRaw) ? enRaw : null,
+      start_time_ms: startMs,
+      end_time_ms: endMs,
+      duration_ms: spanWallDurationMs(startMs, endMs),
       tool_execution_mode: tem,
     });
   }

@@ -20,6 +20,7 @@ import { countThreadRecords, queryThreadRecords } from "./thread-records-query.j
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
 import { queryConversationExecutionGraph, queryTraceExecutionGraph } from "./execution-graph-query.js";
 import { queryThreadTraceGraph } from "./trace-graph-query.js";
+import { queryThreadTokenBreakdown } from "./thread-token-breakdown-query.js";
 import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
 import { queryObserveFacets } from "./observe-facets-query.js";
@@ -260,6 +261,21 @@ const handleThreadRecords = (c: Context) => {
 app.get("/v1/conversation/list", handleThreadRecords);
 /** @deprecated Use `GET /v1/conversation/list` */
 app.get("/v1/thread-records", handleThreadRecords);
+
+/** 会话下 LLM span 的 usage 聚合（prompt / completion / cache_read / total），与 `parseUsageExtended` 一致。 */
+app.get("/v1/conversation/:threadId/token-breakdown", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let threadId = c.req.param("threadId") ?? "";
+  try {
+    threadId = decodeURIComponent(threadId);
+  } catch {
+    /* keep raw */
+  }
+  const body = queryThreadTokenBreakdown(db, threadId);
+  return c.json(body);
+});
 
 /** Thread turn tree from `opik_traces`（metadata `parent_turn_id` + `trace_type`）与 `opik_threads` 会话树。 */
 app.get("/v1/conversation/:threadId/turns", (c) => {

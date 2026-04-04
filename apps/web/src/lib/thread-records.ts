@@ -19,6 +19,8 @@ export type ThreadRecordRow = {
   trace_count: number;
   first_message_preview?: string | null;
   last_message_preview?: string | null;
+  /** 与 `last_message_preview` 对应的最新一条 trace 的 `created_at_ms`（毫秒） */
+  last_message_created_at_ms?: number | null;
   latest_input_preview?: string | null;
   total_tokens: number;
   total_cost?: number | null;
@@ -95,6 +97,7 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
     trace_count: Number(r.trace_count) || 0,
     first_message_preview: typeof r.first_message_preview === "string" ? r.first_message_preview : null,
     last_message_preview: typeof r.last_message_preview === "string" ? r.last_message_preview : null,
+    last_message_created_at_ms: coercePositiveMs(r.last_message_created_at_ms),
     latest_input_preview:
       typeof r.first_message_preview === "string" ? extractThreadListMessageText(r.first_message_preview) : null,
     total_tokens: coerceNonNegNumber(r.total_tokens),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mapSpanTypeToApi } from "./semantic-spans-query.js";
+import { mapSpanTypeToApi, parseUsageExtended } from "./semantic-spans-query.js";
 
 describe("mapSpanTypeToApi", () => {
   it("tool + explicit semantic_kind memory", () => {
@@ -25,5 +25,14 @@ describe("mapSpanTypeToApi", () => {
 
   it("skills.* wins over generic tool", () => {
     assert.equal(mapSpanTypeToApi("tool", "skills.run", {}), "SKILL");
+  });
+});
+
+describe("parseUsageExtended", () => {
+  it("maps top-level input/output numeric aliases to prompt/completion", () => {
+    const u = parseUsageExtended(JSON.stringify({ input: 12, output: 34 }));
+    assert.equal(u.prompt_tokens, 12);
+    assert.equal(u.completion_tokens, 34);
+    assert.ok(u.total_tokens != null && u.total_tokens >= 46);
   });
 });

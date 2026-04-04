@@ -1,6 +1,10 @@
 import { collectorAuthHeaders } from "@/lib/collector";
 import { conversationExecutionGraphPath, traceExecutionGraphPath } from "@/lib/collector-api-paths";
 
+/**
+ * Collector `GET /v1/conversation/:threadId/execution-graph` 与 `GET /v1/trace/execution-graph` 返回的节点。
+ * 时间字段均为 epoch ms；trace 头节点 `total_tokens` 与 trace 列表 `TRACE_ROW_TOKEN_INTEGER_EXPR` 一致。
+ */
 export type ExecutionGraphNodeDto = {
   id: string;
   trace_id: string;
@@ -14,9 +18,11 @@ export type ExecutionGraphNodeDto = {
   total_tokens: number;
   /** Trace header: creation time (epoch ms). */
   created_at_ms?: number | null;
-  /** Span: start/end (epoch ms). */
+  /** Span: start/end (epoch ms)。Trace 头：start=created、end=推导结束时间。 */
   start_time_ms?: number | null;
   end_time_ms?: number | null;
+  /** Trace 头 / Span：墙钟耗时（ms），与 Collector execution-graph 一致。 */
+  duration_ms?: number | null;
   /** 本回合工具调度：并发 / 串行（来自 trace metadata）。 */
   tool_execution_mode?: "parallel" | "sequential" | null;
 };
@@ -29,6 +35,7 @@ export type ExecutionGraphEdgeDto = {
   tool_batch_mode?: "parallel" | "sequential" | null;
 };
 
+/** 执行图 API 响应；`nodes` 含合成 trace 头（`node_role: "trace"`）与真实 span。 */
 export type ExecutionGraphResponseDto = {
   thread_key: string;
   nodes: ExecutionGraphNodeDto[];

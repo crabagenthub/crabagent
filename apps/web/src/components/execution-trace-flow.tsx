@@ -116,7 +116,12 @@ function traceKindBorder(kind: string): string {
 function callTimeLabel(d: ExecutionGraphNodeDto): { main: string; dur: string | null } {
   if (d.node_role === "trace") {
     const ms = d.created_at_ms ?? null;
-    return { main: ms != null && ms > 0 ? formatTraceDateTimeFromMs(ms) : "—", dur: null };
+    const main = ms != null && ms > 0 ? formatTraceDateTimeFromMs(ms) : "—";
+    const dm = d.duration_ms;
+    if (dm != null && Number.isFinite(dm) && dm > 0) {
+      return { main, dur: formatDurationMs(dm) };
+    }
+    return { main, dur: null };
   }
   const st = d.start_time_ms ?? null;
   const en = d.end_time_ms ?? null;
@@ -124,6 +129,11 @@ function callTimeLabel(d: ExecutionGraphNodeDto): { main: string; dur: string | 
   let dur: string | null = null;
   if (st != null && en != null && en >= st) {
     dur = formatDurationMs(en - st);
+  } else {
+    const dm = d.duration_ms;
+    if (dm != null && Number.isFinite(dm) && dm > 0) {
+      dur = formatDurationMs(dm);
+    }
   }
   return { main, dur };
 }
@@ -252,9 +262,15 @@ const ExecFlowNode = memo(function ExecFlowNodeFn(props: NodeProps) {
             </div>
           </>
         ) : (
-          <div className="text-[9px] text-muted-foreground">
-            {t("execNodeTraceHint", { tt: d.trace_type })}
-          </div>
+          <>
+            <div className="flex justify-between gap-2 tabular-nums">
+              <span>{t("traceGraphTokens")}</span>
+              <span className="font-medium text-foreground">{d.total_tokens.toLocaleString()}</span>
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              {t("execNodeTraceHint", { tt: d.trace_type })}
+            </div>
+          </>
         )}
         {isTrace && showToolBatch ? (
           <div className="mt-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-1 py-0.5 text-[9px] leading-tight text-foreground">

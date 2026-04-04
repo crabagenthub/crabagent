@@ -14,8 +14,34 @@ import {
   spanToolOversizedResult,
 } from "@/lib/span-insights";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import { MemoryBranchesIcon } from "@/icons";
+import { TokenUsageDetailsCard } from "@/components/token-usage-details-card";
+import { LlmModelIcon, MemoryBranchesIcon, ToolWrenchIcon } from "@/icons";
+import { semanticSpanTokenEntries } from "@/lib/span-token-display";
 import { cn } from "@/lib/utils";
+
+/** 左侧 inspect 卡片头像底色（LLM / TOOL / MEMORY 与调用图 `execution-trace-flow` 对齐；其余与 `typeBadgeClass` 接近）。 */
+function inspectStepAvatarClass(spanType: string): string {
+  switch (spanType) {
+    case "AGENT_LOOP":
+      return "bg-violet-100 text-violet-950 ring-violet-300/40";
+    case "LLM":
+      return "bg-sky-100 text-sky-900 ring-sky-400/35";
+    case "TOOL":
+      /* 与 `execution-trace-flow` 调用图 spanKindBorder(TOOL) 一致（emerald） */
+      return "bg-emerald-100 text-emerald-900 ring-emerald-400/35";
+    case "IO":
+      return "bg-cyan-100 text-cyan-900 ring-cyan-400/35";
+    case "MEMORY":
+      /* 与 `execution-trace-flow` 调用图 spanKindBorder(MEMORY) 一致（amber） */
+      return "bg-amber-100 text-amber-900 ring-amber-400/35";
+    case "PLUGIN":
+      return "bg-orange-100 text-orange-900 ring-orange-400/35";
+    case "SKILL":
+      return "bg-lime-100 text-lime-900 ring-lime-400/35";
+    default:
+      return "bg-neutral-100 text-neutral-800 ring-neutral-300/45";
+  }
+}
 
 function typeBadgeClass(spanType: string): string {
   switch (spanType) {
@@ -72,32 +98,6 @@ function spanTagCount(node: SpanTreeNode): number {
   return raw.filter((x) => typeof x === "string" && x.trim().length > 0).length;
 }
 
-function mergeTokenDisplay(node: SpanTreeNode): Record<string, number> {
-  const bd =
-    node.usage_breakdown && typeof node.usage_breakdown === "object"
-      ? node.usage_breakdown
-      : {};
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(bd)) {
-    if (typeof v === "number" && Number.isFinite(v)) {
-      out[k] = Math.trunc(v);
-    }
-  }
-  const set = (k: string, v: number | null | undefined) => {
-    if (v == null || !Number.isFinite(v)) {
-      return;
-    }
-    if (out[k] === undefined) {
-      out[k] = Math.trunc(v);
-    }
-  };
-  set("prompt_tokens", node.prompt_tokens);
-  set("completion_tokens", node.completion_tokens);
-  set("cache_read_tokens", node.cache_read_tokens);
-  set("total_tokens", node.total_tokens);
-  return out;
-}
-
 function hasTokenMetrics(node: SpanTreeNode): boolean {
   const bd = node.usage_breakdown && typeof node.usage_breakdown === "object" ? node.usage_breakdown : {};
   return (
@@ -106,58 +106,6 @@ function hasTokenMetrics(node: SpanTreeNode): boolean {
     (node.completion_tokens != null && node.completion_tokens > 0) ||
     (node.cache_read_tokens != null && node.cache_read_tokens > 0) ||
     Object.keys(bd).length > 0
-  );
-}
-
-function InspectTokenUsagePopover({ node }: { node: SpanTreeNode }) {
-  const t = useTranslations("Traces");
-  const obj = mergeTokenDisplay(node);
-  const canon = ["prompt_tokens", "completion_tokens", "cache_read_tokens", "total_tokens"];
-
-  const keys = Object.keys(obj).sort((a, b) => {
-    const ia = canon.indexOf(a);
-    const ib = canon.indexOf(b);
-    if (ia >= 0 && ib >= 0) return ia - ib;
-    if (ia >= 0) return -1;
-    if (ib >= 0) return 1;
-    return a.localeCompare(b);
-  });
-
-  const getLabel = (key: string) => {
-    switch (key) {
-      case "prompt_tokens":
-        return t("detailAttrTokenPrompt");
-      case "completion_tokens":
-        return t("detailAttrTokenCompletion");
-      case "cache_read_tokens":
-        return t("detailAttrTokenCacheRead");
-      case "total_tokens":
-        return t("colTotalTokens");
-      default:
-        return key;
-    }
-  };
-
-  return (
-    <div className="min-w-[14rem] space-y-3 py-1 text-left">
-      <div className="flex items-center gap-2 border-b border-neutral-100 pb-2">
-        <IconCommon className="size-4 text-violet-500" />
-        <span className="text-sm font-bold text-neutral-800">{t("semanticTokenUsageTitle")}</span>
-      </div>
-      <div className="grid grid-cols-1 gap-y-2.5">
-        {keys.map((k) => {
-          const isTotal = k === "total_tokens";
-          return (
-            <div key={k} className={cn("flex items-center justify-between gap-4 text-xs", isTotal && "mt-1 border-t border-neutral-100 pt-2 font-bold")}>
-              <span className={cn("text-neutral-500", isTotal && "text-neutral-700")}>{getLabel(k)}</span>
-              <span className={cn("tabular-nums text-neutral-800", isTotal && "text-violet-600")}>
-                {obj[k].toLocaleString()}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -277,17 +225,19 @@ function TreeNodeRow({
           <div className="flex items-start gap-2">
             <span
               className={cn(
-                "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold",
-                node.type === "MEMORY"
-                  ? "bg-fuchsia-100 text-fuchsia-800"
-                  : "bg-pink-100 text-pink-700",
+                "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md ring-1 ring-inset",
+                inspectStepAvatarClass(node.type),
               )}
               aria-hidden
             >
               {node.type === "MEMORY" ? (
-                <MemoryBranchesIcon className="size-4" />
+                <MemoryBranchesIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              ) : node.type === "LLM" ? (
+                <LlmModelIcon className="size-4 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+              ) : node.type === "TOOL" ? (
+                <ToolWrenchIcon className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
               ) : (
-                node.type.slice(0, 1)
+                <span className="text-[10px] font-bold">{node.type.slice(0, 1)}</span>
               )}
             </span>
             <div className="min-w-0 flex-1">
@@ -308,7 +258,7 @@ function TreeNodeRow({
                   <Popover
                     position="rt"
                     trigger="hover"
-                    content={<InspectTokenUsagePopover node={node} />}
+                    content={<TokenUsageDetailsCard entries={semanticSpanTokenEntries(node)} />}
                   >
                     <span
                       className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"

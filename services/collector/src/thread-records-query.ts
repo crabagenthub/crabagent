@@ -83,6 +83,13 @@ SELECT th.thread_id,
           AND t.project_name = th.project_name
         ORDER BY t.created_at_ms DESC, t.trace_id DESC
         LIMIT 1) AS last_message_preview,
+       (SELECT t.created_at_ms
+        FROM opik_traces t
+        WHERE t.thread_id = th.thread_id
+          AND t.workspace_name = th.workspace_name
+          AND t.project_name = th.project_name
+        ORDER BY t.created_at_ms DESC, t.trace_id DESC
+        LIMIT 1) AS last_message_created_at_ms,
        (SELECT COALESCE(SUM(COALESCE(${TRACE_ROW_TOKEN_INTEGER_EXPR}, 0)), 0)
         FROM opik_traces t
         WHERE t.thread_id = th.thread_id
@@ -243,6 +250,13 @@ export function mapThreadRecordRow(r: ThreadRecordRawRow): Record<string, unknow
     trace_count: Number(r.trace_count) || 0,
     first_message_preview: r.first_message_preview ?? null,
     last_message_preview: r.last_message_preview ?? null,
+    last_message_created_at_ms: (() => {
+      const v = r.last_message_created_at_ms;
+      if (v != null && v !== "" && Number.isFinite(Number(v)) && Number(v) > 0) {
+        return Number(v);
+      }
+      return null;
+    })(),
     total_tokens,
     total_cost,
     duration_ms,

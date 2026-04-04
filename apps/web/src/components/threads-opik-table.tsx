@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Table } from "@arco-design/web-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import type { Components } from "react-markdown";
@@ -38,6 +38,7 @@ import {
 } from "@/lib/trace-records";
 import { extractThreadListMessageText } from "@/lib/strip-inbound-meta";
 import { threadRowStableId, type ThreadRecordRow } from "@/lib/thread-records";
+import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatThreadListSessionId } from "@/lib/utils";
 
 export const OBSERVE_THREADS_TABLE_ID = "observe-threads";
@@ -170,10 +171,13 @@ function ThreadMessageCell({
   raw,
   ariaLabel,
   extractText,
+  previewLineClamp = 2,
 }: {
   raw: string | null | undefined;
   ariaLabel: string;
   extractText: (raw: string | null | undefined) => string;
+  /** 列表「最新消息」列：第一行预览用单行截断，第二行显示时间 */
+  previewLineClamp?: 1 | 2;
 }) {
   const full = extractText(raw).trim();
   if (!full) {
@@ -181,7 +185,10 @@ function ThreadMessageCell({
   }
 
   const normalized = full.replace(/\s+/g, " ").trim();
-  const needsPopover = full.includes("\n") || normalized.length > 72;
+  const needsPopover =
+    previewLineClamp === 1
+      ? full.includes("\n") || normalized.length > 48
+      : full.includes("\n") || normalized.length > 72;
 
   const body = (
     <span
@@ -190,7 +197,7 @@ function ThreadMessageCell({
       style={{
         display: "-webkit-box",
         WebkitBoxOrient: "vertical",
-        WebkitLineClamp: 2,
+        WebkitLineClamp: previewLineClamp,
         overflow: "hidden",
         overflowWrap: "anywhere",
         wordBreak: "break-word",
@@ -204,30 +211,40 @@ function ThreadMessageCell({
     return body;
   }
 
+  /** 滚动约束在气泡根节点（Trigger 合并到 `arco-popover-content`），避免内层 max-height 不生效导致内容溢出 */
+  const popoverPopupStyle: CSSProperties = {
+    maxWidth: "min(100vw - 2rem, 28rem)",
+    maxHeight: "min(70vh, 28rem)",
+    overflowY: "auto",
+    overflowX: "auto",
+    overscrollBehavior: "contain",
+    boxSizing: "border-box",
+    padding: 0,
+    WebkitOverflowScrolling: "touch",
+  };
+
   return (
     <Popover
       trigger="hover"
       position="top"
-      triggerProps={{ popupStyle: { maxWidth: "min(100vw - 2rem, 28rem)", boxSizing: "border-box" } }}
+      triggerProps={{ popupStyle: popoverPopupStyle }}
       content={
-        <div className="box-border w-[min(100vw-2rem,28rem)] max-w-[min(100vw-2rem,28rem)] min-w-0 overflow-hidden p-3">
-          <div className="max-h-[min(70vh,28rem)] min-w-0 max-w-full overflow-x-auto overflow-y-auto overscroll-x-contain overscroll-y-auto touch-pan-x touch-pan-y [scrollbar-gutter:stable]">
-            <Markdown
-              className={cn(
-                "min-w-0 max-w-full text-xs leading-5 text-neutral-800 [overflow-wrap:anywhere] [word-break:break-word]",
-                "[&>div]:min-w-0",
-                "[&_p]:my-0 [&_p]:min-w-0 [&_p]:max-w-full [&_p]:whitespace-pre-wrap [&_p]:break-words [&_p+*]:mt-2",
-                "[&_ul]:my-2 [&_ol]:my-2 [&_li]:min-w-0 [&_li]:max-w-full [&_li]:break-words [&_li]:leading-5",
-                "[&_blockquote]:min-w-0 [&_blockquote]:max-w-full [&_blockquote]:break-words",
-                "[&_table]:block [&_table]:w-max [&_table]:max-w-none",
-                "[&_pre]:my-2 [&_pre]:min-w-0 [&_pre]:border [&_pre]:border-neutral-200",
-                "[&_code]:break-words",
-              )}
-              components={threadMessagePopoverMarkdownComponents}
-            >
-              {full}
-            </Markdown>
-          </div>
+        <div className="box-border min-w-0 max-w-full p-3">
+          <Markdown
+            className={cn(
+              "min-w-0 max-w-full text-xs leading-5 text-neutral-800 [overflow-wrap:anywhere] [word-break:break-word]",
+              "[&>div]:min-w-0",
+              "[&_p]:my-0 [&_p]:min-w-0 [&_p]:max-w-full [&_p]:whitespace-pre-wrap [&_p]:break-words [&_p+*]:mt-2",
+              "[&_ul]:my-2 [&_ol]:my-2 [&_li]:min-w-0 [&_li]:max-w-full [&_li]:break-words [&_li]:leading-5",
+              "[&_blockquote]:min-w-0 [&_blockquote]:max-w-full [&_blockquote]:break-words",
+              "[&_table]:block [&_table]:w-max [&_table]:max-w-none",
+              "[&_pre]:my-2 [&_pre]:min-w-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-neutral-200",
+              "[&_code]:break-words",
+            )}
+            components={threadMessagePopoverMarkdownComponents}
+          >
+            {full}
+          </Markdown>
         </div>
       }
     >
@@ -375,12 +392,16 @@ export function ThreadsOpikTable({
         key: "last_message_preview",
         width: 320,
         render: (_, row) => (
-          <div className="min-w-0 w-[20rem] max-w-full">
+          <div className="flex min-w-0 w-[20rem] max-w-full flex-col gap-0.5">
             <ThreadMessageCell
               raw={row.latest_input_preview ?? row.last_message_preview}
               ariaLabel={t("threadsLastMessageFullAria")}
               extractText={extractThreadListMessageText}
+              previewLineClamp={1}
             />
+            <span className="text-[10px] leading-4 text-neutral-500 tabular-nums">
+              {formatTraceDateTimeFromMs(row.last_message_created_at_ms ?? null)}
+            </span>
           </div>
         ),
       },

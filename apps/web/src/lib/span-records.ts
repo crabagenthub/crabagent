@@ -22,9 +22,10 @@ export type SpanRecordRow = {
   agent_name: string | null;
   channel_name: string | null;
   total_tokens: number;
-  /** When collector returns token split (optional). */
+  /** 与 Collector `parseUsageExtended(usage_json)` 一致；`total_tokens` 仍来自列表 SQL 表达式。 */
   prompt_tokens: number;
   completion_tokens: number;
+  cache_read_tokens: number;
   list_status: ObserveListStatusParam;
 };
 
@@ -84,6 +85,10 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
     completion_tokens:
       r.completion_tokens != null && r.completion_tokens !== "" && Number.isFinite(Number(r.completion_tokens))
         ? Math.max(0, Math.floor(Number(r.completion_tokens)))
+        : 0,
+    cache_read_tokens:
+      r.cache_read_tokens != null && r.cache_read_tokens !== "" && Number.isFinite(Number(r.cache_read_tokens))
+        ? Math.max(0, Math.floor(Number(r.cache_read_tokens)))
         : 0,
     list_status: parseRowStatus(r.list_status),
   };

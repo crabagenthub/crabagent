@@ -5,6 +5,7 @@ import {
   type ObserveListStatus,
 } from "./observe-list-filters.js";
 import { SPAN_ROW_TOKEN_INTEGER_EXPR } from "./opik-tokens-sql.js";
+import { parseUsageExtended } from "./semantic-spans-query.js";
 
 export type SpanRecordsListQuery = {
   limit: number;
@@ -40,6 +41,7 @@ SELECT s.span_id,
        t.project_name,
        th.agent_name,
        th.channel_name,
+       s.usage_json,
        (${SPAN_ROW_TOKEN_INTEGER_EXPR}) AS total_tokens,
        CASE
          WHEN s.is_complete = 0 THEN 'running'
@@ -158,6 +160,12 @@ export function mapSpanRecordRow(r: SpanRecordRawRow): Record<string, unknown> {
   const tt = r.total_tokens;
   const totalTokens =
     tt != null && tt !== "" && Number.isFinite(Number(tt)) ? Math.max(0, Math.floor(Number(tt))) : 0;
+  const usage = parseUsageExtended(
+    r.usage_json != null && typeof r.usage_json === "string" ? r.usage_json : null,
+  );
+  const pt = usage.prompt_tokens;
+  const ct = usage.completion_tokens;
+  const cr = usage.cache_read_tokens;
   return {
     span_id: r.span_id,
     trace_id: r.trace_id,
@@ -183,6 +191,10 @@ export function mapSpanRecordRow(r: SpanRecordRawRow): Record<string, unknown> {
     channel_name:
       r.channel_name != null && String(r.channel_name).trim() !== "" ? String(r.channel_name) : null,
     total_tokens: totalTokens,
+    /** 与 `parseUsageExtended(usage_json)` 一致；列表排序仍用 `SPAN_ROW_TOKEN_INTEGER_EXPR` 的 total。 */
+    prompt_tokens: pt != null && Number.isFinite(pt) ? Math.max(0, Math.trunc(pt)) : 0,
+    completion_tokens: ct != null && Number.isFinite(ct) ? Math.max(0, Math.trunc(ct)) : 0,
+    cache_read_tokens: cr != null && Number.isFinite(cr) ? Math.max(0, Math.trunc(cr)) : 0,
     list_status: parseListStatus(r.list_status),
   };
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { openDatabase } from "./db.js";
 import { queryConversationExecutionGraph, queryTraceExecutionGraph } from "./execution-graph-query.js";
+import { queryTraceRecords } from "./trace-records-query.js";
 
 describe("queryConversationExecutionGraph", () => {
   it("trace headers, span edges, and cross_trace when parent_turn_id links traces", () => {
@@ -47,6 +48,15 @@ describe("queryConversationExecutionGraph", () => {
 
       const g = queryConversationExecutionGraph(db, main, { maxNodes: 500 });
       const ids = new Set(g.nodes.map((n) => n.id));
+      const thP1 = g.nodes.find((n) => n.id === "th:p1");
+      assert.ok(thP1);
+      assert.equal(thP1!.node_role, "trace");
+      assert.equal(thP1!.total_tokens, 10);
+      assert.ok(thP1!.duration_ms == null || thP1!.duration_ms >= 0);
+      const traceRows = queryTraceRecords(db, { limit: 20, offset: 0, order: "desc" });
+      const trP1 = traceRows.find((r) => String(r.trace_id) === "p1");
+      assert.ok(trP1);
+      assert.equal(thP1!.total_tokens, Number(trP1!.total_tokens));
       assert.ok(ids.has("th:p1"));
       assert.ok(ids.has("th:c1"));
       assert.ok(ids.has("sp-p-llm"));

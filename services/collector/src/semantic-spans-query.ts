@@ -73,6 +73,7 @@ export function parseUsageExtended(usageJson: string | null | undefined): {
     pick(
       o.prompt_tokens,
       o.promptTokens,
+      o.input,
       um.promptTokenCount,
       um.inputTokenCount,
       usageNested.prompt_tokens,
@@ -89,6 +90,7 @@ export function parseUsageExtended(usageJson: string | null | undefined): {
     pick(
       o.completion_tokens,
       o.completionTokens,
+      o.output,
       um.candidatesTokenCount,
       um.outputTokenCount,
       usageNested.completion_tokens,

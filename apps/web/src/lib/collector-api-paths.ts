@@ -21,6 +21,7 @@ export const COLLECTOR_QUERY_SCOPE = {
   executionGraph: "execution-graph",
   traceSpans: "trace-spans",
   spanList: "span-list",
+  threadTokenBreakdown: "thread-token-breakdown",
   resourceAuditEvents: "resource-audit-events",
   resourceAuditStats: "resource-audit-stats",
 } as const;
@@ -35,6 +36,12 @@ export function conversationTraceGraphPath(threadId: string): string {
 export function conversationExecutionGraphPath(threadId: string): string {
   const id = threadId.trim();
   return `/v1/conversation/${encodeURIComponent(id)}/execution-graph`;
+}
+
+/** `GET /v1/conversation/:threadId/token-breakdown` — LLM span usage 聚合（prompt/completion/cache）。 */
+export function conversationThreadTokenBreakdownPath(threadId: string): string {
+  const id = threadId.trim();
+  return `/v1/conversation/${encodeURIComponent(id)}/token-breakdown`;
 }
 
 /** `GET /v1/trace/execution-graph?trace_id=` */

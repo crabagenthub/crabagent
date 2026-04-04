@@ -41,3 +41,30 @@ export function spanTokenTotals(span: SemanticSpanRow): {
     hasAny,
   };
 }
+
+/** 合并 `usage_breakdown` 与 canonical 字段，供 Token 明细卡片与 Popover 统一展示（与语义树 mergeTokenDisplay 一致）。 */
+export function semanticSpanTokenEntries(span: SemanticSpanRow): Record<string, number> {
+  const bd =
+    span.usage_breakdown && typeof span.usage_breakdown === "object" && !Array.isArray(span.usage_breakdown)
+      ? (span.usage_breakdown as Record<string, number>)
+      : {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(bd)) {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[k] = Math.trunc(v);
+    }
+  }
+  const set = (k: string, v: number | null | undefined) => {
+    if (v == null || !Number.isFinite(v)) {
+      return;
+    }
+    if (out[k] === undefined) {
+      out[k] = Math.trunc(v);
+    }
+  };
+  set("prompt_tokens", span.prompt_tokens);
+  set("completion_tokens", span.completion_tokens);
+  set("cache_read_tokens", span.cache_read_tokens);
+  set("total_tokens", span.total_tokens);
+  return out;
+}

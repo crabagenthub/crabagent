@@ -15,6 +15,7 @@ function show(
     content,
     duration: defaultDurationMs,
     showIcon: true,
+    className: "rounded-xl",
   });
 }
 

@@ -10,6 +10,7 @@ import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
+import { TokenUsageDetailsCard } from "@/components/token-usage-details-card";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
@@ -17,6 +18,7 @@ import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatDurationMs } from "@/lib/trace-records";
+import { semanticSpanTokenEntries } from "@/lib/span-token-display";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { cn, formatShortId } from "@/lib/utils";
 type Props = {
@@ -112,6 +114,13 @@ export function SpanRecordInspectDrawer({
     }
     return items.find((s) => s.span_id === selectedSpanId) ?? null;
   }, [items, selectedSpanId]);
+
+  const tokenEntries = useMemo(() => {
+    if (!selectedSpan) {
+      return {};
+    }
+    return semanticSpanTokenEntries(selectedSpan);
+  }, [selectedSpan]);
 
   const rowDur = row?.duration_ms ?? null;
   const listStartLabel =
@@ -293,30 +302,7 @@ export function SpanRecordInspectDrawer({
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
-                  <dl className="m-0 space-y-2 text-xs leading-relaxed">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenInput")}</dt>
-                      <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">
-                        {Number.isFinite(row.prompt_tokens) ? row.prompt_tokens.toLocaleString() : "0"}
-                      </dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenOutput")}</dt>
-                      <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">
-                        {Number.isFinite(row.completion_tokens) ? row.completion_tokens.toLocaleString() : "0"}
-                      </dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenTotal")}</dt>
-                      <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">
-                        {row.total_tokens.toLocaleString()}
-                      </dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenCache")}</dt>
-                      <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">0</dd>
-                    </div>
-                  </dl>
+                  <TokenUsageDetailsCard entries={tokenEntries} hideHeader className="!py-0" />
                 </div>
               </div>
             </div>
