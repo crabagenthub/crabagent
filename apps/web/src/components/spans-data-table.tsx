@@ -35,21 +35,25 @@ import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
-export const OBSERVE_SPANS_TABLE_ID = "observe-spans";
+/** Bump when default column visibility changes. */
+export const OBSERVE_SPANS_TABLE_ID = "observe-spans-v2";
 
-const SPANS_COLUMN_MANDATORY = new Set(["span_id", "list_status", "input_preview"]);
-
-export const SPANS_OPTIONAL_KEYS: readonly string[] = [
-  "agent_name",
+const SPANS_COLUMN_MANDATORY = new Set([
+  "span_id",
   "channel_name",
+  "agent_name",
   "name",
-  "span_type",
-  "output_preview",
-  "start_time_ms",
-  "end_time_ms",
+  "list_status",
   "duration_ms",
-  "total_tokens",
-];
+  "span_type",
+  "input_preview",
+  "output_preview",
+]);
+
+export const SPANS_OPTIONAL_KEYS: readonly string[] = ["start_time_ms", "end_time_ms", "total_tokens"];
+
+/** 默认仅隐藏：执行开始、执行结束、Token（其余为默认展示列）。 */
+export const SPANS_DEFAULT_HIDDEN_OPTIONAL: readonly string[] = [...SPANS_OPTIONAL_KEYS];
 
 const headerCellClass =
   "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
@@ -85,26 +89,35 @@ function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
   );
 }
 
-function SpanIdCell({ spanId }: { spanId: string }) {
+function SpanIdCell({ spanId, spanType }: { spanId: string; spanType: string }) {
   const t = useTranslations("Traces");
+  const typeLine = spanType.trim() || "—";
 
   if (!spanId.trim()) {
     return <span className="text-neutral-400">—</span>;
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={spanId}>
-        {formatShortId(spanId)}
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={spanId}>
+          {formatShortId(spanId)}
+        </span>
+        <TraceCopyIconButton
+          text={spanId}
+          ariaLabel={t("traceInspectCopySpanId")}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="p-1 hover:bg-neutral-100"
+          stopPropagation
+        />
+      </div>
+      <span
+        className="line-clamp-1 min-w-0 text-[11px] font-normal text-neutral-500 dark:text-neutral-400"
+        title={typeLine}
+      >
+        {typeLine}
       </span>
-      <TraceCopyIconButton
-        text={spanId}
-        ariaLabel={t("traceInspectCopySpanId")}
-        tooltipLabel={t("copy")}
-        successLabel={t("copySuccessToast")}
-        className="p-1 hover:bg-neutral-100"
-        stopPropagation
-      />
     </div>
   );
 }
@@ -149,22 +162,23 @@ export function SpansDataTable({
   const { hiddenOptional: localHiddenOptional, toggleOptional, resetOptional } = useObserveTableColumnVisibility(
     OBSERVE_SPANS_TABLE_ID,
     SPANS_OPTIONAL_KEYS,
+    SPANS_DEFAULT_HIDDEN_OPTIONAL,
   );
   const effectiveHiddenOptional = hiddenOptional ?? localHiddenOptional;
 
   const columnManagerItems = useMemo(
     () => [
       { key: "span_id", mandatory: true as const, label: t("spansColSpanId") },
+      { key: "channel_name", mandatory: true as const, label: t("spansColChannel") },
+      { key: "agent_name", mandatory: true as const, label: t("spansColAgent") },
+      { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
+      { key: "duration_ms", mandatory: true as const, label: t("spansColDuration") },
+      { key: "span_type", mandatory: true as const, label: t("spansColType") },
       { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
-      { key: "agent_name", label: t("spansColAgent") },
-      { key: "channel_name", label: t("spansColChannel") },
-      { key: "name", label: t("spansColName") },
-      { key: "span_type", label: t("spansColType") },
-      { key: "output_preview", label: t("spansColOutput") },
+      { key: "output_preview", mandatory: true as const, label: t("spansColOutput") },
       { key: "start_time_ms", label: t("spansColExecStart") },
       { key: "end_time_ms", label: t("spansColExecEnd") },
-      { key: "duration_ms", label: t("spansColDuration") },
       { key: "total_tokens", label: t("spansColTokens") },
     ],
     [t],
@@ -196,35 +210,8 @@ export function SpansDataTable({
         dataIndex: "span_id",
         key: "span_id",
         fixed: "left",
-        width: 168,
-        render: (_, r) => <SpanIdCell spanId={r.span_id} />,
-      },
-      {
-        title: (
-          <span className={headerCellClass}>
-            {onAgentFilterChange ? (
-              <ObserveFacetColumnFilter
-                label={t("spansColAgent")}
-                value={agentFilter}
-                options={agentOptions}
-                onChange={onAgentFilterChange}
-                ariaLabelKey="agentColumnFilterAria"
-              />
-            ) : (
-              t("spansColAgent")
-            )}
-          </span>
-        ),
-        dataIndex: "agent_name",
-        key: "agent_name",
-        render: (_, r) => (
-          <span
-            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
-            title={r.agent_name ?? ""}
-          >
-            {r.agent_name ?? "—"}
-          </span>
-        ),
+        width: 240,
+        render: (_, r) => <SpanIdCell spanId={r.span_id} spanType={r.span_type} />,
       },
       {
         title: (
@@ -254,6 +241,33 @@ export function SpansDataTable({
         ),
       },
       {
+        title: (
+          <span className={headerCellClass}>
+            {onAgentFilterChange ? (
+              <ObserveFacetColumnFilter
+                label={t("spansColAgent")}
+                value={agentFilter}
+                options={agentOptions}
+                onChange={onAgentFilterChange}
+                ariaLabelKey="agentColumnFilterAria"
+              />
+            ) : (
+              t("spansColAgent")
+            )}
+          </span>
+        ),
+        dataIndex: "agent_name",
+        key: "agent_name",
+        render: (_, r) => (
+          <span
+            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
+            title={r.agent_name ?? ""}
+          >
+            {r.agent_name ?? "—"}
+          </span>
+        ),
+      },
+      {
         title: <span className={headerCellClass}>{t("spansColName")}</span>,
         dataIndex: "name",
         key: "name",
@@ -265,12 +279,6 @@ export function SpansDataTable({
             {r.name || "—"}
           </span>
         ),
-      },
-      {
-        title: <span className={headerCellClass}>{t("spansColType")}</span>,
-        dataIndex: "span_type",
-        key: "span_type",
-        render: (_, r) => <span className="text-xs text-neutral-600">{r.span_type}</span>,
       },
       {
         title: (
@@ -291,14 +299,47 @@ export function SpansDataTable({
         render: (_, r) => <SpanStatusCell status={r.list_status} />,
       },
       {
+        title: <span className={headerCellClass}>{t("spansColDuration")}</span>,
+        dataIndex: "duration_ms",
+        key: "duration_ms",
+        width: 200,
+        render: (_, r) => {
+          const startFmt =
+            r.start_time_ms != null
+              ? formatTraceDateTimeLocal(new Date(r.start_time_ms).toISOString())
+              : "—";
+          const endFmt =
+            r.end_time_ms != null ? formatTraceDateTimeLocal(new Date(r.end_time_ms).toISOString()) : "—";
+          return (
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-xs tabular-nums text-neutral-800">{formatSpanDuration(r.duration_ms)}</span>
+              <span
+                className="line-clamp-2 break-words text-[11px] leading-snug text-neutral-500 dark:text-neutral-400"
+                title={`${startFmt} – ${endFmt}`}
+              >
+                {startFmt} – {endFmt}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        title: <span className={headerCellClass}>{t("spansColType")}</span>,
+        dataIndex: "span_type",
+        key: "span_type",
+        render: (_, r) => <span className="text-xs text-neutral-600">{r.span_type}</span>,
+      },
+      {
         title: <span className={headerCellClass}>{t("spansColInput")}</span>,
         dataIndex: "input_preview",
         key: "input_preview",
+        width: 260,
         render: (_, r) => (
-          <div className="min-w-0">
+          <div className="min-w-0 w-[260px] max-w-[260px]">
             <ObserveIoPreviewPopoverCell
               fullText={r.input_preview ?? ""}
               ariaLabel={t("spanListInputFullAria")}
+              previewClassName="w-full max-w-full"
             />
           </div>
         ),
@@ -307,11 +348,13 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColOutput")}</span>,
         dataIndex: "output_preview",
         key: "output_preview",
+        width: 260,
         render: (_, r) => (
-          <div className="min-w-0">
+          <div className="min-w-0 w-[260px] max-w-[260px]">
             <ObserveIoPreviewPopoverCell
               fullText={r.output_preview ?? ""}
               ariaLabel={t("spanListOutputFullAria")}
+              previewClassName="w-full max-w-full"
             />
           </div>
         ),
@@ -339,14 +382,6 @@ export function SpansDataTable({
           <span className="whitespace-nowrap text-xs text-neutral-600">
             {r.end_time_ms != null ? formatTraceDateTimeLocal(new Date(r.end_time_ms).toISOString()) : "—"}
           </span>
-        ),
-      },
-      {
-        title: <span className={headerCellClass}>{t("spansColDuration")}</span>,
-        dataIndex: "duration_ms",
-        key: "duration_ms",
-        render: (_, r) => (
-          <span className="text-xs tabular-nums text-neutral-700">{formatSpanDuration(r.duration_ms)}</span>
         ),
       },
       {

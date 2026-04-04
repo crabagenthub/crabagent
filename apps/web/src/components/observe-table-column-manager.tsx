@@ -20,13 +20,20 @@ export type ObserveColumnManagerItem = {
   mandatory?: boolean;
 };
 
-export function useObserveTableColumnVisibility(tableId: string, optionalKeys: readonly string[]) {
+export function useObserveTableColumnVisibility(
+  tableId: string,
+  optionalKeys: readonly string[],
+  /** First load / reset: hide these optional columns unless user has saved preferences. */
+  defaultHiddenOptional?: readonly string[],
+) {
   const storageKey = useMemo(() => observeTableColumnStorageKey(tableId), [tableId]);
-  const [hiddenOptional, setHiddenOptional] = useState<Set<string>>(() => new Set());
+  const [hiddenOptional, setHiddenOptional] = useState<Set<string>>(() =>
+    readHiddenOptionalKeys(storageKey, optionalKeys, defaultHiddenOptional),
+  );
 
   useLayoutEffect(() => {
-    setHiddenOptional(readHiddenOptionalKeys(storageKey, optionalKeys));
-  }, [storageKey, optionalKeys]);
+    setHiddenOptional(readHiddenOptionalKeys(storageKey, optionalKeys, defaultHiddenOptional));
+  }, [storageKey, optionalKeys, defaultHiddenOptional]);
 
   const persist = useCallback(
     (next: Set<string>) => {
@@ -50,8 +57,11 @@ export function useObserveTableColumnVisibility(tableId: string, optionalKeys: r
   );
 
   const resetOptional = useCallback(() => {
-    persist(new Set());
-  }, [persist]);
+    const next = new Set(
+      (defaultHiddenOptional ?? []).filter((k) => optionalKeys.includes(k)),
+    );
+    persist(next);
+  }, [defaultHiddenOptional, optionalKeys, persist]);
 
   return { hiddenOptional, toggleOptional, resetOptional };
 }

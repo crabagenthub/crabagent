@@ -53,26 +53,28 @@ import {
 } from "@/lib/trace-records";
 import { cn, formatShortId } from "@/lib/utils";
 
-export const OBSERVE_TRACES_TABLE_ID = "observe-traces";
+/** Bump when default column visibility changes so new defaults apply. */
+export const OBSERVE_TRACES_TABLE_ID = "observe-traces-v3";
 
-const TRACES_COLUMN_MANDATORY = new Set(["trace_id", "status", "input"]);
+const TRACES_COLUMN_MANDATORY = new Set(["trace_id", "channel", "agent", "status", "duration"]);
 
 export const TRACES_OPTIONAL_KEYS: readonly string[] = [
-  "channel",
-  "agent",
   "openclaw_routing_kind",
   "openclaw_routing_thinking",
   "openclaw_routing_fast",
   "openclaw_routing_verbose",
   "openclaw_routing_reasoning",
   "start_time",
+  "input",
   "output",
   "errors",
-  "duration",
   "total_tokens",
-  "total_cost",
-  "tags",
 ];
+
+/** 默认隐藏的可选列（输入、输出默认显示）。 */
+export const TRACES_DEFAULT_HIDDEN_OPTIONAL: readonly string[] = TRACES_OPTIONAL_KEYS.filter(
+  (k) => k !== "input" && k !== "output",
+);
 
 function rowFullInputText(row: TraceRecordRow): string {
   const raw = row.last_message_preview;
@@ -87,7 +89,28 @@ function rowFullOutputText(row: TraceRecordRow): string {
   return typeof raw === "string" ? raw.trim() : "";
 }
 
-function TraceIdCell({ traceId }: { traceId: string }) {
+function traceListTraceTypeLabel(raw: string | undefined, t: (key: string) => string): string {
+  const v = raw?.trim();
+  if (!v) {
+    return t("traceTypeUnknown");
+  }
+  const low = v.toLowerCase();
+  if (low === "external") {
+    return t("traceTypeExternal");
+  }
+  if (low === "subagent") {
+    return t("traceTypeSubagent");
+  }
+  if (low === "async_command") {
+    return t("traceTypeAsyncCommand");
+  }
+  if (low === "system") {
+    return t("traceTypeSystem");
+  }
+  return v;
+}
+
+function TraceIdCell({ traceId, traceTypeLabel }: { traceId: string; traceTypeLabel: string }) {
   const t = useTranslations("Traces");
 
   if (!traceId.trim()) {
@@ -95,18 +118,26 @@ function TraceIdCell({ traceId }: { traceId: string }) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={traceId}>
-        {formatShortId(traceId)}
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="block truncate whitespace-nowrap text-xs text-neutral-800" title={traceId}>
+          {formatShortId(traceId)}
+        </span>
+        <TraceCopyIconButton
+          text={traceId}
+          ariaLabel={t("copyIdAria", { kind: t("idKinds.trace_id") })}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="p-1 hover:bg-neutral-100"
+          stopPropagation
+        />
+      </div>
+      <span
+        className="line-clamp-1 min-w-0 text-[11px] font-normal text-neutral-500 dark:text-neutral-400"
+        title={traceTypeLabel}
+      >
+        {traceTypeLabel}
       </span>
-      <TraceCopyIconButton
-        text={traceId}
-        ariaLabel={t("copyIdAria", { kind: t("idKinds.trace_id") })}
-        tooltipLabel={t("copy")}
-        successLabel={t("copySuccessToast")}
-        className="p-1 hover:bg-neutral-100"
-        stopPropagation
-      />
     </div>
   );
 }
@@ -217,31 +248,26 @@ export function TracesOpikTable({
     hiddenOptional: localHiddenOptional,
     toggleOptional,
     resetOptional,
-  } = useObserveTableColumnVisibility(
-    OBSERVE_TRACES_TABLE_ID,
-    TRACES_OPTIONAL_KEYS,
-  );
+  } = useObserveTableColumnVisibility(OBSERVE_TRACES_TABLE_ID, TRACES_OPTIONAL_KEYS, TRACES_DEFAULT_HIDDEN_OPTIONAL);
   const effectiveHiddenOptional = hiddenOptional ?? localHiddenOptional;
 
   const columnManagerItems = useMemo(
     () => [
       { key: "trace_id", mandatory: true as const, label: t("colTableMessageId") },
+      { key: "channel", mandatory: true as const, label: t("filterChannelLabel") },
+      { key: "agent", mandatory: true as const, label: t("filterAgentLabel") },
       { key: "status", mandatory: true as const, label: t("colStatus") },
-      { key: "input", mandatory: true as const, label: t("colInput") },
-      { key: "channel", label: t("filterChannelLabel") },
-      { key: "agent", label: t("filterAgentLabel") },
+      { key: "duration", mandatory: true as const, label: t("colDuration") },
       { key: "openclaw_routing_kind", label: t("openclawRoutingFieldKind") },
       { key: "openclaw_routing_thinking", label: t("openclawRoutingFieldThinking") },
       { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
       { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
       { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
       { key: "start_time", label: t("colStartTime") },
+      { key: "input", label: t("colInput") },
       { key: "output", label: t("colOutput") },
       { key: "errors", label: t("colErrors") },
-      { key: "duration", label: t("colDuration") },
       { key: "total_tokens", label: t("colTotalTokens") },
-      { key: "total_cost", label: t("colEstCost") },
-      { key: "tags", label: t("colTags") },
     ],
     [t],
   );
@@ -272,8 +298,10 @@ export function TracesOpikTable({
         dataIndex: "trace_id",
         key: "trace_id",
         fixed: "left",
-        width: 168,
-        render: (_, row) => <TraceIdCell traceId={row.trace_id} />,
+        width: 240,
+        render: (_, row) => (
+          <TraceIdCell traceId={row.trace_id} traceTypeLabel={traceListTraceTypeLabel(row.trace_type, t)} />
+        ),
       },
       {
         title: (
@@ -330,6 +358,61 @@ export function TracesOpikTable({
             </span>
           ) : (
             <span className="text-xs text-neutral-400">—</span>
+          );
+        },
+      },
+      {
+        title: (
+          <span className={headerCellClass}>
+            {onStatusFilterChange ? (
+              <ObserveStatusColumnFilter
+                label={t("colStatus")}
+                value={statusFilter}
+                onChange={onStatusFilterChange}
+              />
+            ) : (
+              t("colStatus")
+            )}
+          </span>
+        ),
+        dataIndex: "status",
+        key: "status",
+        render: (_, row) =>
+          row.status ? (
+            <span
+              className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(
+                traceListStatusBandFromApiStatus(row.status),
+              )} whitespace-nowrap`}
+            >
+              {statusBandLabel(traceListStatusBandFromApiStatus(row.status), row.status, t)}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          ),
+      },
+      {
+        title: <span className={headerCellClass}>{t("colDuration")}</span>,
+        dataIndex: "duration",
+        key: "duration",
+        width: 200,
+        render: (_, row) => {
+          const startFmt = formatTraceDateTimeLocal(new Date(row.start_time).toISOString());
+          const endFmt =
+            row.end_time != null && typeof row.end_time === "number" && Number.isFinite(row.end_time)
+              ? formatTraceDateTimeLocal(new Date(row.end_time).toISOString())
+              : "—";
+          return (
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-xs tabular-nums text-neutral-800">
+                {formatDurationMs(traceRecordDurationMs(row))}
+              </span>
+              <span
+                className="line-clamp-2 break-words text-[11px] leading-snug text-neutral-500 dark:text-neutral-400"
+                title={`${startFmt} – ${endFmt}`}
+              >
+                {startFmt} – {endFmt}
+              </span>
+            </div>
           );
         },
       },
@@ -396,35 +479,6 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {onStatusFilterChange ? (
-              <ObserveStatusColumnFilter
-                label={t("colStatus")}
-                value={statusFilter}
-                onChange={onStatusFilterChange}
-              />
-            ) : (
-              t("colStatus")
-            )}
-          </span>
-        ),
-        dataIndex: "status",
-        key: "status",
-        render: (_, row) =>
-          row.status ? (
-            <span
-              className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${statusBandPillClass(
-                traceListStatusBandFromApiStatus(row.status),
-              )} whitespace-nowrap`}
-            >
-              {statusBandLabel(traceListStatusBandFromApiStatus(row.status), row.status, t)}
-            </span>
-          ) : (
-            <span className="text-xs text-neutral-400">—</span>
-          ),
-      },
-      {
         title: <span className={headerCellClass}>{t("colStartTime")}</span>,
         dataIndex: "start_time",
         key: "start_time",
@@ -441,9 +495,14 @@ export function TracesOpikTable({
         title: <span className={headerCellClass}>{t("colInput")}</span>,
         dataIndex: "input",
         key: "input",
+        width: 260,
         render: (_, row) => (
-          <div className="min-w-0">
-            <ObserveIoPreviewPopoverCell fullText={rowFullInputText(row)} ariaLabel={t("traceListInputFullAria")} />
+          <div className="min-w-0 w-[260px] max-w-[260px]">
+            <ObserveIoPreviewPopoverCell
+              fullText={rowFullInputText(row)}
+              ariaLabel={t("traceListInputFullAria")}
+              previewClassName="w-full max-w-full"
+            />
           </div>
         ),
       },
@@ -451,9 +510,14 @@ export function TracesOpikTable({
         title: <span className={headerCellClass}>{t("colOutput")}</span>,
         dataIndex: "output",
         key: "output",
+        width: 260,
         render: (_, row) => (
-          <div className="min-w-0">
-            <ObserveIoPreviewPopoverCell fullText={rowFullOutputText(row)} ariaLabel={t("traceListOutputFullAria")} />
+          <div className="min-w-0 w-[260px] max-w-[260px]">
+            <ObserveIoPreviewPopoverCell
+              fullText={rowFullOutputText(row)}
+              ariaLabel={t("traceListOutputFullAria")}
+              previewClassName="w-full max-w-full"
+            />
           </div>
         ),
       },
@@ -468,16 +532,6 @@ export function TracesOpikTable({
         },
       },
       {
-        title: <span className={headerCellClass}>{t("colDuration")}</span>,
-        dataIndex: "duration",
-        key: "duration",
-        render: (_, row) => (
-          <span className="text-xs tabular-nums text-neutral-800">
-            {formatDurationMs(traceRecordDurationMs(row))}
-          </span>
-        ),
-      },
-      {
         title: <span className={headerCellClass}>{t("colTotalTokens")}</span>,
         dataIndex: "total_tokens",
         key: "total_tokens",
@@ -489,44 +543,6 @@ export function TracesOpikTable({
             {typeof row.total_tokens === "number" ? row.total_tokens.toLocaleString() : "—"}
           </span>
         ),
-      },
-      {
-        title: <span className={headerCellClass}>{t("colEstCost")}</span>,
-        dataIndex: "total_cost",
-        key: "total_cost",
-        render: (_, row) => (
-          <span className="text-xs tabular-nums text-neutral-600">
-            {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
-          </span>
-        ),
-      },
-      {
-        title: <span className={headerCellClass}>{t("colTags")}</span>,
-        dataIndex: "tags",
-        key: "tags",
-        render: (_, row) => {
-          const tags = Array.isArray(row.tags) ? row.tags : [];
-          return (
-            <div className="flex flex-wrap gap-1">
-              {tags.length === 0 ? (
-                <span className="text-xs text-neutral-400">—</span>
-              ) : (
-                tags.slice(0, 4).map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex max-w-[7rem] truncate rounded-md bg-rose-500/12 px-1.5 py-0.5 text-[11px] font-medium text-rose-900"
-                    title={tag}
-                  >
-                    {tag.length > 16 ? `${tag.slice(0, 14)}…` : tag}
-                  </span>
-                ))
-              )}
-              {tags.length > 4 ? (
-                <span className="text-[11px] text-neutral-500">+{tags.length - 4}</span>
-              ) : null}
-            </div>
-          );
-        },
       },
     ],
     [

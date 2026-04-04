@@ -5,19 +5,27 @@ export function observeTableColumnStorageKey(tableId: string): string {
 }
 
 /** Persisted list of optional column keys that are currently hidden. */
-export function readHiddenOptionalKeys(storageKey: string, validOptionalKeys: readonly string[]): Set<string> {
-  if (typeof window === "undefined") {
-    return new Set();
-  }
+export function readHiddenOptionalKeys(
+  storageKey: string,
+  validOptionalKeys: readonly string[],
+  /** When storage is missing or invalid, use this as the hidden set (e.g. default column layout). */
+  defaultHiddenWhenEmpty?: readonly string[],
+): Set<string> {
   const valid = new Set(validOptionalKeys);
+  const defaultHidden = () =>
+    new Set((defaultHiddenWhenEmpty ?? []).filter((k) => typeof k === "string" && valid.has(k)));
+
+  if (typeof window === "undefined") {
+    return defaultHidden();
+  }
   try {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
-      return new Set();
+      return defaultHidden();
     }
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
-      return new Set();
+      return defaultHidden();
     }
     const out = new Set<string>();
     for (const x of parsed) {
@@ -27,7 +35,7 @@ export function readHiddenOptionalKeys(storageKey: string, validOptionalKeys: re
     }
     return out;
   } catch {
-    return new Set();
+    return defaultHidden();
   }
 }
 

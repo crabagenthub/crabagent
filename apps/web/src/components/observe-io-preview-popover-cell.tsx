@@ -40,7 +40,16 @@ function EmptyDash() {
 /**
  * Two-line clamp in table cell; hover popover with Markdown when content is long or multiline.
  */
-export function ObserveIoPreviewPopoverCell({ fullText, ariaLabel }: { fullText: string; ariaLabel: string }) {
+export function ObserveIoPreviewPopoverCell({
+  fullText,
+  ariaLabel,
+  previewClassName,
+}: {
+  fullText: string;
+  ariaLabel: string;
+  /** Applied to the clamped preview span (e.g. fixed column width). */
+  previewClassName?: string;
+}) {
   const full = fullText.trim();
   if (!full) {
     return <EmptyDash />;
@@ -52,7 +61,10 @@ export function ObserveIoPreviewPopoverCell({ fullText, ariaLabel }: { fullText:
   const body = (
     <span
       aria-label={ariaLabel}
-      className="block min-w-0 whitespace-normal break-words text-xs leading-snug text-neutral-800"
+      className={cn(
+        "block min-w-0 whitespace-normal break-words text-xs leading-snug text-neutral-800",
+        previewClassName,
+      )}
       style={{
         display: "-webkit-box",
         WebkitBoxOrient: "vertical",

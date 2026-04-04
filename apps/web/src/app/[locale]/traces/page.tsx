@@ -23,7 +23,12 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
-import { OBSERVE_SPANS_TABLE_ID, SPANS_OPTIONAL_KEYS, SpansDataTable } from "@/components/spans-data-table";
+import {
+  OBSERVE_SPANS_TABLE_ID,
+  SPANS_DEFAULT_HIDDEN_OPTIONAL,
+  SPANS_OPTIONAL_KEYS,
+  SpansDataTable,
+} from "@/components/spans-data-table";
 import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
 import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/components/threads-opik-table";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,7 +37,12 @@ import ArcoSwitch from "@arco-design/web-react/es/Switch";
 
 import "@/lib/arco-react19-setup";
 import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
-import { OBSERVE_TRACES_TABLE_ID, TRACES_OPTIONAL_KEYS, TracesOpikTable } from "@/components/traces-opik-table";
+import {
+  OBSERVE_TRACES_TABLE_ID,
+  TRACES_DEFAULT_HIDDEN_OPTIONAL,
+  TRACES_OPTIONAL_KEYS,
+  TracesOpikTable,
+} from "@/components/traces-opik-table";
 import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
 import {
   loadObserveFacets,
@@ -463,29 +473,35 @@ export default function TracesPage() {
   }, [facetsQ.data?.agents, filterAgent]);
 
 
-  const tracesColumns = useObserveTableColumnVisibility(OBSERVE_TRACES_TABLE_ID, TRACES_OPTIONAL_KEYS);
+  const tracesColumns = useObserveTableColumnVisibility(
+    OBSERVE_TRACES_TABLE_ID,
+    TRACES_OPTIONAL_KEYS,
+    TRACES_DEFAULT_HIDDEN_OPTIONAL,
+  );
   const threadsColumns = useObserveTableColumnVisibility(OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS);
-  const spansColumns = useObserveTableColumnVisibility(OBSERVE_SPANS_TABLE_ID, SPANS_OPTIONAL_KEYS);
+  const spansColumns = useObserveTableColumnVisibility(
+    OBSERVE_SPANS_TABLE_ID,
+    SPANS_OPTIONAL_KEYS,
+    SPANS_DEFAULT_HIDDEN_OPTIONAL,
+  );
 
   const tracesColumnManagerItems = useMemo(
     () => [
       { key: "trace_id", mandatory: true as const, label: t("colTableMessageId") },
+      { key: "channel", mandatory: true as const, label: t("filterChannelLabel") },
+      { key: "agent", mandatory: true as const, label: t("filterAgentLabel") },
       { key: "status", mandatory: true as const, label: t("colStatus") },
-      { key: "input", mandatory: true as const, label: t("colInput") },
-      { key: "channel", label: t("filterChannelLabel") },
-      { key: "agent", label: t("filterAgentLabel") },
+      { key: "duration", mandatory: true as const, label: t("colDuration") },
       { key: "openclaw_routing_kind", label: t("openclawRoutingFieldKind") },
       { key: "openclaw_routing_thinking", label: t("openclawRoutingFieldThinking") },
       { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
       { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
       { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
       { key: "start_time", label: t("colStartTime") },
+      { key: "input", label: t("colInput") },
       { key: "output", label: t("colOutput") },
       { key: "errors", label: t("colErrors") },
-      { key: "duration", label: t("colDuration") },
       { key: "total_tokens", label: t("colTotalTokens") },
-      { key: "total_cost", label: t("colEstCost") },
-      { key: "tags", label: t("colTags") },
     ],
     [t],
   );
@@ -506,16 +522,16 @@ export default function TracesPage() {
   const spansColumnManagerItems = useMemo(
     () => [
       { key: "span_id", mandatory: true as const, label: t("spansColSpanId") },
+      { key: "channel_name", mandatory: true as const, label: t("spansColChannel") },
+      { key: "agent_name", mandatory: true as const, label: t("spansColAgent") },
+      { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
+      { key: "duration_ms", mandatory: true as const, label: t("spansColDuration") },
+      { key: "span_type", mandatory: true as const, label: t("spansColType") },
       { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
-      { key: "agent_name", label: t("spansColAgent") },
-      { key: "channel_name", label: t("spansColChannel") },
-      { key: "name", label: t("spansColName") },
-      { key: "span_type", label: t("spansColType") },
-      { key: "output_preview", label: t("spansColOutput") },
+      { key: "output_preview", mandatory: true as const, label: t("spansColOutput") },
       { key: "start_time_ms", label: t("spansColExecStart") },
       { key: "end_time_ms", label: t("spansColExecEnd") },
-      { key: "duration_ms", label: t("spansColDuration") },
       { key: "total_tokens", label: t("spansColTokens") },
     ],
     [t],
