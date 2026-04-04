@@ -4,25 +4,35 @@ CREATE TABLE opik_threads (
   thread_id TEXT NOT NULL,
   workspace_name TEXT NOT NULL DEFAULT 'default',
   project_name TEXT NOT NULL DEFAULT 'openclaw',
+  thread_type TEXT NOT NULL DEFAULT 'main'
+    CHECK (thread_type IN ('main', 'subagent')),
+  parent_thread_id TEXT,
   first_seen_ms INTEGER NOT NULL,
   last_seen_ms INTEGER NOT NULL,
   metadata_json TEXT,
   agent_name TEXT,
   channel_name TEXT,
-  PRIMARY KEY (thread_id, workspace_name, project_name)
+  PRIMARY KEY (thread_id, workspace_name, project_name),
+  FOREIGN KEY (parent_thread_id, workspace_name, project_name)
+    REFERENCES opik_threads (thread_id, workspace_name, project_name)
+    ON DELETE SET NULL
 );
 CREATE INDEX idx_opik_threads_last_seen ON opik_threads(last_seen_ms DESC);
+CREATE INDEX idx_opik_threads_parent ON opik_threads (workspace_name, project_name, parent_thread_id);
 
 CREATE TABLE opik_traces (
   trace_id TEXT PRIMARY KEY,
   thread_id TEXT,
   workspace_name TEXT NOT NULL DEFAULT 'default',
   project_name TEXT NOT NULL DEFAULT 'openclaw',
+  trace_type TEXT NOT NULL DEFAULT 'external'
+    CHECK (trace_type IN ('external', 'subagent', 'async_command', 'system')),
+  subagent_thread_id TEXT,
   name TEXT,
-  tags_json TEXT,
   input_json TEXT,
   output_json TEXT,
   metadata_json TEXT,
+  setting_json TEXT,
   error_info_json TEXT,
   success INTEGER,
   duration_ms INTEGER,
@@ -31,8 +41,11 @@ CREATE TABLE opik_traces (
   updated_at_ms INTEGER,
   ended_at_ms INTEGER,
   is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1)),
-  created_from TEXT NOT NULL DEFAULT 'opik-openclaw',
+  created_from TEXT NOT NULL DEFAULT 'openclaw-iseeu',
   FOREIGN KEY (thread_id, workspace_name, project_name)
+    REFERENCES opik_threads (thread_id, workspace_name, project_name)
+    ON DELETE SET NULL,
+  FOREIGN KEY (subagent_thread_id, workspace_name, project_name)
     REFERENCES opik_threads (thread_id, workspace_name, project_name)
     ON DELETE SET NULL
 );
@@ -40,24 +53,8 @@ CREATE INDEX idx_opik_traces_thread ON opik_traces(thread_id, workspace_name, pr
 CREATE INDEX idx_opik_traces_project ON opik_traces(workspace_name, project_name, created_at_ms DESC);
 CREATE INDEX idx_opik_traces_created ON opik_traces(created_at_ms DESC);
 CREATE INDEX idx_opik_traces_complete ON opik_traces(is_complete, ended_at_ms);
-
-CREATE TABLE opik_thread_turns (
-  turn_id TEXT PRIMARY KEY,
-  thread_id TEXT NOT NULL,
-  workspace_name TEXT NOT NULL DEFAULT 'default',
-  project_name TEXT NOT NULL DEFAULT 'openclaw',
-  parent_turn_id TEXT,
-  run_kind TEXT NOT NULL
-    CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
-  primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
-  sort_key INTEGER NOT NULL,
-  preview_text TEXT,
-  skills_used_json TEXT,
-  created_at_ms INTEGER NOT NULL,
-  updated_at_ms INTEGER
-);
-CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
-CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
+CREATE INDEX idx_opik_traces_subagent_thread ON opik_traces(subagent_thread_id);
+CREATE INDEX idx_opik_traces_type_created ON opik_traces(trace_type, created_at_ms DESC);
 
 CREATE TABLE opik_spans (
   span_id TEXT PRIMARY KEY,
@@ -72,11 +69,12 @@ CREATE TABLE opik_spans (
   metadata_json TEXT,
   input_json TEXT,
   output_json TEXT,
-  tags_json TEXT,
+  setting_json TEXT,
   usage_json TEXT,
   model TEXT,
   provider TEXT,
   error_info_json TEXT,
+  status TEXT,
   total_cost REAL,
   sort_index INTEGER,
   is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1))

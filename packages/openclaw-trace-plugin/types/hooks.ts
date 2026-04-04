@@ -175,6 +175,8 @@ export type CompactionAfterEvent = {
 export type SubagentSpawnedEvent = {
   runId: string;
   childSessionKey: string;
+  /** 若 OpenClaw 在 payload 中带显式父会话键，优先于 hook ctx 推导。 */
+  parentSessionKey?: string;
   /** Child agent id (OpenClaw `subagent_spawned` payload). */
   agentId?: string;
   label?: string;

@@ -4,7 +4,11 @@ import type { OpenClawPluginApi, PluginServiceContext } from "openclaw/plugin-sd
 import { resolvePluginConfig } from "./config.js";
 import { BatchQueue } from "./event-queue.js";
 import { mergeOpikBatches, postOpikBatch } from "./flush.js";
-import { OpikOpenClawRuntime, TRACE_PROMPT_PREVIEW_MAX_CHARS } from "./opik-runtime.js";
+import {
+  OpikOpenClawRuntime,
+  TRACE_PROMPT_PREVIEW_MAX_CHARS,
+  traceThreadChannelLabel,
+} from "./opik-runtime.js";
 import type { OpikBatchPayload } from "./opik-types.js";
 import {
   extractRoutedAgentIdFromMessageMetadata,
@@ -27,10 +31,12 @@ import { extractRoutingFromOpenClawSessionStore } from "./session-store-routing.
 import {
   agentScopedTraceKey,
   extractAgentIdFromRoutingSessionKey,
+  sessionKeyImpliesSubagentSessionKey,
   traceSessionKeyCandidates,
   traceSessionKeyCandidatesForInbound,
   traceSessionKeyCandidatesForPending,
 } from "./trace-session-key.js";
+import type { TraceAgentCtx } from "./trace-session-key.js";
 import type {
   AgentCtx,
   AgentEndEvent,
@@ -98,6 +104,44 @@ function effectiveSk(ctx: AgentCtx, eventFrom?: string): string {
   return agentScopedTraceKey(ctx, eventFrom);
 }
 
+/**
+ * `subagent_spawned` 父会话键：OpenClaw 核心在 ctx 上给 `requesterSessionKey`（规范父键），优先于 event 扩展字段；
+ * 再在 `traceSessionKeyCandidates` 中取首个「非子会话且不等于 child」的键（不依赖进程级全局 map，可并发）。
+ */
+function resolveSubagentParentSessionKey(
+  ctx: SubagentCtx,
+  event: SubagentSpawnedEvent,
+  childSk: string,
+): string | undefined {
+  const child = childSk.trim();
+  if (!child) {
+    return undefined;
+  }
+  const fromRequester = ctx.requesterSessionKey?.trim();
+  if (fromRequester && fromRequester !== child) {
+    return fromRequester;
+  }
+  const fromPayload = event.parentSessionKey?.trim();
+  if (fromPayload && fromPayload !== child) {
+    return fromPayload;
+  }
+  for (const c of traceSessionKeyCandidates(ctx as TraceAgentCtx)) {
+    const t = c.trim();
+    if (!t || t === child) {
+      continue;
+    }
+    if (sessionKeyImpliesSubagentSessionKey(t)) {
+      continue;
+    }
+    return t;
+  }
+  const eff = effectiveSk(ctx as AgentCtx).trim();
+  if (eff && eff !== child && !sessionKeyImpliesSubagentSessionKey(eff)) {
+    return eff;
+  }
+  return undefined;
+}
+
 function batchNonEmpty(b: OpikBatchPayload): boolean {
   return Boolean(
     b.threads?.length ||
@@ -108,7 +152,7 @@ function batchNonEmpty(b: OpikBatchPayload): boolean {
   );
 }
 
-/** 调试：上报体摘要（不含大段 JSON）。 */
+/** 上报 batch 行数与 trace 抽样（无大段 JSON）。 */
 function summarizeOpikBatch(b: OpikBatchPayload): Record<string, unknown> {
   const traces = b.traces ?? [];
   const traceSample = traces.slice(0, 12).map((t) => ({
@@ -602,16 +646,37 @@ export default {
     api.on("subagent_spawned", (ev: unknown, c: unknown) => {
       const event = ev as SubagentSpawnedEvent;
       const ctx = c as SubagentCtx;
-      const childSk = event.childSessionKey?.trim();
-      if (childSk) {
-        getRuntime().registerSubagentChildAnchor(effectiveSk(ctx as AgentCtx), childSk);
-      }
+      const rawChildSk = event.childSessionKey?.trim();
       const childCtx: AgentCtx = {
         ...ctx,
-        sessionKey: childSk || ctx.sessionKey,
+        sessionKey: rawChildSk || ctx.sessionKey,
         agentId: event.agentId ?? ctx.agentId,
       };
-      getRuntime().addGeneralSpan(effectiveSk(childCtx), "subagent_spawned", {
+      const childThreadSk = effectiveSk(childCtx).trim();
+      const parentSk = childThreadSk
+        ? resolveSubagentParentSessionKey(ctx, event, childThreadSk)
+        : undefined;
+      traceDbg("subagent_spawned", {
+        rawChildSessionKey: rawChildSk ?? null,
+        childThreadSk: childThreadSk || null,
+        requesterSessionKey: ctx.requesterSessionKey?.trim() ?? null,
+        eventParentSessionKey: event.parentSessionKey?.trim() ?? null,
+        resolvedParentSessionKey: parentSk ?? null,
+        anchorRegistered: Boolean(childThreadSk && parentSk),
+      });
+      if (childThreadSk && parentSk) {
+        getRuntime().registerSubagentChildAnchor(
+          parentSk,
+          childThreadSk,
+          traceThreadChannelLabel(ctx as AgentCtx),
+        );
+      } else if (childThreadSk && !parentSk) {
+        traceDbg("subagent_spawned_anchor_miss", {
+          childThreadSk,
+          requesterSessionKey: ctx.requesterSessionKey?.trim() ?? null,
+        });
+      }
+      getRuntime().addGeneralSpan(childThreadSk || effectiveSk(childCtx), "subagent_spawned", {
         childSessionKey: event.childSessionKey,
         label: event.label,
         mode: event.mode,
@@ -622,14 +687,18 @@ export default {
       const event = ev as SubagentEndedEvent;
       const ctx = c as AgentCtx;
       const targetSk = event.targetSessionKey?.trim();
-      if (targetSk) {
-        getRuntime().clearSubagentChildAnchor(targetSk);
-      }
       const targetCtx: AgentCtx = {
         ...ctx,
         sessionKey: targetSk || ctx.sessionKey,
       };
-      getRuntime().addGeneralSpan(effectiveSk(targetCtx), "subagent_ended", {
+      const targetThreadSk = effectiveSk(targetCtx).trim();
+      if (targetThreadSk) {
+        getRuntime().clearSubagentChildAnchor(targetThreadSk);
+      }
+      if (targetSk && targetSk !== targetThreadSk) {
+        getRuntime().clearSubagentChildAnchor(targetSk);
+      }
+      getRuntime().addGeneralSpan(targetThreadSk || effectiveSk(targetCtx), "subagent_ended", {
         targetSessionKey: event.targetSessionKey,
         targetKind: event.targetKind,
         reason: event.reason,

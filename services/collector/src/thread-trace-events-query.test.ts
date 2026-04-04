@@ -19,6 +19,7 @@ function insertMinimalTrace(
     outputJson: string;
     metadataJson: string;
     createdMs: number;
+    traceType?: string;
   },
 ): void {
   db.prepare(
@@ -31,14 +32,17 @@ function insertMinimalTrace(
   db.prepare(
     `INSERT INTO opik_traces (
       trace_id, thread_id, workspace_name, project_name, name,
+      trace_type,
       input_json, output_json, metadata_json,
       success, duration_ms, created_at_ms, is_complete, created_from
     ) VALUES (?, ?, 'default', 'openclaw', 't',
+      ?,
       ?, ?, ?,
       1, 100, ?, 1, 'test')`,
   ).run(
     opts.traceId,
     opts.threadId,
+    opts.traceType ?? "external",
     opts.inputJson,
     opts.outputJson,
     opts.metadataJson,
@@ -46,38 +50,31 @@ function insertMinimalTrace(
   );
 }
 
-function insertThreadTurn(
+function insertThreadRow(
   db: ReturnType<typeof openDatabase>,
   opts: {
-    turnId: string;
     threadId: string;
-    traceId: string;
-    runKind: string;
-    sortKey: number;
-    createdMs: number;
-    parentTurnId?: string | null;
-    anchorParentThreadId?: string | null;
-    anchorParentTurnId?: string | null;
+    threadType: "main" | "subagent";
+    parentThreadId?: string | null;
+    firstSeenMs: number;
+    lastSeenMs: number;
   },
 ): void {
   db.prepare(
-    `INSERT INTO opik_thread_turns (
-      turn_id, thread_id, workspace_name, project_name,
-      parent_turn_id, run_kind, primary_trace_id, sort_key,
-      preview_text, skills_used_json, anchor_parent_thread_id, anchor_parent_turn_id,
-      created_at_ms, updated_at_ms
-    ) VALUES (?, ?, 'default', 'openclaw', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+    `INSERT INTO opik_threads (
+      thread_id, workspace_name, project_name, thread_type, parent_thread_id,
+      first_seen_ms, last_seen_ms
+    ) VALUES (?, 'default', 'openclaw', ?, ?, ?, ?)
+    ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
+      thread_type = excluded.thread_type,
+      parent_thread_id = COALESCE(excluded.parent_thread_id, opik_threads.parent_thread_id),
+      last_seen_ms = MAX(opik_threads.last_seen_ms, excluded.last_seen_ms)`,
   ).run(
-    opts.turnId,
     opts.threadId,
-    opts.parentTurnId ?? null,
-    opts.runKind,
-    opts.traceId,
-    opts.sortKey,
-    opts.anchorParentThreadId ?? null,
-    opts.anchorParentTurnId ?? null,
-    opts.createdMs,
-    opts.createdMs,
+    opts.threadType,
+    opts.parentThreadId ?? null,
+    opts.firstSeenMs,
+    opts.lastSeenMs,
   );
 }
 
@@ -365,30 +362,36 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
-  it("主会话查询包含 anchor 到本 thread 的 subagent turn（子 trace 的 thread_id 为子会话）", () => {
+  it("主会话查询包含子 thread（parent_thread_id）内 trace，子 trace 的 thread_id 为子会话", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-graft.db`);
     const db = openDatabase(dbPath);
     try {
       const parentMain = "agent:main:main";
       const childSub = "agent:main:subagent:d04d0177-08cb-48bf-b925-d9b160ee3d7b";
-      const turnParent = "turn-parent-ext";
       const now = Date.now();
+
+      insertThreadRow(db, {
+        threadId: parentMain,
+        threadType: "main",
+        firstSeenMs: now,
+        lastSeenMs: now,
+      });
+      insertThreadRow(db, {
+        threadId: childSub,
+        threadType: "subagent",
+        parentThreadId: parentMain,
+        firstSeenMs: now,
+        lastSeenMs: now + 50,
+      });
 
       insertMinimalTrace(db, {
         traceId: "tr-main",
         threadId: parentMain,
         inputJson: JSON.stringify({ text: "hi" }),
         outputJson: JSON.stringify({ assistantTexts: ["from main"] }),
-        metadataJson: JSON.stringify({ run_id: "run-main", turn_id: turnParent, run_kind: "external" }),
+        metadataJson: JSON.stringify({ run_id: "run-main", turn_id: "tr-main", run_kind: "external" }),
         createdMs: now,
-      });
-      insertThreadTurn(db, {
-        turnId: turnParent,
-        threadId: parentMain,
-        traceId: "tr-main",
-        runKind: "external",
-        sortKey: now,
-        createdMs: now,
+        traceType: "external",
       });
 
       insertMinimalTrace(db, {
@@ -401,22 +404,14 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
         outputJson: JSON.stringify({ assistantTexts: ["from subagent"] }),
         metadataJson: JSON.stringify({
           run_id: "run-sub",
-          turn_id: "turn-sub-1",
+          turn_id: "tr-sub",
           run_kind: "subagent",
           anchor_parent_thread_id: parentMain,
-          anchor_parent_turn_id: turnParent,
+          anchor_parent_turn_id: "tr-main",
+          parent_turn_id: "tr-main",
         }),
         createdMs: now + 50,
-      });
-      insertThreadTurn(db, {
-        turnId: "turn-sub-1",
-        threadId: childSub,
-        traceId: "tr-sub",
-        runKind: "subagent",
-        sortKey: now + 50,
-        createdMs: now + 50,
-        anchorParentThreadId: parentMain,
-        anchorParentTurnId: turnParent,
+        traceType: "subagent",
       });
 
       const items = queryThreadTraceEvents(db, parentMain);

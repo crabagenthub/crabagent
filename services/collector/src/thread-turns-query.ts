@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
+import { queryTracesInConversationScope, type TraceRowScoped } from "./thread-scope-query.js";
 import type { SkillUsedEntry, ThreadRunKind, ThreadTurnTreeNode } from "./thread-turn-types.js";
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
@@ -58,43 +59,23 @@ export function collectSkillsUsedForTrace(db: Database.Database, traceId: string
   return [...byKey.values()];
 }
 
-type TurnRowJoined = {
-  turn_id: string;
-  thread_id: string;
-  parent_turn_id: string | null;
-  run_kind: string;
-  primary_trace_id: string;
-  sort_key: number;
-  preview_text: string | null;
-  trace_name: string | null;
-  trace_input_json: string | null;
-  created_at_ms: number;
-  anchor_parent_thread_id: string | null;
-  anchor_parent_turn_id: string | null;
-};
-
-const TURN_JOIN_SQL = `
-       SELECT t.turn_id,
-              t.thread_id,
-              t.parent_turn_id,
-              t.run_kind,
-              t.primary_trace_id,
-              t.sort_key,
-              t.preview_text,
-              t.created_at_ms,
-              t.anchor_parent_thread_id,
-              t.anchor_parent_turn_id,
-              ot.name AS trace_name,
-              ot.input_json AS trace_input_json
-       FROM opik_thread_turns t
-       JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id`;
+function traceTypeToRunKind(tt: string): ThreadRunKind {
+  const t = tt.trim().toLowerCase();
+  if (t === "async_command") {
+    return "async_followup";
+  }
+  if (t === "external" || t === "subagent" || t === "system") {
+    return t;
+  }
+  return "external";
+}
 
 function isRunKind(s: string): s is ThreadRunKind {
   return s === "external" || s === "async_followup" || s === "subagent" || s === "system";
 }
 
-function computeTurnPreview(r: TurnRowJoined): string | null {
-  const inputObj = parseJsonObject(r.trace_input_json);
+function computeTurnPreview(r: TraceRowScoped): string | null {
+  const inputObj = parseJsonObject(r.input_json);
   const inputNorm = normalizeOpikTraceInputForStorage(inputObj) as Record<string, unknown>;
   const listPreview =
     asStr(inputNorm.list_input_preview) ?? asStr((inputNorm as Record<string, unknown>).listInputPreview);
@@ -110,33 +91,27 @@ function computeTurnPreview(r: TurnRowJoined): string | null {
     }
   }
   if (!computedPreview) {
-    computedPreview = r.preview_text ?? r.trace_name ?? null;
+    computedPreview = r.name ?? null;
   }
   return computedPreview;
 }
 
-function turnRowToTreeNode(db: Database.Database, r: TurnRowJoined): ThreadTurnTreeNode {
-  const sk = String(r.run_kind ?? "");
-  const rk: ThreadRunKind = isRunKind(sk) ? sk : "external";
-  const skills = collectSkillsUsedForTrace(db, r.primary_trace_id);
+function traceRowToTreeNode(db: Database.Database, r: TraceRowScoped): ThreadTurnTreeNode {
+  const rkRaw = traceTypeToRunKind(String(r.trace_type ?? "external"));
+  const rk: ThreadRunKind = isRunKind(rkRaw) ? rkRaw : "external";
+  const tid = String(r.trace_id);
+  const skills = collectSkillsUsedForTrace(db, tid);
+  const created =
+    typeof r.created_at_ms === "number" && Number.isFinite(r.created_at_ms) ? r.created_at_ms : Date.now();
   return {
-    turn_id: r.turn_id,
+    turn_id: tid,
     run_kind: rk,
-    primary_trace_id: r.primary_trace_id,
+    primary_trace_id: tid,
     preview: computeTurnPreview(r),
-    created_at_ms: r.created_at_ms,
+    created_at_ms: created,
     skills_used: skills,
     children: [],
   };
-}
-
-function fetchTurnRowById(db: Database.Database, turnId: string): TurnRowJoined | null {
-  const tid = turnId.trim();
-  if (!tid) {
-    return null;
-  }
-  const r = db.prepare(`${TURN_JOIN_SQL} WHERE t.turn_id = ?`).get(tid) as TurnRowJoined | undefined;
-  return r ?? null;
 }
 
 function sortChildrenRecursive(n: ThreadTurnTreeNode): void {
@@ -147,12 +122,8 @@ function sortChildrenRecursive(n: ThreadTurnTreeNode): void {
 }
 
 /**
- * Build a forest of turn nodes for one thread (only nodes present in `opik_thread_turns`).
- * Roots: `parent_turn_id` IS NULL. Children nested by `parent_turn_id`.
- *
- * Subagent-only threads: when there is no `external` root but traces carry
- * `anchor_parent_thread_id` / `anchor_parent_turn_id`, graft under the parent thread's anchor turn
- * so the left nav shows the main user turn + subagent work.
+ * Build a forest of turn nodes for one conversation key (main thread + subagent threads in scope).
+ * Backed by `metadata_json.parent_turn_id`（`parent_turn_ref`）+ `trace_type`；排序 `created_at_ms`, `trace_id`。
  */
 export function queryThreadTurnsTree(db: Database.Database, threadKey: string): {
   thread_id: string;
@@ -163,81 +134,32 @@ export function queryThreadTurnsTree(db: Database.Database, threadKey: string): 
     return { thread_id: key, items: [] };
   }
 
-  let rows: TurnRowJoined[];
-  try {
-    rows = db.prepare(`${TURN_JOIN_SQL} WHERE t.thread_id = ? ORDER BY t.sort_key ASC, t.turn_id ASC`).all(key) as TurnRowJoined[];
-  } catch {
-    // Pre-migration DB without anchor columns — fall back without graft metadata.
-    rows = db
-      .prepare(
-        `SELECT t.turn_id,
-                t.thread_id,
-                t.parent_turn_id,
-                t.run_kind,
-                t.primary_trace_id,
-                t.sort_key,
-                t.preview_text,
-                t.created_at_ms,
-                NULL AS anchor_parent_thread_id,
-                NULL AS anchor_parent_turn_id,
-                ot.name AS trace_name,
-                ot.input_json AS trace_input_json
-         FROM opik_thread_turns t
-         JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
-         WHERE t.thread_id = ?
-         ORDER BY t.sort_key ASC, t.turn_id ASC`,
-      )
-      .all(key) as TurnRowJoined[];
-  }
-
+  const rows = queryTracesInConversationScope(db, key, true);
   if (rows.length === 0) {
     return { thread_id: key, items: [] };
   }
 
-  let anchorTurnId: string | null = null;
-  for (const r of rows) {
-    const aid = r.anchor_parent_turn_id?.trim() || null;
-    if (aid) {
-      anchorTurnId = aid;
-      break;
-    }
-  }
-
+  const idSet = new Set(rows.map((r) => r.trace_id));
   const nodes = new Map<string, ThreadTurnTreeNode>();
   for (const r of rows) {
-    nodes.set(r.turn_id, turnRowToTreeNode(db, r));
+    nodes.set(r.trace_id, traceRowToTreeNode(db, r));
   }
 
   const externalRoots: ThreadTurnTreeNode[] = [];
-  const hiddenRoots: ThreadTurnTreeNode[] = [];
+  const otherRoots: ThreadTurnTreeNode[] = [];
   for (const r of rows) {
-    const node = nodes.get(r.turn_id)!;
-    const pid = r.parent_turn_id?.trim() || null;
-    if (pid && nodes.has(pid)) {
+    const node = nodes.get(r.trace_id)!;
+    const pid = r.parent_turn_ref?.trim() || null;
+    if (pid && idSet.has(pid)) {
       nodes.get(pid)!.children.push(node);
     } else if (node.run_kind === "external") {
       externalRoots.push(node);
     } else {
-      hiddenRoots.push(node);
+      otherRoots.push(node);
     }
   }
 
-  let roots: ThreadTurnTreeNode[];
-  if (externalRoots.length > 0) {
-    roots = externalRoots;
-  } else if (anchorTurnId) {
-    const anchorRow = fetchTurnRowById(db, anchorTurnId);
-    if (anchorRow) {
-      const anchorNode = turnRowToTreeNode(db, anchorRow);
-      anchorNode.children = [...hiddenRoots];
-      roots = [anchorNode];
-    } else {
-      roots = hiddenRoots;
-    }
-  } else {
-    roots = [];
-  }
-
+  const roots = externalRoots.length > 0 ? externalRoots : otherRoots;
   for (const root of roots) {
     sortChildrenRecursive(root);
   }

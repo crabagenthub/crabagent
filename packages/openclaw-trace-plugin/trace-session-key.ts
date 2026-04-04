@@ -36,6 +36,112 @@ export function extractAgentIdFromRoutingSessionKey(sk?: string): string | undef
  * 从 `agent:<agentId>:<provider>:<kind>:…` 形态 sessionKey 解析路由 kind（如 `group`、`dm`）。
  * 若形态不符或第四段像会话 id（如 `oc_` 前缀）则返回 undefined，避免误标。
  */
+/**
+ * OpenClaw 子代理常见 `agent:<agentId>:subagent:<childId>`；用于在无锚点 map 时仍将 `opik_threads.thread_type` 标为 subagent。
+ */
+export function sessionKeyImpliesSubagentSessionKey(sk?: string): boolean {
+  const parts = (sk ?? "").trim().split(":");
+  return (
+    parts.length >= 4 &&
+    parts[0]?.toLowerCase() === "agent" &&
+    parts[2]?.toLowerCase() === "subagent"
+  );
+}
+
+/**
+ * 从完整 `agent:<agentId>:subagent:<childId>` 取出子会话路由 id（常见为 UUID）。
+ * 与 OpenClaw 注入到主 agent `promptPreview` 里 `[Internal task completion event]` 的 `session_key` 末段一致。
+ */
+export function extractSubagentChildIdFromSessionKey(sk?: string): string | undefined {
+  const parts = (sk ?? "").trim().split(":");
+  if (
+    parts.length >= 4 &&
+    parts[0]?.toLowerCase() === "agent" &&
+    parts[2]?.toLowerCase() === "subagent"
+  ) {
+    const tail = parts.slice(3).join(":");
+    return tail.trim() || undefined;
+  }
+  return undefined;
+}
+
+/** OpenClaw 内部事件、`metadata.run_id` 等处的 `agent:…:subagent:<uuid>`（如 `announce:v1:agent:…:subagent:…:<runUuid>`）。 */
+const SUBAGENT_SESSION_KEY_IN_TEXT_RE =
+  /agent:([^:\s`'"<>]+):subagent:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/gi;
+
+function matchFirstSubagentSessionKeyInText(text: string): { sessionKey: string; childIdLower: string } | undefined {
+  SUBAGENT_SESSION_KEY_IN_TEXT_RE.lastIndex = 0;
+  const m = SUBAGENT_SESSION_KEY_IN_TEXT_RE.exec(text);
+  if (!m?.[1] || !m?.[2]) {
+    return undefined;
+  }
+  return {
+    sessionKey: `agent:${m[1]}:subagent:${m[2]}`,
+    childIdLower: m[2].toLowerCase(),
+  };
+}
+
+/**
+ * 从任意文本中取第一个完整子代理会话键 `agent:<agentId>:subagent:<childUuid>`（与 `opik_traces.subagent_thread_id` / 子线程 `thread_id` 同形）。
+ * 覆盖：`metadata.run_id`（常见前缀 `announce:v1:`）、`promptPreview` 内嵌 `session_key` 等。
+ */
+export function extractSubagentSessionKeyFromText(text: string | undefined): string | undefined {
+  const t = text?.trim() ?? "";
+  if (!t) {
+    return undefined;
+  }
+  return matchFirstSubagentSessionKeyInText(t)?.sessionKey;
+}
+
+/**
+ * 从 `promptPreview` / 合并 prompt 正文中抽取第一个子代理 `session_key` 里的 child id（UUID，小写）。
+ * 用于主线程 trace 的 LLM 输入里已带子任务结果、但 `thread_id` 仍为主会话时的关联。
+ */
+export function extractSubagentChildIdFromPromptPreview(text: string | undefined): string | undefined {
+  const t = text?.trim() ?? "";
+  if (!t) {
+    return undefined;
+  }
+  return matchFirstSubagentSessionKeyInText(t)?.childIdLower;
+}
+
+/**
+ * OpenClaw 子代理 `systemPrompt` 里「Session Context」的 **Requester session**（父会话 `thread_id`）。
+ * 兼容 `- **Requester session:** agent:…`（第一个 `:` 在 `session` 与 `**` 之间）及行尾句号、反引号。
+ */
+export function extractRequesterThreadIdFromOpenClawSessionContext(text: string | undefined): string | undefined {
+  const raw = text?.trim() ?? "";
+  if (!raw) {
+    return undefined;
+  }
+  const lower = raw.toLowerCase();
+  let searchFrom = 0;
+  while (searchFrom < raw.length) {
+    const hit = lower.indexOf("requester session", searchFrom);
+    if (hit < 0) {
+      return undefined;
+    }
+    const tail = raw.slice(hit);
+    const colonIdx = tail.indexOf(":");
+    if (colonIdx < 0) {
+      searchFrom = hit + 1;
+      continue;
+    }
+    let rest = tail.slice(colonIdx + 1).trim();
+    rest = rest.replace(/^\*+\s*/, "").trim();
+    const lineEnd = rest.search(/\r?\n/);
+    const line = (lineEnd >= 0 ? rest.slice(0, lineEnd) : rest).trim();
+    const firstTok = (line.split(/\s+/)[0] ?? line).trim();
+    let v = firstTok.replace(/^[`'"]+|[`'"]+$/g, "").trim();
+    v = v.replace(/\.+$/u, "").trim();
+    if (v.length > 0 && /^agent:/i.test(v)) {
+      return v;
+    }
+    searchFrom = hit + "requester session".length;
+  }
+  return undefined;
+}
+
 export function parseRoutingKindFromSessionKey(sk?: string): string | undefined {
   const t = sk?.trim() ?? "";
   if (!t) {

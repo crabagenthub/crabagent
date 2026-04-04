@@ -141,4 +141,292 @@ describe("Collector opik ingest（染色数据）", () => {
       }
     }
   });
+
+  it("threads 已标 subagent 后，同批 trace 触发的 thread upsert 不得把 thread_type 打回 main", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-ingest-thread-type-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const parentTid = "agent:email_automatic:feishu:group:oc_parent_smoke";
+      const childTid = "agent:email_automatic:subagent:uuid-smoke-child";
+      const traceA = `trace-a-${Date.now()}`;
+      const traceB = `trace-b-${Date.now()}`;
+      const now = Date.now();
+
+      assert.equal(
+        applyOpikBatch(db, {
+          threads: [
+            {
+              thread_id: parentTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              first_seen_ms: now,
+              last_seen_ms: now,
+            },
+            {
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              thread_type: "subagent",
+              parent_thread_id: parentTid,
+              channel_name: "feishu",
+              first_seen_ms: now,
+              last_seen_ms: now,
+              metadata: { source: "openclaw-trace-plugin" },
+            },
+          ],
+          traces: [
+            {
+              trace_id: traceA,
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "llm",
+              created_at_ms: now,
+              is_complete: 1,
+              success: 1,
+              metadata: { run_kind: "subagent" },
+            },
+            {
+              trace_id: traceB,
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "llm-2",
+              created_at_ms: now + 1,
+              is_complete: 1,
+              success: 1,
+            },
+          ],
+        }).skipped.length,
+        0,
+      );
+
+      const th = db
+        .prepare(
+          "SELECT thread_type, parent_thread_id, channel_name FROM opik_threads WHERE thread_id = ? AND workspace_name = 'default' AND project_name = 'openclaw'",
+        )
+        .get(childTid) as
+        | { thread_type: string; parent_thread_id: string | null; channel_name: string | null }
+        | undefined;
+      assert.ok(th);
+      assert.equal(th.thread_type, "subagent");
+      assert.equal(th.parent_thread_id, parentTid);
+      assert.equal(th.channel_name, "feishu");
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it("subagent trace 的 metadata.parent_turn_id 指向父 trace_id 时可解析 parent_thread_id（无需 anchor 元数据）", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-ingest-parent-trace-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const parentTid = "agent:daily_reddit_digest:feishu:group:oc_graph_parent_smoke";
+      const childTid = "agent:daily_reddit_digest:subagent:uuid-graph-child-smoke";
+      const traceParent = `trace-parent-${Date.now()}`;
+      const traceChild = `trace-child-${Date.now()}`;
+      const now = Date.now();
+
+      assert.equal(
+        applyOpikBatch(db, {
+          threads: [
+            {
+              thread_id: parentTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              first_seen_ms: now,
+              last_seen_ms: now,
+            },
+          ],
+          traces: [
+            {
+              trace_id: traceParent,
+              thread_id: parentTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "parent-turn",
+              created_at_ms: now,
+              is_complete: 1,
+              success: 1,
+              metadata: { run_kind: "external" },
+            },
+            {
+              trace_id: traceChild,
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "subagent-turn",
+              created_at_ms: now + 1,
+              is_complete: 1,
+              success: 1,
+              metadata: { run_kind: "subagent", parent_turn_id: traceParent },
+            },
+          ],
+        }).skipped.length,
+        0,
+      );
+
+      const th = db
+        .prepare(
+          "SELECT thread_type, parent_thread_id FROM opik_threads WHERE thread_id = ? AND workspace_name = 'default' AND project_name = 'openclaw'",
+        )
+        .get(childTid) as { thread_type: string; parent_thread_id: string | null } | undefined;
+      assert.ok(th);
+      assert.equal(th.thread_type, "subagent");
+      assert.equal(th.parent_thread_id, parentTid);
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it("仅 traces 时 subagent thread_id + metadata.anchor_parent_thread_id 可写入 thread 行", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-ingest-trace-only-sub-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const parentTid = "agent:email_automatic:feishu:group:oc_only_trace_parent";
+      const childTid = "agent:email_automatic:subagent:uuid-only-trace-child";
+      const traceId = `trace-only-${Date.now()}`;
+      const now = Date.now();
+
+      assert.equal(
+        applyOpikBatch(db, {
+          threads: [
+            {
+              thread_id: parentTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              first_seen_ms: now,
+              last_seen_ms: now,
+            },
+          ],
+          traces: [
+            {
+              trace_id: traceId,
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "llm",
+              created_at_ms: now,
+              is_complete: 1,
+              success: 1,
+              metadata: {
+                run_kind: "subagent",
+                anchor_parent_thread_id: parentTid,
+              },
+            },
+          ],
+        }).skipped.length,
+        0,
+      );
+
+      const th = db
+        .prepare(
+          "SELECT thread_type, parent_thread_id FROM opik_threads WHERE thread_id = ? AND workspace_name = 'default' AND project_name = 'openclaw'",
+        )
+        .get(childTid) as { thread_type: string; parent_thread_id: string | null } | undefined;
+      assert.ok(th);
+      assert.equal(th.thread_type, "subagent");
+      assert.equal(th.parent_thread_id, parentTid);
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it("metadata 回填：early thread touch 未带 anchor 时从已合并 metadata_json 补 parent_thread_id", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-ingest-meta-backfill-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const parentTid = "agent:main:feishu:group:oc_meta_backfill_parent";
+      const childTid = "agent:main:subagent:meta-backfill-child";
+      const traceId = `trace-meta-backfill-${Date.now()}`;
+      const now = Date.now();
+      const metaWithAnchor = JSON.stringify({
+        run_kind: "subagent",
+        anchor_parent_thread_id: parentTid,
+      });
+
+      db.prepare(
+        `INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, parent_thread_id, first_seen_ms, last_seen_ms)
+         VALUES (?, 'default', 'openclaw', 'main', NULL, ?, ?)`,
+      ).run(parentTid, now, now);
+      db.prepare(
+        `INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, parent_thread_id, first_seen_ms, last_seen_ms)
+         VALUES (?, 'default', 'openclaw', 'subagent', NULL, ?, ?)`,
+      ).run(childTid, now, now);
+      db.prepare(
+        `INSERT INTO opik_traces (
+           trace_id, thread_id, workspace_name, project_name, trace_type, name, metadata_json,
+           created_at_ms, is_complete, created_from
+         ) VALUES (?, ?, 'default', 'openclaw', 'subagent', 'llm', ?, ?, 0, 'test')`,
+      ).run(traceId, childTid, metaWithAnchor, now);
+
+      const before = db
+        .prepare(
+          "SELECT parent_thread_id FROM opik_threads WHERE thread_id = ? AND workspace_name = 'default' AND project_name = 'openclaw'",
+        )
+        .get(childTid) as { parent_thread_id: string | null } | undefined;
+      assert.ok(before);
+      assert.equal(before.parent_thread_id, null);
+
+      assert.equal(
+        applyOpikBatch(db, {
+          traces: [
+            {
+              trace_id: traceId,
+              thread_id: childTid,
+              workspace_name: "default",
+              project_name: "openclaw",
+              name: "llm",
+              created_at_ms: now,
+              is_complete: 0,
+              metadata: { patch_marker: true },
+            },
+          ],
+        }).skipped.length,
+        0,
+      );
+
+      const after = db
+        .prepare(
+          "SELECT parent_thread_id FROM opik_threads WHERE thread_id = ? AND workspace_name = 'default' AND project_name = 'openclaw'",
+        )
+        .get(childTid) as { parent_thread_id: string | null } | undefined;
+      assert.ok(after);
+      assert.equal(after.parent_thread_id, parentTid);
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 });

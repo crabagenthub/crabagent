@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
+import { queryTracesInConversationScope } from "./thread-scope-query.js";
 
 type TraceRow = {
   trace_id: string;
@@ -12,6 +13,7 @@ type TraceRow = {
   updated_at_ms: number | null;
   ended_at_ms: number | null;
   duration_ms: number | null;
+  trace_type?: string | null;
 };
 
 function strTrim(v: unknown): string | undefined {
@@ -106,6 +108,17 @@ function inferAsyncCommandTrace(
 function runKindFromMetadata(metadata: Record<string, unknown>): string | null {
   const v = strTrim(metadata.run_kind) ?? strTrim(metadata.runKind);
   return v ?? null;
+}
+
+function runKindFromTraceType(traceType: string | null | undefined): string | null {
+  const t = strTrim(traceType)?.toLowerCase();
+  if (!t) {
+    return null;
+  }
+  if (t === "async_command") {
+    return "async_followup";
+  }
+  return t;
 }
 
 function agentNameFromMetadata(metadata: Record<string, unknown>): string | null {
@@ -477,75 +490,20 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     return [];
   }
 
-  // Prefer `opik_thread_turns` because some follow-up traces may not have a consistent `opik_traces.thread_id`.
-  // Include:
-  // - turns whose `thread_id` is this session (主会话);
-  // - subagent turns stored under **子** `thread_id` but grafted via `anchor_parent_thread_id`（与 plugin / thread-turns-query 一致）。
-  // 否则主会话 API 拿不到子 trace，`mergedTraceRootIds` 与「查看子代理会话」均无法工作。
-  let rowsFromTurns: TraceRow[];
-  try {
-    rowsFromTurns = db
-      .prepare(
-        `SELECT ot.trace_id,
-                ot.thread_id,
-                ot.name,
-                ot.input_json,
-                ot.output_json,
-                ot.metadata_json,
-                ot.created_at_ms,
-                ot.updated_at_ms,
-                ot.ended_at_ms,
-                ot.duration_ms
-           FROM opik_thread_turns t
-           JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
-          WHERE t.thread_id = ? OR t.anchor_parent_thread_id = ?
-          ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
-      )
-      .all(key, key) as TraceRow[];
-  } catch {
-    rowsFromTurns = db
-      .prepare(
-        `SELECT ot.trace_id,
-                ot.thread_id,
-                ot.name,
-                ot.input_json,
-                ot.output_json,
-                ot.metadata_json,
-                ot.created_at_ms,
-                ot.updated_at_ms,
-                ot.ended_at_ms,
-                ot.duration_ms
-           FROM opik_thread_turns t
-           JOIN opik_traces ot ON ot.trace_id = t.primary_trace_id
-          WHERE t.thread_id = ?
-          ORDER BY ot.created_at_ms ASC, ot.trace_id ASC`,
-      )
-      .all(key) as TraceRow[];
-  }
-
-  let rows: TraceRow[];
-  if (rowsFromTurns.length > 0) {
-    rows = rowsFromTurns;
-  } else {
-    // Back-compat fallback for older DBs that don't have `opik_thread_turns`.
-    rows = db
-      .prepare(
-        `SELECT trace_id,
-                thread_id,
-                name,
-                input_json,
-                output_json,
-                metadata_json,
-              created_at_ms,
-              updated_at_ms,
-              ended_at_ms,
-              duration_ms
-         FROM opik_traces
-         WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?
-         ORDER BY created_at_ms ASC, trace_id ASC`,
-      )
-      .all(key) as TraceRow[];
-  }
+  const scoped = queryTracesInConversationScope(db, key, true);
+  const rows: TraceRow[] = scoped.map((r) => ({
+    trace_id: r.trace_id,
+    thread_id: r.thread_id,
+    name: r.name,
+    input_json: r.input_json,
+    output_json: r.output_json,
+    metadata_json: r.metadata_json,
+    created_at_ms: r.created_at_ms,
+    updated_at_ms: r.updated_at_ms,
+    ended_at_ms: r.ended_at_ms,
+    duration_ms: r.duration_ms,
+    trace_type: r.trace_type,
+  }));
 
   const events: Record<string, unknown>[] = [];
   let seq = 0;
@@ -606,7 +564,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     const asyncCommand = inferAsyncCommandTrace(metadata, chatTitle, input);
     const threadIdRow =
       typeof r.thread_id === "string" && r.thread_id.trim() ? r.thread_id.trim() : null;
-    const runKindRow = runKindFromMetadata(metadata);
+    const runKindRow = runKindFromMetadata(metadata) ?? runKindFromTraceType(r.trace_type);
 
     events.push({
       id: baseId,

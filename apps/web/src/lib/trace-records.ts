@@ -22,6 +22,8 @@ export type TraceRecordRow = {
   saved_tokens_total: number;
   optimization_rate_pct: number | null;
   tags?: string[];
+  /** `opik_traces.trace_type`（external / subagent / async_command / system）。 */
+  trace_type?: string;
   total_cost?: number | null;
   /** From `opik_traces.duration_ms` when present. */
   duration_ms?: number | null;

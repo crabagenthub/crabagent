@@ -1,6 +1,5 @@
 import type Database from "better-sqlite3";
 import { normalizeOpikSpanInputForStorage, normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
-import { upsertThreadTurnFromTraceMetadata } from "./thread-turns-ingest.js";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -35,6 +34,103 @@ function asBoolInt(v: unknown): number | null {
   return null;
 }
 
+function threadIdImpliesOpenClawSubagent(threadId: string): boolean {
+  const parts = threadId.split(":");
+  return (
+    parts.length >= 4 &&
+    parts[0]?.toLowerCase() === "agent" &&
+    parts[2]?.toLowerCase() === "subagent"
+  );
+}
+
+const THREAD_TOUCH_KEY_SEP = "\x1f";
+
+/** 本批 trace 处理过的 thread：用于末尾从 trace 树回填仍缺 parent 的 subagent 行。 */
+function backfillSubagentThreadParentsFromTraces(
+  db: Database.Database,
+  touchedKeys: ReadonlySet<string>,
+): void {
+  if (touchedKeys.size === 0) {
+    return;
+  }
+  const stmt = db.prepare(`
+    UPDATE opik_threads
+    SET parent_thread_id = (
+      SELECT p.thread_id
+      FROM opik_traces AS t
+      INNER JOIN opik_traces AS p ON COALESCE(
+        NULLIF(TRIM(json_extract(t.metadata_json, '$.parent_turn_id')), ''),
+        NULLIF(TRIM(json_extract(t.metadata_json, '$.parentTurnId')), '')
+      ) = p.trace_id
+      WHERE t.thread_id = ?
+        AND t.workspace_name = ?
+        AND t.project_name = ?
+        AND p.thread_id IS NOT NULL
+        AND TRIM(p.thread_id) != ''
+        AND p.thread_id != t.thread_id
+      ORDER BY t.created_at_ms ASC
+      LIMIT 1
+    )
+    WHERE thread_id = ?
+      AND workspace_name = ?
+      AND project_name = ?
+      AND thread_type = 'subagent'
+      AND (parent_thread_id IS NULL OR TRIM(parent_thread_id) = '')
+  `);
+  for (const key of touchedKeys) {
+    const parts = key.split(THREAD_TOUCH_KEY_SEP);
+    if (parts.length !== 3) {
+      continue;
+    }
+    const [ws, proj, tid] = parts;
+    stmt.run(tid, ws, proj, tid, ws, proj);
+  }
+}
+
+/** 从该线程任意 trace 的 metadata 读取 anchor_parent_thread_id，补全仍为空的 subagent 父键。 */
+function backfillSubagentThreadParentsFromTraceMetadata(
+  db: Database.Database,
+  touchedKeys: ReadonlySet<string>,
+): void {
+  if (touchedKeys.size === 0) {
+    return;
+  }
+  const stmt = db.prepare(`
+    UPDATE opik_threads AS th
+    SET parent_thread_id = (
+      SELECT COALESCE(
+        NULLIF(TRIM(json_extract(t.metadata_json, '$.anchor_parent_thread_id')), ''),
+        NULLIF(TRIM(json_extract(t.metadata_json, '$.anchorParentThreadId')), '')
+      )
+      FROM opik_traces AS t
+      WHERE t.thread_id = th.thread_id
+        AND t.workspace_name = th.workspace_name
+        AND t.project_name = th.project_name
+        AND t.metadata_json IS NOT NULL
+        AND TRIM(t.metadata_json) != ''
+        AND (
+          (NULLIF(TRIM(json_extract(t.metadata_json, '$.anchor_parent_thread_id')), '') IS NOT NULL)
+          OR (NULLIF(TRIM(json_extract(t.metadata_json, '$.anchorParentThreadId')), '') IS NOT NULL)
+        )
+      ORDER BY t.created_at_ms ASC
+      LIMIT 1
+    )
+    WHERE th.thread_id = ?
+      AND th.workspace_name = ?
+      AND th.project_name = ?
+      AND th.thread_type = 'subagent'
+      AND (th.parent_thread_id IS NULL OR TRIM(th.parent_thread_id) = '')
+  `);
+  for (const key of touchedKeys) {
+    const parts = key.split(THREAD_TOUCH_KEY_SEP);
+    if (parts.length !== 3) {
+      continue;
+    }
+    const [ws, proj, tid] = parts;
+    stmt.run(tid, ws, proj);
+  }
+}
+
 function jsonCol(v: unknown): string | null {
   if (v === undefined || v === null) {
     return null;
@@ -56,6 +152,57 @@ function parseJsonRecord(raw: string | null | undefined): Record<string, unknown
   } catch {
     return {};
   }
+}
+
+const TRACE_TYPES = new Set(["external", "subagent", "async_command", "system"]);
+
+function normalizeTraceType(row: Record<string, unknown>, metadata: Record<string, unknown>): string {
+  const direct = asStr(row.trace_type ?? row.traceType);
+  if (direct && TRACE_TYPES.has(direct)) {
+    return direct;
+  }
+  const rk = asStr(metadata.run_kind ?? metadata.runKind)?.toLowerCase();
+  if (rk === "async_followup") {
+    return "async_command";
+  }
+  if (rk === "external" || rk === "subagent" || rk === "system") {
+    return rk;
+  }
+  return "external";
+}
+
+const SETTING_KEYS = new Set(["kind", "thinking", "verbose", "reasoning", "fast"]);
+
+function mergeOpenClawSettingJson(incoming: unknown, previousJson: string | null): string | null {
+  const prev = parseJsonRecord(previousJson);
+  const out: Record<string, unknown> = { ...prev };
+  const absorb = (obj: unknown) => {
+    if (!isRecord(obj)) {
+      return;
+    }
+    for (const k of SETTING_KEYS) {
+      if (obj[k] !== undefined) {
+        out[k] = obj[k];
+      }
+    }
+  };
+  absorb(incoming);
+  if (isRecord(incoming)) {
+    const nested = incoming.setting;
+    absorb(nested);
+    const sj = incoming.setting_json;
+    if (typeof sj === "string" && sj.trim()) {
+      try {
+        const p = JSON.parse(sj) as unknown;
+        absorb(p);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      absorb(sj);
+    }
+  }
+  return Object.keys(out).length > 0 ? JSON.stringify(out) : null;
 }
 
 /** True when `usage`-shaped object has any token counter the SQL layer would read. */
@@ -301,14 +448,23 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
   }
 
   const upsertThread = db.prepare(`
-    INSERT INTO opik_threads (thread_id, workspace_name, project_name, first_seen_ms, last_seen_ms, metadata_json, agent_name, channel_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, parent_thread_id, first_seen_ms, last_seen_ms, metadata_json, agent_name, channel_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
       last_seen_ms = MAX(opik_threads.last_seen_ms, excluded.last_seen_ms),
       first_seen_ms = MIN(opik_threads.first_seen_ms, excluded.first_seen_ms),
       metadata_json = COALESCE(excluded.metadata_json, opik_threads.metadata_json),
       agent_name = COALESCE(NULLIF(TRIM(excluded.agent_name), ''), opik_threads.agent_name),
-      channel_name = COALESCE(NULLIF(TRIM(excluded.channel_name), ''), opik_threads.channel_name)
+      channel_name = COALESCE(NULLIF(TRIM(excluded.channel_name), ''), opik_threads.channel_name),
+      thread_type = CASE
+        WHEN NULLIF(TRIM(excluded.thread_type), '') = 'main' AND opik_threads.thread_type = 'subagent'
+        THEN opik_threads.thread_type
+        ELSE COALESCE(NULLIF(TRIM(excluded.thread_type), ''), opik_threads.thread_type)
+      END,
+      parent_thread_id = COALESCE(
+        NULLIF(TRIM(excluded.parent_thread_id), ''),
+        opik_threads.parent_thread_id
+      )
   `);
 
   for (let i = 0; i < (envelope.threads ?? []).length; i++) {
@@ -328,8 +484,23 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     const lastMs = asNum(row.last_seen_ms) ?? now;
     const agentName = asStr(row.agent_name ?? row.agentName);
     const channelName = asStr(row.channel_name ?? row.channelName);
+    const threadType = asStr(row.thread_type ?? row.threadType) ?? "main";
+    const safeThreadType =
+      threadIdImpliesOpenClawSubagent(threadId) || threadType === "subagent" ? "subagent" : "main";
+    const parentThreadId = asStr(row.parent_thread_id ?? row.parentThreadId);
     try {
-      upsertThread.run(threadId, ws, proj, firstMs, lastMs, jsonCol(row.metadata), agentName, channelName);
+      upsertThread.run(
+        threadId,
+        ws,
+        proj,
+        safeThreadType,
+        parentThreadId,
+        firstMs,
+        lastMs,
+        jsonCol(row.metadata),
+        agentName,
+        channelName,
+      );
       acc.threads += 1;
     } catch (e) {
       skipped.push({ reason: String(e), at: `threads[${i}]` });
@@ -338,20 +509,23 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
 
   const upsertTrace = db.prepare(`
     INSERT INTO opik_traces (
-      trace_id, thread_id, workspace_name, project_name, name,
-      tags_json, input_json, output_json, metadata_json, error_info_json,
+      trace_id, thread_id, workspace_name, project_name,
+      trace_type, subagent_thread_id,
+      name, input_json, output_json, metadata_json, setting_json, error_info_json,
       success, duration_ms, total_cost, created_at_ms, updated_at_ms, ended_at_ms,
       is_complete, created_from
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(trace_id) DO UPDATE SET
       thread_id = COALESCE(excluded.thread_id, opik_traces.thread_id),
       workspace_name = excluded.workspace_name,
       project_name = excluded.project_name,
+      trace_type = COALESCE(excluded.trace_type, opik_traces.trace_type),
+      subagent_thread_id = COALESCE(excluded.subagent_thread_id, opik_traces.subagent_thread_id),
       name = COALESCE(excluded.name, opik_traces.name),
-      tags_json = COALESCE(excluded.tags_json, opik_traces.tags_json),
       input_json = COALESCE(excluded.input_json, opik_traces.input_json),
       output_json = COALESCE(excluded.output_json, opik_traces.output_json),
       metadata_json = COALESCE(excluded.metadata_json, opik_traces.metadata_json),
+      setting_json = COALESCE(excluded.setting_json, opik_traces.setting_json),
       error_info_json = COALESCE(excluded.error_info_json, opik_traces.error_info_json),
       success = COALESCE(excluded.success, opik_traces.success),
       duration_ms = COALESCE(excluded.duration_ms, opik_traces.duration_ms),
@@ -362,7 +536,8 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       created_from = COALESCE(excluded.created_from, opik_traces.created_from)
   `);
 
-  const selectTraceMetadata = db.prepare("SELECT metadata_json FROM opik_traces WHERE trace_id = ?");
+  const selectTraceMetadata = db.prepare("SELECT metadata_json, setting_json FROM opik_traces WHERE trace_id = ?");
+  const traceThreadTouchKeys = new Set<string>();
 
   for (let i = 0; i < (envelope.traces ?? []).length; i++) {
     const row = envelope.traces![i];
@@ -380,25 +555,58 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     const createdMs = asNum(row.created_at_ms) ?? now;
     const th = asStr(row.thread_id);
     if (th) {
+      traceThreadTouchKeys.add(`${ws}${THREAD_TOUCH_KEY_SEP}${proj}${THREAD_TOUCH_KEY_SEP}${th}`);
       try {
-        upsertThread.run(th, ws, proj, createdMs, createdMs, null, null, null);
+        const rawMeta = isRecord(row.metadata) ? row.metadata : {};
+        const anchorParentFromTrace = asStr(
+          rawMeta.anchor_parent_thread_id ?? rawMeta.anchorParentThreadId,
+        );
+        let touchParent = anchorParentFromTrace;
+        const touchThreadType = threadIdImpliesOpenClawSubagent(th) ? "subagent" : "main";
+        upsertThread.run(
+          th,
+          ws,
+          proj,
+          touchThreadType,
+          touchParent,
+          createdMs,
+          createdMs,
+          null,
+          null,
+          null,
+        );
       } catch {
         /* ignore — trace upsert may still fail if FK misconfigured */
       }
     }
-    const prevMetaRow = selectTraceMetadata.get(traceId) as { metadata_json: string | null } | undefined;
-    const mergedMetadata = mergeTraceMetadataForUpsert(row.metadata, prevMetaRow?.metadata_json ?? null);
+    const prevRow = selectTraceMetadata.get(traceId) as
+      | { metadata_json: string | null; setting_json: string | null }
+      | undefined;
+    const metaForMerge = isRecord(row.metadata) ? { ...row.metadata } : {};
+    if (row.tags !== undefined && metaForMerge.legacy_tags === undefined) {
+      metaForMerge.legacy_tags = row.tags;
+    }
+    const mergedMetadata = mergeTraceMetadataForUpsert(metaForMerge, prevRow?.metadata_json ?? null);
+    const metaObj = isRecord(mergedMetadata) ? (mergedMetadata as Record<string, unknown>) : {};
+    const traceType = normalizeTraceType(row, metaObj);
+    const subagentThread = asStr(row.subagent_thread_id ?? row.subagentThreadId);
+    const routingFromMeta = metaObj.openclaw_routing;
+    const settingPayload =
+      row.setting ?? row.setting_json ?? (isRecord(routingFromMeta) ? routingFromMeta : undefined);
+    const mergedSetting = mergeOpenClawSettingJson(settingPayload, prevRow?.setting_json ?? null);
     try {
       upsertTrace.run(
         traceId,
         asStr(row.thread_id),
         ws,
         proj,
+        traceType,
+        subagentThread,
         asStr(row.name),
-        jsonCol(row.tags),
         jsonCol(normalizeOpikTraceInputForStorage(row.input)),
         jsonCol(row.output),
         jsonCol(mergedMetadata),
+        mergedSetting,
         jsonCol(row.error_info ?? row.errorInfo),
         asBoolInt(row.success),
         asNum(row.duration_ms ?? row.durationMs),
@@ -407,63 +615,25 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         asNum(row.updated_at_ms ?? row.updatedAtMs),
         asNum(row.ended_at_ms ?? row.end_time_ms ?? row.endTimeMs),
         asBoolInt(row.is_complete ?? row.isComplete) ?? 0,
-        asStr(row.created_from) ?? "opik-openclaw",
+        asStr(row.created_from) ?? "openclaw-iseeu",
       );
       acc.traces += 1;
-      try {
-        const inputNorm = normalizeOpikTraceInputForStorage(row.input);
-        const previewFromInput = (() => {
-          if (!inputNorm || typeof inputNorm !== "object" || Array.isArray(inputNorm)) {
-            return null;
-          }
-          const p = inputNorm as Record<string, unknown>;
-          const listPreview = asStr(p.list_input_preview) ?? asStr((p as Record<string, unknown>).listInputPreview);
-          if (listPreview) {
-            return listPreview.slice(0, 500);
-          }
-          const prompt = asStr(p.prompt);
-          if (prompt) {
-            return prompt.slice(0, 500);
-          }
-          const ut = p.user_turn;
-          if (ut && typeof ut === "object" && !Array.isArray(ut)) {
-            const mr = (ut as Record<string, unknown>).message_received;
-            if (mr && typeof mr === "object" && !Array.isArray(mr)) {
-              const c = (mr as Record<string, unknown>).content;
-              if (typeof c === "string" && c.trim()) {
-                return c.trim().slice(0, 500);
-              }
-            }
-          }
-          return null;
-        })();
-
-        const preview = previewFromInput ?? asStr(row.name)?.slice(0, 500) ?? null;
-        upsertThreadTurnFromTraceMetadata(db, {
-          traceId,
-          threadId: th,
-          workspaceName: ws,
-          projectName: proj,
-          metadata: mergedMetadata,
-          createdAtMs: createdMs,
-          previewText: preview,
-        });
-      } catch {
-        /* ignore turn upsert errors — trace already stored */
-      }
     } catch (e) {
       skipped.push({ reason: String(e), at: `traces[${i}]` });
     }
   }
 
+  backfillSubagentThreadParentsFromTraces(db, traceThreadTouchKeys);
+  backfillSubagentThreadParentsFromTraceMetadata(db, traceThreadTouchKeys);
+
   const upsertSpan = db.prepare(`
     INSERT INTO opik_spans (
       span_id, trace_id, parent_span_id, name, span_type,
       start_time_ms, end_time_ms, duration_ms,
-      metadata_json, input_json, output_json, tags_json,
-      usage_json, model, provider, error_info_json, total_cost,
+      metadata_json, input_json, output_json, setting_json,
+      usage_json, model, provider, error_info_json, status, total_cost,
       sort_index, is_complete
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(span_id) DO UPDATE SET
       trace_id = excluded.trace_id,
       parent_span_id = COALESCE(excluded.parent_span_id, opik_spans.parent_span_id),
@@ -475,15 +645,18 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       metadata_json = COALESCE(excluded.metadata_json, opik_spans.metadata_json),
       input_json = COALESCE(excluded.input_json, opik_spans.input_json),
       output_json = COALESCE(excluded.output_json, opik_spans.output_json),
-      tags_json = COALESCE(excluded.tags_json, opik_spans.tags_json),
+      setting_json = COALESCE(excluded.setting_json, opik_spans.setting_json),
       usage_json = COALESCE(excluded.usage_json, opik_spans.usage_json),
       model = COALESCE(excluded.model, opik_spans.model),
       provider = COALESCE(excluded.provider, opik_spans.provider),
       error_info_json = COALESCE(excluded.error_info_json, opik_spans.error_info_json),
+      status = COALESCE(excluded.status, opik_spans.status),
       total_cost = COALESCE(excluded.total_cost, opik_spans.total_cost),
       sort_index = COALESCE(excluded.sort_index, opik_spans.sort_index),
       is_complete = MAX(excluded.is_complete, opik_spans.is_complete)
   `);
+
+  const selectSpanSetting = db.prepare("SELECT setting_json FROM opik_spans WHERE span_id = ?");
 
   const traceIdsWithLlmSpan = new Set<string>();
 
@@ -505,6 +678,13 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     if (spanType === "llm") {
       traceIdsWithLlmSpan.add(traceId);
     }
+    const prevSp = selectSpanSetting.get(spanId) as { setting_json: string | null } | undefined;
+    const meta = isRecord(row.metadata) ? row.metadata : {};
+    const routing = isRecord(meta.openclaw_routing) ? meta.openclaw_routing : undefined;
+    const spanSetting = mergeOpenClawSettingJson(
+      row.setting ?? row.setting_json ?? routing,
+      prevSp?.setting_json ?? null,
+    );
     try {
       upsertSpan.run(
         spanId,
@@ -518,11 +698,12 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         jsonCol(row.metadata),
         jsonCol(normalizeOpikSpanInputForStorage(row.input)),
         jsonCol(row.output),
-        jsonCol(row.tags),
+        spanSetting,
         jsonCol(row.usage),
         asStr(row.model),
         asStr(row.provider),
         jsonCol(row.error_info ?? row.errorInfo),
+        asStr(row.status),
         asNum(row.total_cost ?? row.totalCost),
         asNum(row.sort_index ?? row.sortIndex),
         asBoolInt(row.is_complete ?? row.isComplete) ?? 0,

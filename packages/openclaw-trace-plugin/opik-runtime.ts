@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { extractRoutedAgentIdFromMessageMetadata } from "./inbound-mirror.js";
 import { deletePendingSnapshot, loadAllPendingSnapshots, writePendingSnapshot } from "./pending-disk.js";
 import {
+  deleteSubagentAnchorSnapshot,
+  loadAllSubagentAnchorSnapshots,
+  writeSubagentAnchorSnapshot,
+} from "./subagent-anchor-disk.js";
+import {
   normalizeOpikSpanInputForStorage,
   normalizeOpikTraceInputForStorage,
   stripLeadingBracketDatePrefixes,
@@ -12,10 +17,31 @@ import {
   mergeOpenclawRoutingLayers,
 } from "./llm-input-routing-meta.js";
 import { enrichToolSpanResourceAudit } from "./resource-audit-span.js";
-import { extractAgentIdFromRoutingSessionKey, parseRoutingKindFromSessionKey } from "./trace-session-key.js";
+import {
+  extractAgentIdFromRoutingSessionKey,
+  extractRequesterThreadIdFromOpenClawSessionContext,
+  extractSubagentSessionKeyFromText,
+  parseRoutingKindFromSessionKey,
+  sessionKeyImpliesSubagentSessionKey,
+} from "./trace-session-key.js";
 
 /** 与 `message_received` 正文上限对齐；Gmail/Hook 隔离路径无 inbound hook，依赖本段 prompt 预览入库。 */
 export const TRACE_PROMPT_PREVIEW_MAX_CHARS = 16_384;
+
+/** Collector `opik_traces.subagent_thread_id`：优先 `run_id`，否则 prompt / 预览中的 `agent:…:subagent:…`。 */
+function inferSubagentThreadIdForOpikTrace(
+  runId: string | undefined,
+  promptLike: string | undefined,
+): string | undefined {
+  const r = runId?.trim() ?? "";
+  if (r) {
+    const fromRun = extractSubagentSessionKeyFromText(r);
+    if (fromRun) {
+      return fromRun;
+    }
+  }
+  return extractSubagentSessionKeyFromText(promptLike);
+}
 
 /** `llm_input` 入库时附加的路由/模型参数（由 index 从 hook 载荷抽取）。 */
 export type LlmInputIngestExtras = {
@@ -101,6 +127,11 @@ function threadChannelLabel(ctx: AgentCtx): string | undefined {
     return `${provider} · ${ch}`;
   }
   return provider || ch || undefined;
+}
+
+/** 供 `subagent_spawned` 在子会话 ctx 仍为 webchat 等内部通道前捕获父会话展示用 channel。 */
+export function traceThreadChannelLabel(ctx: AgentCtx): string | undefined {
+  return threadChannelLabel(ctx);
 }
 
 /** OpenClaw 可能给秒级或毫秒级时间戳；`>=1e12` 视为毫秒，以免把已是 ms 的值误乘 1000。 */
@@ -467,8 +498,58 @@ function pendingHasUserInboundMessage(p: Record<string, unknown> | undefined): b
   return typeof c === "string" && c.trim().length > 0;
 }
 
-/** Aligns with collector `thread_turn_types.ThreadRunKind` for `opik_thread_turns`. */
+/**
+ * 无 `message_received` 时：OpenClaw 仍可能在 `before_*` 钩子里带上含用户内容的 `promptPreview`（飞书/Gmail 等），
+ * 此时应标为 `external` 并写入 `lastExternalTraceIdByThread`，供 subagent 锚点与 `promotePendingSubagentAnchorsForParent`。
+ */
+function pendingHookPromptPreviewSuggestsUserTurn(p: Record<string, unknown> | undefined): boolean {
+  if (!p || typeof p !== "object") {
+    return false;
+  }
+  const hookKeys = ["before_agent_start", "before_prompt_build", "before_model_resolve"] as const;
+  for (const k of hookKeys) {
+    const blob = p[k];
+    if (!blob || typeof blob !== "object" || Array.isArray(blob)) {
+      continue;
+    }
+    const raw = (blob as { promptPreview?: unknown }).promptPreview;
+    if (typeof raw !== "string") {
+      continue;
+    }
+    const prev = stripLeadingBracketDatePrefixes(raw).trim();
+    if (prev.length < 16) {
+      continue;
+    }
+    if (/^<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>/i.test(prev)) {
+      const endMarker = "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>";
+      const lower = prev.toLowerCase();
+      const idx = lower.indexOf(endMarker.toLowerCase());
+      if (idx >= 0) {
+        const after = prev.slice(idx + endMarker.length).trim();
+        if (after.length >= 8) {
+          return true;
+        }
+      }
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function pendingLooksLikeExternalUserTurn(p: Record<string, unknown> | undefined): boolean {
+  return pendingHasUserInboundMessage(p) || pendingHookPromptPreviewSuggestsUserTurn(p);
+}
+
+/** Aligns with collector `thread_turn_types.ThreadRunKind`（UI `run_kind`）；入库 `trace_type` 见 `runKindToTraceType`。 */
 type ThreadRunKind = "external" | "async_followup" | "subagent" | "system";
+
+function runKindToTraceType(runKind: ThreadRunKind): string {
+  if (runKind === "async_followup") {
+    return "async_command";
+  }
+  return runKind;
+}
 
 function inferThreadRunKind(
   pending: Record<string, unknown>,
@@ -498,7 +579,7 @@ function inferThreadRunKind(
   if (textLooksAsync) {
     return "async_followup";
   }
-  if (pendingHasUserInboundMessage(pending)) {
+  if (pendingLooksLikeExternalUserTurn(pending)) {
     return "external";
   }
   return "system";
@@ -792,14 +873,19 @@ export class OpikOpenClawRuntime {
   private readonly active = new Map<string, ActiveTurn>();
   private readonly lateLlmOutputRefBySk = new Map<string, LateLlmRef>();
   private readonly lateLlmOutputGraceMs = 120_000;
-  /** Last `turn_id` for an `external` run per thread — async/subagent follow-ups attach via `parent_turn_id`. */
-  private readonly lastExternalTurnIdByThread = new Map<string, string>();
-  /** Latest turn id per thread (any run_kind) — subagent anchor fallback when parent has no external yet. */
-  private readonly lastTurnIdByThread = new Map<string, string>();
-  /** Child sessionKey → parent thread anchor (set on `subagent_spawned`, cleared on `subagent_ended`). */
+  /** Last `external` trace_id per thread — subagent 锚点解析与 promote 用。 */
+  private readonly lastExternalTraceIdByThread = new Map<string, string>();
+  /** Latest trace_id per thread (any run_kind) — subagent anchor fallback when parent has no external yet. */
+  private readonly lastTraceIdByThread = new Map<string, string>();
+  /** Child sessionKey → parent thread + anchor parent trace (set on `subagent_spawned`, cleared on `subagent_ended`). */
   private readonly subagentAnchorByChild = new Map<
     string,
-    { parentThreadId: string; anchorParentTurnId: string }
+    { parentThreadId: string; anchorParentTraceId: string; parentChannelName?: string }
+  >();
+  /** `subagent_spawned` 早于父线程首条 trace 时暂存，父 `computeTurnMetadata` 写入 trace 后再提升为锚点。 */
+  private readonly pendingSubagentAnchorByChild = new Map<
+    string,
+    { parentThreadId: string; parentChannelName?: string }
   >();
   /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。 */
   private readonly persistPendingDir?: string;
@@ -821,48 +907,160 @@ export class OpikOpenClawRuntime {
     this.debugTrace = opts?.debugTrace;
     if (this.persistPendingDir) {
       this.hydratePendingFromDisk();
+      this.hydrateSubagentAnchorsFromDisk();
     }
+  }
+
+  private hydrateSubagentAnchorsFromDisk(): void {
+    if (!this.persistPendingDir) {
+      return;
+    }
+    for (const rec of loadAllSubagentAnchorSnapshots(this.persistPendingDir)) {
+      const p = rec.parentSessionKey.trim();
+      const c = rec.childSessionKey.trim();
+      if (!p || !c || p === c) {
+        continue;
+      }
+      const parentCh = rec.parentChannelName?.trim() || undefined;
+      const anchorTrace =
+        this.lastExternalTraceIdByThread.get(p) ?? this.lastTraceIdByThread.get(p) ?? null;
+      this.applySubagentAnchorMaps(p, c, parentCh, anchorTrace);
+    }
+  }
+
+  /** 仅更新内存 map；持久化由 `registerSubagentChildAnchor` 或磁盘快照负责。 */
+  private applySubagentAnchorMaps(
+    parentThreadId: string,
+    childSessionKey: string,
+    parentChannelName: string | undefined,
+    anchorTrace: string | null,
+  ): void {
+    if (!anchorTrace) {
+      this.pendingSubagentAnchorByChild.set(childSessionKey, {
+        parentThreadId,
+        parentChannelName,
+      });
+      return;
+    }
+    this.subagentAnchorByChild.set(childSessionKey, {
+      parentThreadId,
+      anchorParentTraceId: anchorTrace,
+      parentChannelName,
+    });
+    this.pendingSubagentAnchorByChild.delete(childSessionKey);
   }
 
   /**
    * Parent session key + child `childSessionKey` from OpenClaw `subagent_spawned`.
    * Collector grafts child-thread turns under the parent's latest external turn (or latest turn of any kind).
    */
-  registerSubagentChildAnchor(parentSessionKey: string, childSessionKey: string): void {
+  registerSubagentChildAnchor(
+    parentSessionKey: string,
+    childSessionKey: string,
+    parentChannelLabel?: string,
+  ): void {
     const p = parentSessionKey.trim();
     const c = childSessionKey.trim();
     if (!p || !c || p === c) {
       return;
     }
-    const anchorTurn =
-      this.lastExternalTurnIdByThread.get(p) ?? this.lastTurnIdByThread.get(p) ?? null;
-    if (!anchorTurn) {
-      return;
+    const parentCh = parentChannelLabel?.trim() || undefined;
+    const anchorTrace =
+      this.lastExternalTraceIdByThread.get(p) ?? this.lastTraceIdByThread.get(p) ?? null;
+    this.applySubagentAnchorMaps(p, c, parentCh, anchorTrace);
+    if (this.persistPendingDir) {
+      writeSubagentAnchorSnapshot(this.persistPendingDir, c, p, parentCh);
     }
-    this.subagentAnchorByChild.set(c, { parentThreadId: p, anchorParentTurnId: anchorTurn });
   }
 
   clearSubagentChildAnchor(childSessionKey: string): void {
-    this.subagentAnchorByChild.delete(childSessionKey.trim());
+    const c = childSessionKey.trim();
+    this.subagentAnchorByChild.delete(c);
+    this.pendingSubagentAnchorByChild.delete(c);
+    if (this.persistPendingDir) {
+      deleteSubagentAnchorSnapshot(this.persistPendingDir, c);
+    }
+  }
+
+  private promotePendingSubagentAnchorsForParent(parentThreadId: string): void {
+    const anchorTrace =
+      this.lastExternalTraceIdByThread.get(parentThreadId) ??
+      this.lastTraceIdByThread.get(parentThreadId) ??
+      null;
+    if (!anchorTrace) {
+      return;
+    }
+    for (const [child, rec] of [...this.pendingSubagentAnchorByChild.entries()]) {
+      if (rec.parentThreadId !== parentThreadId) {
+        continue;
+      }
+      this.subagentAnchorByChild.set(child, {
+        parentThreadId,
+        anchorParentTraceId: anchorTrace,
+        parentChannelName: rec.parentChannelName,
+      });
+      this.pendingSubagentAnchorByChild.delete(child);
+    }
+  }
+
+  /** 与 `computeTurnMetadata` 产出的锚点对齐，避免 threadRow 先于 turnMeta 构建时漏写 parent。 */
+  private applyTurnMetaToThreadRow(
+    threadRow: Record<string, unknown>,
+    turnMeta: { anchorParentThreadId: string | null },
+  ): void {
+    if (turnMeta.anchorParentThreadId) {
+      threadRow.thread_type = "subagent";
+      threadRow.parent_thread_id = turnMeta.anchorParentThreadId;
+    }
+  }
+
+  /** threadRow：`thread_type` / `parent_thread_id` / 子会话沿用父通道展示名（避免 webchat 覆盖飞书等）。 */
+  private subagentThreadRowOverlays(
+    threadId: string,
+    ctx: AgentCtx,
+    pending: Record<string, unknown> | null,
+    fallbackChannel: string | undefined,
+    sessionContextSource?: string,
+  ): Record<string, unknown> {
+    const anchor = this.subagentAnchorByChild.get(threadId);
+    const implied = sessionKeyImpliesSubagentSessionKey(threadId);
+    const channel_name =
+      anchor?.parentChannelName ??
+      fallbackChannel ??
+      (pending ? threadChannelLabelFromPending(ctx, pending, threadId) : undefined) ??
+      threadChannelLabel(ctx);
+    if (!anchor && !implied) {
+      return { channel_name };
+    }
+    const parentFromAnchor = anchor?.parentThreadId?.trim() || undefined;
+    const parentFromSystem =
+      !parentFromAnchor && implied
+        ? extractRequesterThreadIdFromOpenClawSessionContext(sessionContextSource)
+        : undefined;
+    const parent_thread_id = parentFromAnchor ?? parentFromSystem;
+    return {
+      channel_name,
+      thread_type: "subagent",
+      ...(parent_thread_id ? { parent_thread_id } : {}),
+    };
   }
 
   private turnMetadataFields(turnMeta: {
     turnId: string;
     runKind: ThreadRunKind;
-    parentTurnId: string | null;
     anchorParentThreadId: string | null;
-    anchorParentTurnId: string | null;
+    parentTurnRef: string | null;
   }): Record<string, unknown> {
     const o: Record<string, unknown> = {
       turn_id: turnMeta.turnId,
       run_kind: turnMeta.runKind,
-      parent_turn_id: turnMeta.parentTurnId,
     };
     if (turnMeta.anchorParentThreadId) {
       o.anchor_parent_thread_id = turnMeta.anchorParentThreadId;
     }
-    if (turnMeta.anchorParentTurnId) {
-      o.anchor_parent_turn_id = turnMeta.anchorParentTurnId;
+    const ptr = turnMeta.parentTurnRef?.trim();
+    if (ptr) {
+      o.parent_turn_id = ptr;
     }
     return o;
   }
@@ -871,33 +1069,51 @@ export class OpikOpenClawRuntime {
     threadId: string,
     pending: Record<string, unknown>,
     promptPreview: string | undefined,
+    traceId: string,
+    sessionContextSource?: string,
   ): {
     turnId: string;
     runKind: ThreadRunKind;
-    parentTurnId: string | null;
     anchorParentThreadId: string | null;
-    anchorParentTurnId: string | null;
+    parentTurnRef: string | null;
   } {
+    /** 同会话 async 跟进回合指向的父 external trace（须在更新 last* maps 之前读取）。 */
+    const priorExternalForAsync = this.lastExternalTraceIdByThread.get(threadId) ?? null;
     const childAnchor = this.subagentAnchorByChild.get(threadId);
+    const impliedSubagent = sessionKeyImpliesSubagentSessionKey(threadId);
     let runKind = inferThreadRunKind(pending, promptPreview);
-    if (childAnchor) {
+    if (childAnchor || impliedSubagent) {
       runKind = "subagent";
     }
-    const turnId = randomUUID();
-    this.lastTurnIdByThread.set(threadId, turnId);
-    let parentTurnId: string | null = null;
-    // External is the only top-level; all non-external turns attach under the latest external (if any).
-    if (runKind !== "external") {
-      parentTurnId = this.lastExternalTurnIdByThread.get(threadId) ?? null;
-    } else {
-      this.lastExternalTurnIdByThread.set(threadId, turnId);
+    if (runKind === "external") {
+      this.lastExternalTraceIdByThread.set(threadId, traceId);
+    }
+    this.lastTraceIdByThread.set(threadId, traceId);
+    this.promotePendingSubagentAnchorsForParent(threadId);
+    const anchorAfterPromote = this.subagentAnchorByChild.get(threadId);
+    const effectiveAnchor = anchorAfterPromote ?? childAnchor;
+    let finalRunKind = runKind;
+    if (effectiveAnchor) {
+      finalRunKind = "subagent";
+    }
+    let parentTurnRef: string | null = null;
+    if (finalRunKind === "subagent") {
+      parentTurnRef = effectiveAnchor?.anchorParentTraceId ?? null;
+      if (!parentTurnRef && impliedSubagent) {
+        const psk = extractRequesterThreadIdFromOpenClawSessionContext(sessionContextSource);
+        if (psk) {
+          parentTurnRef =
+            this.lastExternalTraceIdByThread.get(psk) ?? this.lastTraceIdByThread.get(psk) ?? null;
+        }
+      }
+    } else if (finalRunKind === "async_followup") {
+      parentTurnRef = priorExternalForAsync;
     }
     return {
-      turnId,
-      runKind,
-      parentTurnId,
-      anchorParentThreadId: childAnchor?.parentThreadId ?? null,
-      anchorParentTurnId: childAnchor?.anchorParentTurnId ?? null,
+      turnId: traceId,
+      runKind: finalRunKind,
+      anchorParentThreadId: effectiveAnchor?.parentThreadId ?? null,
+      parentTurnRef,
     };
   }
 
@@ -986,7 +1202,7 @@ export class OpikOpenClawRuntime {
       return out;
     }
     for (const [pk, p] of this.pendingOnly) {
-      if (!pendingHasUserInboundMessage(p)) {
+      if (!pendingLooksLikeExternalUserTurn(p)) {
         continue;
       }
       const side = new Set<string>();
@@ -1060,7 +1276,7 @@ export class OpikOpenClawRuntime {
       return null;
     }
     const peeked = this.peekPendingForSampling(expanded, primary);
-    if (!pendingHasUserInboundMessage(peeked)) {
+    if (!pendingLooksLikeExternalUserTurn(peeked)) {
       return null;
     }
     return this.flushNonLlmAgentEnd(primary, ctx, { success: true, messages: [] }, expanded);
@@ -1202,7 +1418,7 @@ export class OpikOpenClawRuntime {
     const inferredRunKind = inferThreadRunKind(pendingForKind, promptStr);
     /** 异步完成后的跟进 LLM 往往已无 pending 用户句，不能仅靠采样，否则 Collector 漏整条回复（OpenClaw UI 仍可见）。 */
     const forceTraceForUserMessage =
-      pendingHasUserInboundMessage(peeked) || inferredRunKind === "async_followup";
+      pendingLooksLikeExternalUserTurn(peeked) || inferredRunKind === "async_followup";
     if (!forceTraceForUserMessage && !shouldSample(sampleBps)) {
       /** 无用户 inbound 时仍可按采样跳过；有用户正文则强制本回合建 LLM trace。 */
       this.debugTrace?.("llm_input_sample_skipped", {
@@ -1229,7 +1445,7 @@ export class OpikOpenClawRuntime {
       extras?.routingFromEvent,
     );
     const openclawRouting = buildOpenclawRoutingMetadata(threadId, ctx, routingMerged);
-    const startMs = pendingHasUserInboundMessage(pendingRec)
+    const startMs = pendingLooksLikeExternalUserTurn(pendingRec)
       ? firstUserInboundTimestampMs(pendingRec, t)
       : t;
     const agLabel = threadAgentLabelFromPending(ctx, pendingRec) ?? threadAgentLabel(ctx);
@@ -1251,6 +1467,7 @@ export class OpikOpenClawRuntime {
       ...(openclawRouting ? { openclaw_routing: openclawRouting } : {}),
     }) as Record<string, unknown>;
     const runIdTrim = typeof ev.runId === "string" ? ev.runId.trim() : "";
+    const subagentThreadId = inferSubagentThreadIdForOpikTrace(runIdTrim || undefined, promptStr);
     const threadRow = {
       thread_id: threadId,
       workspace_name: this.workspace,
@@ -1258,17 +1475,32 @@ export class OpikOpenClawRuntime {
       first_seen_ms: startMs,
       last_seen_ms: t,
       agent_name: agLabel,
-      channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
+      ...this.subagentThreadRowOverlays(
+        threadId,
+        ctx,
+        pendingRec,
+        chLabel,
+        typeof ev.systemPrompt === "string" ? ev.systemPrompt : undefined,
+      ),
     };
-    const turnMeta = this.computeTurnMetadata(threadId, pendingRec, promptStr);
+    const turnMeta = this.computeTurnMetadata(
+      threadId,
+      pendingRec,
+      promptStr,
+      traceId,
+      typeof ev.systemPrompt === "string" ? ev.systemPrompt : undefined,
+    );
+    this.applyTurnMetaToThreadRow(threadRow, turnMeta);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
       workspace_name: this.workspace,
       project_name: this.project,
+      trace_type: runKindToTraceType(turnMeta.runKind),
       name: ev.model ?? "llm",
       input,
+      ...(subagentThreadId ? { subagent_thread_id: subagentThreadId } : {}),
       metadata: {
         provider: ev.provider,
         usage: {},
@@ -1346,6 +1578,7 @@ export class OpikOpenClawRuntime {
         agentId: ctx.agentId,
       },
     };
+    const bareCh = threadChannelLabel(ctx);
     const threadRow = {
       thread_id: threadId,
       workspace_name: this.workspace,
@@ -1353,15 +1586,17 @@ export class OpikOpenClawRuntime {
       first_seen_ms: t,
       last_seen_ms: t,
       agent_name: threadAgentLabel(ctx),
-      channel_name: threadChannelLabel(ctx),
       metadata: { source: "openclaw-trace-plugin" },
+      ...this.subagentThreadRowOverlays(threadId, ctx, null, bareCh, undefined),
     };
-    const turnMeta = this.computeTurnMetadata(threadId, {}, undefined);
+    const turnMeta = this.computeTurnMetadata(threadId, {}, undefined, traceId, undefined);
+    this.applyTurnMetaToThreadRow(threadRow, turnMeta);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
       workspace_name: this.workspace,
       project_name: this.project,
+      trace_type: runKindToTraceType(turnMeta.runKind),
       name: traceName,
       input,
       metadata: {
@@ -1468,17 +1703,33 @@ export class OpikOpenClawRuntime {
       first_seen_ms: startMs,
       last_seen_ms: t,
       agent_name: agLabel,
-      channel_name: chLabel,
       metadata: { source: "openclaw-trace-plugin" },
+      ...this.subagentThreadRowOverlays(
+        threadId,
+        ctx,
+        pending as Record<string, unknown>,
+        chLabel ?? threadChannelLabel(ctx),
+        preview,
+      ),
     };
-    const turnMeta = this.computeTurnMetadata(threadId, pending as Record<string, unknown>, preview);
+    const turnMeta = this.computeTurnMetadata(
+      threadId,
+      pending as Record<string, unknown>,
+      preview,
+      traceId,
+      preview,
+    );
+    this.applyTurnMetaToThreadRow(threadRow, turnMeta);
+    const subagentThreadIdNl = inferSubagentThreadIdForOpikTrace(undefined, preview);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
       workspace_name: this.workspace,
       project_name: this.project,
+      trace_type: runKindToTraceType(turnMeta.runKind),
       name: traceName,
       input,
+      ...(subagentThreadIdNl ? { subagent_thread_id: subagentThreadIdNl } : {}),
       metadata: {
         usage: {},
         agent_name: agLabel,

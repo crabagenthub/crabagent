@@ -8,7 +8,7 @@
     "build": "pnpm exec tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "clear-db": "node scripts/clear-business-data.mjs",
-    "test": "pnpm exec tsx --test src/opik-ingest-smoke.test.ts src/thread-trace-events-query.test.ts",
+    "test": "pnpm exec tsx --test src/opik-ingest-smoke.test.ts src/thread-trace-events-query.test.ts src/trace-graph-query.test.ts",
     "lint": "echo \"no lint yet\""
   },
   "dependencies": {

@@ -83,7 +83,7 @@ describe("queryThreadTurnsTree", () => {
             metadata: {
               turn_id: childTurnId,
               run_kind: "subagent",
-              parent_turn_id: null,
+              parent_turn_id: traceParent,
               anchor_parent_thread_id: parentThread,
               anchor_parent_turn_id: parentTurnId,
             },
@@ -112,13 +112,14 @@ describe("queryThreadTurnsTree", () => {
       const r = applyOpikBatch(db, batch);
       assert.equal(r.skipped.length, 0, JSON.stringify(r.skipped));
 
-      const tree = queryThreadTurnsTree(db, childThread);
+      // 会话范围从主线程展开才能包含父、子两条 thread 上的 traces（仅查子 thread 时父 trace 不在 scope 内）。
+      const tree = queryThreadTurnsTree(db, parentThread);
       assert.equal(tree.items.length, 1, "should have one grafted root");
       const root = tree.items[0]!;
-      assert.equal(root.turn_id, parentTurnId);
+      assert.equal(root.turn_id, traceParent);
       assert.equal(root.run_kind, "external");
       assert.equal(root.children.length, 1);
-      assert.equal(root.children[0]!.turn_id, childTurnId);
+      assert.equal(root.children[0]!.turn_id, traceChild);
       assert.equal(root.children[0]!.run_kind, "subagent");
     } finally {
       db.close();
@@ -130,7 +131,7 @@ describe("queryThreadTurnsTree", () => {
     }
   });
 
-  it("subagent-only thread without anchor still has empty roots (legacy)", () => {
+  it("subagent-only thread without anchor：仅本 thread 在 scope 内时非 external trace 作为 otherRoots", () => {
     const dbPath = path.join(
       os.tmpdir(),
       `crabagent-thread-turns-legacy-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
@@ -185,7 +186,8 @@ describe("queryThreadTurnsTree", () => {
       });
 
       const tree = queryThreadTurnsTree(db, childThread);
-      assert.equal(tree.items.length, 0);
+      assert.equal(tree.items.length, 1);
+      assert.equal(tree.items[0]!.run_kind, "system");
     } finally {
       db.close();
       try {

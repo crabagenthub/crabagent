@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 export type CrabagentDb = ReturnType<typeof openDatabase>;
 
 /**
- * 仅保留 opik-openclaw / Opik SDK 形态表（Thread → Trace → Span、附件、反馈、原始包）。
+ * Opik 形态：Thread（含 subagent 会话树）→ Trace → Span。
  */
 function opikSchemaDdl(): string {
   return `
@@ -13,25 +13,35 @@ function opikSchemaDdl(): string {
       thread_id TEXT NOT NULL,
       workspace_name TEXT NOT NULL DEFAULT 'default',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
+      thread_type TEXT NOT NULL DEFAULT 'main'
+        CHECK (thread_type IN ('main', 'subagent')),
+      parent_thread_id TEXT,
       first_seen_ms INTEGER NOT NULL,
       last_seen_ms INTEGER NOT NULL,
       metadata_json TEXT,
       agent_name TEXT,
       channel_name TEXT,
-      PRIMARY KEY (thread_id, workspace_name, project_name)
+      PRIMARY KEY (thread_id, workspace_name, project_name),
+      FOREIGN KEY (parent_thread_id, workspace_name, project_name)
+        REFERENCES opik_threads (thread_id, workspace_name, project_name)
+        ON DELETE SET NULL
     );
     CREATE INDEX idx_opik_threads_last_seen ON opik_threads(last_seen_ms DESC);
+    CREATE INDEX idx_opik_threads_parent ON opik_threads (workspace_name, project_name, parent_thread_id);
 
     CREATE TABLE opik_traces (
       trace_id TEXT PRIMARY KEY,
       thread_id TEXT,
       workspace_name TEXT NOT NULL DEFAULT 'default',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
+      trace_type TEXT NOT NULL DEFAULT 'external'
+        CHECK (trace_type IN ('external', 'subagent', 'async_command', 'system')),
+      subagent_thread_id TEXT,
       name TEXT,
-      tags_json TEXT,
       input_json TEXT,
       output_json TEXT,
       metadata_json TEXT,
+      setting_json TEXT,
       error_info_json TEXT,
       success INTEGER,
       duration_ms INTEGER,
@@ -40,8 +50,11 @@ function opikSchemaDdl(): string {
       updated_at_ms INTEGER,
       ended_at_ms INTEGER,
       is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1)),
-      created_from TEXT NOT NULL DEFAULT 'opik-openclaw',
+      created_from TEXT NOT NULL DEFAULT 'openclaw-iseeu',
       FOREIGN KEY (thread_id, workspace_name, project_name)
+        REFERENCES opik_threads (thread_id, workspace_name, project_name)
+        ON DELETE SET NULL,
+      FOREIGN KEY (subagent_thread_id, workspace_name, project_name)
         REFERENCES opik_threads (thread_id, workspace_name, project_name)
         ON DELETE SET NULL
     );
@@ -49,26 +62,8 @@ function opikSchemaDdl(): string {
     CREATE INDEX idx_opik_traces_project ON opik_traces(workspace_name, project_name, created_at_ms DESC);
     CREATE INDEX idx_opik_traces_created ON opik_traces(created_at_ms DESC);
     CREATE INDEX idx_opik_traces_complete ON opik_traces(is_complete, ended_at_ms);
-
-    CREATE TABLE opik_thread_turns (
-      turn_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
-      project_name TEXT NOT NULL DEFAULT 'openclaw',
-      parent_turn_id TEXT,
-      run_kind TEXT NOT NULL
-        CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
-      primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
-      sort_key INTEGER NOT NULL,
-      preview_text TEXT,
-      skills_used_json TEXT,
-      anchor_parent_thread_id TEXT,
-      anchor_parent_turn_id TEXT,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER
-    );
-    CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
-    CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
+    CREATE INDEX idx_opik_traces_subagent_thread ON opik_traces(subagent_thread_id);
+    CREATE INDEX idx_opik_traces_type_created ON opik_traces(trace_type, created_at_ms DESC);
 
     CREATE TABLE opik_spans (
       span_id TEXT PRIMARY KEY,
@@ -83,11 +78,12 @@ function opikSchemaDdl(): string {
       metadata_json TEXT,
       input_json TEXT,
       output_json TEXT,
-      tags_json TEXT,
+      setting_json TEXT,
       usage_json TEXT,
       model TEXT,
       provider TEXT,
       error_info_json TEXT,
+      status TEXT,
       total_cost REAL,
       sort_index INTEGER,
       is_complete INTEGER NOT NULL DEFAULT 0 CHECK (is_complete IN (0, 1))
@@ -188,13 +184,17 @@ function opikThreadsTableExists(db: Database.Database): boolean {
   return row != null;
 }
 
+function tableColumnNames(db: Database.Database, table: string): Set<string> {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return new Set(cols.map((c) => c.name));
+}
+
 /** Add agent / channel columns on existing DBs (no-op when already present). */
 function ensureOpikThreadsAgentChannelColumns(db: Database.Database): void {
   if (!opikThreadsTableExists(db)) {
     return;
   }
-  const cols = db.prepare(`PRAGMA table_info(opik_threads)`).all() as { name: string }[];
-  const names = new Set(cols.map((c) => c.name));
+  const names = tableColumnNames(db, "opik_threads");
   if (!names.has("agent_name")) {
     db.exec(`ALTER TABLE opik_threads ADD COLUMN agent_name TEXT`);
   }
@@ -203,101 +203,168 @@ function ensureOpikThreadsAgentChannelColumns(db: Database.Database): void {
   }
 }
 
-function opikThreadTurnsTableExists(db: Database.Database): boolean {
+/**
+ * 方案 A 列：在**不 reset** 的旧库上 `ALTER TABLE ADD COLUMN`，避免启动即因缺列崩溃。
+ * 不使用内联 REFERENCES（部分 SQLite 版本对 ALTER 附加 FK 支持不一致）。
+ */
+function ensureOpikThreadsPlanColumns(db: Database.Database): void {
+  if (!opikThreadsTableExists(db)) {
+    return;
+  }
+  const n = tableColumnNames(db, "opik_threads");
+  if (!n.has("thread_type")) {
+    db.exec(`ALTER TABLE opik_threads ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'main'`);
+  }
+  if (!n.has("parent_thread_id")) {
+    db.exec(`ALTER TABLE opik_threads ADD COLUMN parent_thread_id TEXT`);
+  }
+}
+
+function ensureOpikTracesPlanColumns(db: Database.Database): void {
+  if (!opikCoreTableExists(db)) {
+    return;
+  }
+  const n = tableColumnNames(db, "opik_traces");
+  if (!n.has("setting_json")) {
+    db.exec(`ALTER TABLE opik_traces ADD COLUMN setting_json TEXT`);
+  }
+  if (!n.has("trace_type")) {
+    db.exec(`ALTER TABLE opik_traces ADD COLUMN trace_type TEXT NOT NULL DEFAULT 'external'`);
+  }
+  if (!n.has("subagent_thread_id")) {
+    db.exec(`ALTER TABLE opik_traces ADD COLUMN subagent_thread_id TEXT`);
+  }
+}
+
+function opikSpansTableExists(db: Database.Database): boolean {
   const row = db
-    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'opik_thread_turns'`)
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'opik_spans'`)
     .get() as { ok: number } | undefined;
   return row != null;
 }
 
-/** Create `opik_thread_turns` on existing DBs that predate the table. */
-function ensureOpikThreadTurnsTable(db: Database.Database): void {
-  if (!opikCoreTableExists(db) || opikThreadTurnsTableExists(db)) {
+function ensureOpikSpansPlanColumns(db: Database.Database): void {
+  if (!opikSpansTableExists(db)) {
     return;
   }
-  db.exec(`
-    CREATE TABLE opik_thread_turns (
-      turn_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
-      project_name TEXT NOT NULL DEFAULT 'openclaw',
-      parent_turn_id TEXT,
-      run_kind TEXT NOT NULL
-        CHECK (run_kind IN ('external', 'async_followup', 'subagent', 'system')),
-      primary_trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
-      sort_key INTEGER NOT NULL,
-      preview_text TEXT,
-      skills_used_json TEXT,
-      anchor_parent_thread_id TEXT,
-      anchor_parent_turn_id TEXT,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER
-    );
-    CREATE INDEX idx_opik_thread_turns_thread_sort ON opik_thread_turns(thread_id, sort_key);
-    CREATE INDEX idx_opik_thread_turns_thread_parent ON opik_thread_turns(thread_id, parent_turn_id);
-  `);
+  const n = tableColumnNames(db, "opik_spans");
+  if (!n.has("setting_json")) {
+    db.exec(`ALTER TABLE opik_spans ADD COLUMN setting_json TEXT`);
+  }
+  if (!n.has("status")) {
+    db.exec(`ALTER TABLE opik_spans ADD COLUMN status TEXT`);
+  }
 }
 
-/** Cross-thread subagent link: parent session external (or latest) turn id for left-nav grafting. */
-function ensureOpikThreadTurnsAnchorColumns(db: Database.Database): void {
-  if (!opikThreadTurnsTableExists(db)) {
+/** 移除已废弃的 `parent_trace_id` 列（SQLite 3.35+ `DROP COLUMN`）。 */
+function dropOpikTracesParentTraceIdColumnIfPresent(db: Database.Database): void {
+  if (!opikCoreTableExists(db)) {
     return;
   }
-  const cols = db.prepare(`PRAGMA table_info(opik_thread_turns)`).all() as { name: string }[];
-  const names = new Set(cols.map((c) => c.name));
-  if (!names.has("anchor_parent_thread_id")) {
-    db.exec(`ALTER TABLE opik_thread_turns ADD COLUMN anchor_parent_thread_id TEXT`);
+  const tn = tableColumnNames(db, "opik_traces");
+  if (!tn.has("parent_trace_id")) {
+    return;
   }
-  if (!names.has("anchor_parent_turn_id")) {
-    db.exec(`ALTER TABLE opik_thread_turns ADD COLUMN anchor_parent_turn_id TEXT`);
+  try {
+    db.exec(`DROP INDEX IF EXISTS idx_opik_traces_parent`);
+    db.exec(`ALTER TABLE opik_traces DROP COLUMN parent_trace_id`);
+  } catch {
+    /* SQLite 过旧或只读环境：保留列，由运维 reset 处理 */
+  }
+}
+
+/** 新 schema 索引（旧库可能仅有早期索引）。 */
+function ensureOpikPlanIndexes(db: Database.Database): void {
+  if (!opikCoreTableExists(db)) {
+    return;
+  }
+  const tn = tableColumnNames(db, "opik_traces");
+  if (tn.has("subagent_thread_id")) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_opik_traces_subagent_thread ON opik_traces (subagent_thread_id)`,
+    );
+  }
+  if (tn.has("trace_type") && tn.has("created_at_ms")) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_opik_traces_type_created ON opik_traces (trace_type, created_at_ms DESC)`,
+    );
+  }
+  if (opikThreadsTableExists(db)) {
+    const th = tableColumnNames(db, "opik_threads");
+    if (th.has("parent_thread_id")) {
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_opik_threads_parent ON opik_threads (workspace_name, project_name, parent_thread_id)`,
+      );
+    }
   }
 }
 
 /**
- * Backfill missing `parent_turn_id` so async follow-ups attach under the latest external.
- *
- * Why: the plugin previously relied on in-memory `lastExternalTurnIdByThread`.
- * After process restarts (or if external and async are recorded in different lifetimes),
- * async nodes can be persisted as roots (parent_turn_id = NULL).
+ * 早期仅含 threads/traces/spans 的库没有 attachments / feedback / raw_ingest；
+ * `applyOpikBatch` 会写这些表，缺表时需在**不 reset** 的前提下补建。
  */
-function backfillThreadTurnParentIds(db: Database.Database): void {
-  // Only safe when opik_thread_turns exists.
-  if (!opikThreadTurnsTableExists(db)) {
+function ensureOpikAuxTables(db: Database.Database): void {
+  if (!opikCoreTableExists(db)) {
     return;
   }
-
-  // Attach non-external nodes to the most recent earlier external within the same thread.
-  // Keep it deterministic using sort_key ordering.
   db.exec(`
-    UPDATE opik_thread_turns AS t
-    SET parent_turn_id = (
-      SELECT p.turn_id
-      FROM opik_thread_turns AS p
-      WHERE p.thread_id = t.thread_id
-        AND p.workspace_name = t.workspace_name
-        AND p.project_name = t.project_name
-        AND p.run_kind = 'external'
-        AND p.sort_key < t.sort_key
-      ORDER BY p.sort_key DESC, p.turn_id ASC
-      LIMIT 1
-    )
-    WHERE t.parent_turn_id IS NULL
-      AND t.run_kind != 'external'
-      AND EXISTS (
-        SELECT 1
-        FROM opik_thread_turns AS p
-        WHERE p.thread_id = t.thread_id
-          AND p.workspace_name = t.workspace_name
-          AND p.project_name = t.project_name
-          AND p.run_kind = 'external'
-          AND p.sort_key < t.sort_key
-      );
+    CREATE TABLE IF NOT EXISTS opik_raw_ingest (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      received_at_ms INTEGER NOT NULL,
+      route TEXT,
+      trace_id TEXT,
+      span_id TEXT,
+      body_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_opik_raw_trace ON opik_raw_ingest(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_opik_raw_received ON opik_raw_ingest(received_at_ms DESC);
+
+    CREATE TABLE IF NOT EXISTS opik_trace_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trace_id TEXT NOT NULL REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+      score_name TEXT NOT NULL,
+      value REAL NOT NULL,
+      category_name TEXT,
+      reason TEXT,
+      created_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_opik_feedback_trace ON opik_trace_feedback(trace_id);
   `);
+  if (opikSpansTableExists(db)) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS opik_attachments (
+        attachment_id TEXT PRIMARY KEY,
+        trace_id TEXT REFERENCES opik_traces(trace_id) ON DELETE CASCADE,
+        span_id TEXT REFERENCES opik_spans(span_id) ON DELETE SET NULL,
+        entity_type TEXT NOT NULL CHECK (entity_type IN ('trace', 'span')),
+        content_type TEXT,
+        file_name TEXT,
+        url TEXT,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        created_at_ms INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_opik_attachments_trace ON opik_attachments(trace_id);
+      CREATE INDEX IF NOT EXISTS idx_opik_attachments_span ON opik_attachments(span_id);
+    `);
+  }
+}
+
+function ensureOpikIncrementalMigrations(db: Database.Database): void {
+  ensureOpikAuxTables(db);
+  ensureOpikThreadsAgentChannelColumns(db);
+  ensureOpikThreadsPlanColumns(db);
+  ensureOpikTracesPlanColumns(db);
+  dropOpikTracesParentTraceIdColumnIfPresent(db);
+  ensureOpikSpansPlanColumns(db);
+  ensureOpikPlanIndexes(db);
 }
 
 /**
  * 打开 SQLite：默认**保留已有数据**，仅在库中尚无 `opik_traces` 时创建 Opik 形态表。
  * 开发/清库：启动前设置 `CRABAGENT_DB_RESET=1`（或 `true`）会执行 `dropAllTables` 后重建。
+ *
+ * 已有库：自动 `ALTER TABLE` 补齐方案 A 列（如 `setting_json`、`trace_type` 等）；与完整 reset 相比不保证
+ * 与旧 `opik_thread_turns` / `tags_json` 数据语义一致，复杂旧数据仍建议 `CRABAGENT_DB_RESET=1`。
  */
 export function openDatabase(dbPath: string): Database.Database {
   const dir = path.dirname(dbPath);
@@ -316,16 +383,7 @@ export function openDatabase(dbPath: string): Database.Database {
   } else if (!opikCoreTableExists(db)) {
     db.exec(opikSchemaDdl());
   } else {
-    ensureOpikThreadsAgentChannelColumns(db);
-    ensureOpikThreadTurnsTable(db);
-    ensureOpikThreadTurnsAnchorColumns(db);
-  }
-
-  // Always attempt to backfill, it's a no-op for fully-populated rows.
-  try {
-    backfillThreadTurnParentIds(db);
-  } catch {
-    /* ignore backfill errors */
+    ensureOpikIncrementalMigrations(db);
   }
 
   return db;

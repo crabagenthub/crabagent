@@ -59,7 +59,8 @@ SELECT t.trace_id,
          TRIM(COALESCE(t.input_json, t.name, ''))
        )), 1, ${LIST_PREVIEW_MAX_CHARS}) AS last_message_preview,
        SUBSTR(TRIM(COALESCE(t.output_json, '')), 1, ${LIST_PREVIEW_MAX_CHARS}) AS output_preview,
-       t.tags_json AS tags_json,
+       t.setting_json AS setting_json,
+       t.trace_type AS trace_type,
        t.total_cost AS total_cost,
        t.duration_ms AS duration_ms,
        COALESCE(NULLIF(TRIM(t.thread_id), ''), t.trace_id) AS thread_key,
@@ -194,7 +195,8 @@ export function buildTraceRecordsCountSql(q: TraceRecordsListQuery): { sql: stri
 
 export type TraceRecordRawRow = Record<string, unknown>;
 
-function parseTagsFromJson(raw: unknown): string[] {
+/** Derive display chips from OpenClaw `setting_json` (kind, routing toggles). */
+function tagsFromSettingJson(raw: unknown): string[] {
   if (raw == null) {
     return [];
   }
@@ -204,23 +206,25 @@ function parseTagsFromJson(raw: unknown): string[] {
   }
   try {
     const j = JSON.parse(s) as unknown;
-    if (Array.isArray(j)) {
-      return j
-        .map((x) => {
-          if (typeof x === "string") {
-            return x.trim();
-          }
-          if (x && typeof x === "object" && "name" in x) {
-            return String((x as { name: unknown }).name ?? "").trim();
-          }
-          return "";
-        })
-        .filter((t) => t.length > 0);
+    if (!j || typeof j !== "object" || Array.isArray(j)) {
+      return [];
     }
+    const o = j as Record<string, unknown>;
+    const out: string[] = [];
+    const kind = o.kind;
+    if (typeof kind === "string" && kind.trim()) {
+      out.push(kind.trim());
+    }
+    for (const k of ["thinking", "verbose", "reasoning", "fast"] as const) {
+      const v = o[k];
+      if (v !== undefined && v !== null && String(v).trim() && String(v).toLowerCase() !== "inherit") {
+        out.push(`${k}:${String(v)}`);
+      }
+    }
+    return out;
   } catch {
-    /* ignore */
+    return [];
   }
-  return [];
 }
 
 export function mapTraceRecordRow(r: TraceRecordRawRow): Record<string, unknown> {
@@ -264,6 +268,10 @@ export function mapTraceRecordRow(r: TraceRecordRawRow): Record<string, unknown>
   const duration_ms =
     durRaw != null && durRaw !== "" && Number.isFinite(Number(durRaw)) ? Number(durRaw) : null;
 
+  const traceTypeRaw = r.trace_type;
+  const trace_type =
+    typeof traceTypeRaw === "string" && traceTypeRaw.trim() !== "" ? traceTypeRaw.trim() : "external";
+
   return {
     trace_id: r.trace_id,
     session_id: r.session_id,
@@ -281,7 +289,8 @@ export function mapTraceRecordRow(r: TraceRecordRawRow): Record<string, unknown>
     tool_call_count: Number(r.tool_call_count) || 0,
     saved_tokens_total: saved,
     optimization_rate_pct,
-    tags: parseTagsFromJson(r.tags_json),
+    tags: tagsFromSettingJson(r.setting_json),
+    trace_type,
     total_cost,
     duration_ms,
   };

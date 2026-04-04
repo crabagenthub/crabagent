@@ -20,7 +20,7 @@ export type SkillUsedEntry = {
   skill_id?: string;
 };
 
-/** Flat row from `opik_thread_turns`. */
+/** 历史：`opik_thread_turns` 行形状；新实现已弃用该表，保留类型供文档/兼容引用。 */
 export type ThreadTurnRow = {
   turn_id: string;
   thread_id: string;

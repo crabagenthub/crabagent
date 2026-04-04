@@ -18,6 +18,7 @@ import {
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
+import { queryThreadTraceGraph } from "./trace-graph-query.js";
 import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
 import { queryObserveFacets } from "./observe-facets-query.js";
@@ -259,7 +260,7 @@ app.get("/v1/conversation/list", handleThreadRecords);
 /** @deprecated Use `GET /v1/conversation/list` */
 app.get("/v1/thread-records", handleThreadRecords);
 
-/** Thread turn tree (external + follow-ups) from `opik_thread_turns`; requires plugin `metadata.turn_id`. */
+/** Thread turn tree from `opik_traces`（metadata `parent_turn_id` + `trace_type`）与 `opik_threads` 会话树。 */
 app.get("/v1/conversation/:threadId/turns", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
@@ -272,6 +273,21 @@ app.get("/v1/conversation/:threadId/turns", (c) => {
   }
   const { thread_id, items } = queryThreadTurnsTree(db, threadId);
   return c.json({ thread_id, items });
+});
+
+/** Trace 调用图（React Flow）：合并会话范围内 traces，metadata `parent_turn_id` → edges。 */
+app.get("/v1/conversation/:threadId/trace-graph", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let threadId = c.req.param("threadId") ?? "";
+  try {
+    threadId = decodeURIComponent(threadId);
+  } catch {
+    /* keep raw */
+  }
+  const body = queryThreadTraceGraph(db, threadId);
+  return c.json(body);
 });
 
 const handleSpanRecords = (c: Context) => {

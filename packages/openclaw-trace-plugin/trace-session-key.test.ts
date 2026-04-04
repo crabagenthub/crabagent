@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   agentScopedTraceKey,
+  extractSubagentChildIdFromPromptPreview,
+  extractSubagentChildIdFromSessionKey,
+  extractRequesterThreadIdFromOpenClawSessionContext,
+  extractSubagentSessionKeyFromText,
   parseRoutingKindFromSessionKey,
   resolvePrimaryTraceKey,
+  sessionKeyImpliesSubagentSessionKey,
   traceSessionKeyCandidates,
   traceSessionKeyCandidatesForInbound,
   traceSessionKeyCandidatesForPending,
@@ -73,6 +78,54 @@ describe("trace-session-key（CozeLoop 式渠道键）", () => {
 
   it("parseRoutingKindFromSessionKey 对 oc_ 第四段不误判", () => {
     assert.equal(parseRoutingKindFromSessionKey("agent:email_automatic:feishu:oc_x"), undefined);
+  });
+
+  it("sessionKeyImpliesSubagentSessionKey 识别 agent:<id>:subagent:<child>", () => {
+    assert.equal(
+      sessionKeyImpliesSubagentSessionKey("agent:email_automatic:subagent:bc2569ba-5f34-467c-bd65-86541a7b2d50"),
+      true,
+    );
+    assert.equal(sessionKeyImpliesSubagentSessionKey("agent:email_automatic:feishu:direct:oc_x"), false);
+  });
+
+  it("extractSubagentChildIdFromSessionKey 取末段 UUID", () => {
+    assert.equal(
+      extractSubagentChildIdFromSessionKey("agent:email_automatic:subagent:d05e53b7-989b-43e6-8de2-a69fd889ef56"),
+      "d05e53b7-989b-43e6-8de2-a69fd889ef56",
+    );
+    assert.equal(extractSubagentChildIdFromSessionKey("agent:a:feishu:oc_x"), undefined);
+  });
+
+  it("extractSubagentChildIdFromPromptPreview 从内部事件正文抽 session_key 中的 child UUID", () => {
+    const blob = `
+[Internal task completion event]
+source: subagent
+session_key: \`agent:email_automatic:subagent:68702043-413d-481a-9cf9-7588b5968e76\`
+session_id: 968144ec-a117-444a-bb9e-b465bea6ee24
+`;
+    assert.equal(extractSubagentChildIdFromPromptPreview(blob), "68702043-413d-481a-9cf9-7588b5968e76");
+    assert.equal(extractSubagentChildIdFromPromptPreview(""), undefined);
+  });
+
+  it("extractRequesterThreadIdFromOpenClawSessionContext 从 systemPrompt 取父会话键", () => {
+    const sys = `## Session Context
+- **Requester session:** agent:xiaohongshu_ai:feishu:group:oc_4a1b9cecd1b85d8f92f8c472c6306e49.
+- **Your session:** agent:xiaohongshu_ai:subagent:9d236944-4064-446c-9bf1-9aeb7396ca38.
+`;
+    assert.equal(
+      extractRequesterThreadIdFromOpenClawSessionContext(sys),
+      "agent:xiaohongshu_ai:feishu:group:oc_4a1b9cecd1b85d8f92f8c472c6306e49",
+    );
+    assert.equal(extractRequesterThreadIdFromOpenClawSessionContext(""), undefined);
+  });
+
+  it("extractSubagentSessionKeyFromText 从 metadata.run_id 解析完整 subagent_thread_id", () => {
+    const runId =
+      "announce:v1:agent:email_automatic:subagent:d05e53b7-989b-43e6-8de2-a69fd889ef56:ccf3a2c3-f98a-4e74-9dc3-8c7824af1443";
+    assert.equal(
+      extractSubagentSessionKeyFromText(runId),
+      "agent:email_automatic:subagent:d05e53b7-989b-43e6-8de2-a69fd889ef56",
+    );
   });
 
   it("traceSessionKeyCandidatesForInbound 并集 event.from 与 ForPending（deferred flush）", () => {
