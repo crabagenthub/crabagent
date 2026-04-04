@@ -7,7 +7,7 @@ import { ThreadDrawerMessageTranscript } from "@/components/thread-drawer-messag
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
-import { loadTraceEvents } from "@/lib/trace-events";
+import { filterTraceEventsToThreadKey, loadTraceEvents } from "@/lib/trace-events";
 import { type ThreadRecordRow } from "@/lib/thread-records";
 import { formatDurationMs } from "@/lib/trace-records";
 import {
@@ -137,7 +137,10 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     enabled: open && baseUrl.trim().length > 0 && threadKey.length > 0,
   });
 
-  const merged = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
+  const merged = useMemo(() => {
+    const raw = eventsQuery.data?.items ?? [];
+    return filterTraceEventsToThreadKey(raw, threadKey);
+  }, [eventsQuery.data?.items, threadKey]);
 
   const userTurns = useMemo(() => buildUserTurnList(merged), [merged]);
   const turnKeysSig = useMemo(() => userTurns.map((u) => u.listKey).join("\0"), [userTurns]);
