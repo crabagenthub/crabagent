@@ -25,7 +25,11 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
-import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
+import {
+  OBSERVE_TABLE_CLASSNAME,
+  OBSERVE_TABLE_FRAME_CLASSNAME,
+  OBSERVE_TABLE_SCROLL_X,
+} from "@/lib/observe-table-style";
 import { formatSpanDuration, type SpanRecordRow } from "@/lib/span-records";
 import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
@@ -191,7 +195,8 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColSpanId")}</span>,
         dataIndex: "span_id",
         key: "span_id",
-        width: 200,
+        fixed: "left",
+        width: 168,
         render: (_, r) => <SpanIdCell spanId={r.span_id} />,
       },
       {
@@ -212,9 +217,11 @@ export function SpansDataTable({
         ),
         dataIndex: "agent_name",
         key: "agent_name",
-        width: 140,
         render: (_, r) => (
-          <span className="max-w-[10rem] truncate text-xs text-neutral-800" title={r.agent_name ?? ""}>
+          <span
+            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
+            title={r.agent_name ?? ""}
+          >
             {r.agent_name ?? "—"}
           </span>
         ),
@@ -237,9 +244,11 @@ export function SpansDataTable({
         ),
         dataIndex: "channel_name",
         key: "channel_name",
-        width: 140,
         render: (_, r) => (
-          <span className="max-w-[10rem] truncate text-xs text-neutral-800" title={r.channel_name ?? ""}>
+          <span
+            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
+            title={r.channel_name ?? ""}
+          >
             {r.channel_name ?? "—"}
           </span>
         ),
@@ -248,9 +257,11 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColName")}</span>,
         dataIndex: "name",
         key: "name",
-        width: 180,
         render: (_, r) => (
-          <span className="max-w-[12rem] truncate text-sm font-medium text-neutral-900" title={r.name}>
+          <span
+            className="line-clamp-2 min-w-0 break-words text-sm font-medium text-neutral-900 [overflow-wrap:anywhere]"
+            title={r.name}
+          >
             {r.name || "—"}
           </span>
         ),
@@ -259,7 +270,6 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColType")}</span>,
         dataIndex: "span_type",
         key: "span_type",
-        width: 96,
         render: (_, r) => <span className="text-xs text-neutral-600">{r.span_type}</span>,
       },
       {
@@ -278,14 +288,12 @@ export function SpansDataTable({
         ),
         dataIndex: "list_status",
         key: "list_status",
-        width: 120,
         render: (_, r) => <SpanStatusCell status={r.list_status} />,
       },
       {
         title: <span className={headerCellClass}>{t("spansColInput")}</span>,
         dataIndex: "input_preview",
         key: "input_preview",
-        width: 320,
         render: (_, r) => (
           <div className="min-w-0">
             <ObserveIoPreviewPopoverCell
@@ -299,7 +307,6 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColOutput")}</span>,
         dataIndex: "output_preview",
         key: "output_preview",
-        width: 320,
         render: (_, r) => (
           <div className="min-w-0">
             <ObserveIoPreviewPopoverCell
@@ -316,7 +323,6 @@ export function SpansDataTable({
         sorter: (a, b) => (a.start_time_ms ?? 0) - (b.start_time_ms ?? 0),
         sortOrder: observeColumnSortOrder("start_time_ms", sortKey, listOrder),
         sortDirections: ["descend", "ascend"],
-        width: 200,
         render: (_, r) => (
           <span className="whitespace-nowrap text-xs text-neutral-600">
             {r.start_time_ms != null
@@ -329,7 +335,6 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColExecEnd")}</span>,
         dataIndex: "end_time_ms",
         key: "end_time_ms",
-        width: 200,
         render: (_, r) => (
           <span className="whitespace-nowrap text-xs text-neutral-600">
             {r.end_time_ms != null ? formatTraceDateTimeLocal(new Date(r.end_time_ms).toISOString()) : "—"}
@@ -340,7 +345,6 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColDuration")}</span>,
         dataIndex: "duration_ms",
         key: "duration_ms",
-        width: 96,
         render: (_, r) => (
           <span className="text-xs tabular-nums text-neutral-700">{formatSpanDuration(r.duration_ms)}</span>
         ),
@@ -352,7 +356,6 @@ export function SpansDataTable({
         sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
         sortOrder: observeColumnSortOrder("total_tokens", sortKey, listOrder),
         sortDirections: ["descend", "ascend"],
-        width: 112,
         align: "right",
         render: (_, r) => (
           <span className="text-xs tabular-nums text-neutral-700">{String(r.total_tokens)}</span>
@@ -399,17 +402,24 @@ export function SpansDataTable({
           />
         </div>
       ) : null}
-      <ScrollableTableFrame variant="neutral" contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}>
-        <div className="min-w-[1840px]">
+      <ScrollableTableFrame
+        variant="neutral"
+        contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}
+        scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+      >
+        <div className="min-w-0 w-full">
           <Table<SpanRecordRow>
-            className={OBSERVE_TABLE_CLASSNAME}
+            className={cn(
+              OBSERVE_TABLE_CLASSNAME,
+              "[&_.arco-table-th]:align-middle [&_.arco-table-td]:align-middle [&_.arco-table-cell]:min-w-0",
+            )}
             size="small"
-            border={false}
+            border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}
             data={sortedRows}
             rowKey={(r) => `${r.trace_id}:${r.span_id}`}
             pagination={false}
-            tableLayoutFixed={false}
+            scroll={OBSERVE_TABLE_SCROLL_X}
             hover={Boolean(onRowClick)}
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined

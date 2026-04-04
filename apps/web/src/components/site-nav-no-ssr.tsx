@@ -7,7 +7,7 @@ import { SiteNav } from "./site-nav";
 export const SiteNavNoSSR = dynamic(() => Promise.resolve(SiteNav), {
   ssr: false,
   loading: () => (
-    <aside className="site-nav-loading-skeleton flex h-full min-h-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+    <aside className="site-nav-loading-skeleton flex h-full min-h-0 shrink-0 flex-col border-r-[0.5px] border-r-[rgb(228,231,235)] bg-sidebar">
       <div className="site-nav-skeleton-header-expanded shrink-0 items-center border-0 justify-between gap-2 px-3 py-3 pb-5">
         <div className="flex min-w-0 flex-1 items-center gap-2.5 pr-1">
           <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-sidebar-accent/70 ring-1 ring-sidebar-border animate-pulse" />

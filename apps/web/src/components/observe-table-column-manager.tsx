@@ -11,6 +11,7 @@ import {
   readHiddenOptionalKeys,
   writeHiddenOptionalKeys,
 } from "@/lib/observe-table-column-storage";
+import { OBSERVE_CONTROL_OUTLINE_CLASSNAME } from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
 export type ObserveColumnManagerItem = {
@@ -110,7 +111,11 @@ export function ObserveTableColumnManager({ items, hiddenOptional, onToggleOptio
         })}
       </ul>
       <div className="border-t border-border px-2 py-2">
-        <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onReset()}>
+        <button
+          type="button"
+          className="text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+          onClick={() => onReset()}
+        >
           {t("columnManagerResetDefault")}
         </button>
       </div>
@@ -125,10 +130,13 @@ export function ObserveTableColumnManager({ items, hiddenOptional, onToggleOptio
         size="icon-lg"
         title={t("columnManagerTitle")}
         aria-label={t("columnManagerAria")}
-        className="shrink-0"
+        className={cn(
+          "shrink-0 bg-white text-neutral-600 hover:text-neutral-800 dark:bg-zinc-950/50 dark:text-zinc-400 dark:hover:text-zinc-200",
+          OBSERVE_CONTROL_OUTLINE_CLASSNAME,
+        )}
         data-row-click-stop
       >
-        <IconList className="h-4 w-4" aria-hidden />
+        <IconList className="h-4 w-4 text-neutral-500 dark:text-zinc-400" aria-hidden />
       </Button>
     </Dropdown>
   );

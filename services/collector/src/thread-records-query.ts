@@ -44,6 +44,7 @@ const THREAD_SELECT = `
 SELECT th.thread_id,
        th.workspace_name,
        th.project_name,
+       th.thread_type,
        th.first_seen_ms,
        th.last_seen_ms,
        th.metadata_json AS metadata,
@@ -223,10 +224,17 @@ export function mapThreadRecordRow(r: ThreadRecordRawRow): Record<string, unknow
     typeof lts === "string" && lts.trim() && ["running", "success", "error", "timeout"].includes(lts.trim())
       ? lts.trim()
       : null;
+  const tt = r.thread_type;
+  const thread_type =
+    typeof tt === "string" && tt.trim() && (tt.trim() === "main" || tt.trim() === "subagent")
+      ? tt.trim()
+      : "main";
+
   return {
     thread_id: r.thread_id,
     workspace_name: r.workspace_name ?? "default",
     project_name: r.project_name ?? "openclaw",
+    thread_type,
     first_seen_ms: r.first_seen_ms,
     last_seen_ms: r.last_seen_ms,
     metadata: parseMetadata(r.metadata),

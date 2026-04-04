@@ -9,6 +9,8 @@ export type ThreadRecordRow = {
   thread_id: string;
   workspace_name: string;
   project_name: string;
+  /** `opik_threads.thread_type`：`main` | `subagent` */
+  thread_type: "main" | "subagent";
   first_seen_ms: number;
   last_seen_ms: number;
   metadata: Record<string, unknown>;
@@ -78,10 +80,13 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
   const st = r.status;
   const status =
     typeof st === "string" && ["running", "success", "error", "timeout"].includes(st.trim()) ? st.trim() : null;
+  const tty = String(r.thread_type ?? "").trim();
+  const thread_type: "main" | "subagent" = tty === "subagent" ? "subagent" : "main";
   return {
     thread_id: String(r.thread_id ?? ""),
     workspace_name: String(r.workspace_name ?? "default"),
     project_name: String(r.project_name ?? "openclaw"),
+    thread_type,
     first_seen_ms: Number(r.first_seen_ms) || 0,
     last_seen_ms: Number(r.last_seen_ms) || 0,
     metadata: meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {},

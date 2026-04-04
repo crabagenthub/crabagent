@@ -28,6 +28,7 @@ import { ThreadConversationDrawer } from "@/components/thread-conversation-drawe
 import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/components/threads-opik-table";
 import { Card, CardContent } from "@/components/ui/card";
 import ArcoPagination from "@arco-design/web-react/es/Pagination";
+import ArcoSwitch from "@arco-design/web-react/es/Switch";
 
 import "@/lib/arco-react19-setup";
 import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
@@ -50,6 +51,7 @@ import { loadThreadRecords, type ThreadRecordRow } from "@/lib/thread-records";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadTraceRecords, type TraceRecordRow } from "@/lib/trace-records";
+import { readObserveAutoPull, writeObserveAutoPull } from "@/lib/observe-auto-pull";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 60, 80, 100] as const;
@@ -168,6 +170,7 @@ export default function TracesPage() {
   const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
   const [inspectSpanRow, setInspectSpanRow] = useState<SpanRecordRow | null>(null);
   const [inspectTraceInitialSpanId, setInspectTraceInitialSpanId] = useState<string | null>(null);
+  const [autoPull, setAutoPull] = useState(true);
 
   const inspectPick = useMemo(() => pickObserveInspectFromSearchParams(searchParams), [searchParams]);
 
@@ -175,6 +178,12 @@ export default function TracesPage() {
     setBaseUrl(loadCollectorUrl());
     setApiKey(loadApiKey());
     setMounted(true);
+    setAutoPull(readObserveAutoPull());
+  }, []);
+
+  const onAutoPullChange = useCallback((checked: boolean) => {
+    setAutoPull(checked);
+    writeObserveAutoPull(checked);
   }, []);
 
   useEffect(() => {
@@ -285,7 +294,7 @@ export default function TracesPage() {
   const threadsSinceUntil = useMemo(() => resolveObserveSinceUntil(threadsUi.dateRange), [threadsUi.dateRange]);
   const spansSinceUntil = useMemo(() => resolveObserveSinceUntil(spansUi.dateRange), [spansUi.dateRange]);
   const listEnabled = mounted && baseUrl.trim().length > 0;
-  const refetchInterval = 12_000;
+  const refetchInterval = autoPull ? 12_000 : false;
 
   useEffect(() => {
     if (listKind !== "threads") {
@@ -490,7 +499,6 @@ export default function TracesPage() {
       { key: "channel_name", label: t("threadsColChannel") },
       { key: "trace_count", label: t("threadsColMessageCount") },
       { key: "total_tokens", label: t("colTotalTokens") },
-      { key: "total_cost", label: t("colEstCost") },
     ],
     [t],
   );
@@ -573,7 +581,7 @@ export default function TracesPage() {
         agent: tracesUi.filterAgent.trim() || undefined,
         status: tracesUi.filterStatus || undefined,
       }),
-    enabled: listEnabled && listKind === "traces",
+    enabled: listEnabled,
     refetchInterval,
     staleTime: 0,
   });
@@ -592,7 +600,7 @@ export default function TracesPage() {
         channel: threadsUi.filterChannel.trim() || undefined,
         agent: threadsUi.filterAgent.trim() || undefined,
       }),
-    enabled: listEnabled && listKind === "threads",
+    enabled: listEnabled,
     refetchInterval,
     staleTime: 0,
   });
@@ -969,6 +977,13 @@ export default function TracesPage() {
                 { id: "traces", label: t("subTabTraces") },
                 { id: "spans", label: t("subTabSpans") },
               ]}
+              counts={{
+                threads:
+                  threadsQ.isPending && threadsQ.data === undefined ? null : (threadsQ.data?.total ?? 0),
+                traces:
+                  tracesQ.isPending && tracesQ.data === undefined ? null : (tracesQ.data?.total ?? 0),
+                spans: spansQ.isPending && spansQ.data === undefined ? null : (spansQ.data?.total ?? 0),
+              }}
             />
           }
           searchDraft={searchDraft}
@@ -988,18 +1003,33 @@ export default function TracesPage() {
         />
       )}
 
-      {q.isSuccess && lastUpdated && !missingUrl && (
-        <p className="mb-3 text-xs text-neutral-500">
-          <span className="font-medium text-neutral-700">{t("lastUpdated")}:</span>{" "}
-          <span className="font-mono">{lastUpdated}</span>
-        </p>
+      {!missingUrl && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-neutral-500">
+          <p className="min-w-0">
+            <span className="font-medium text-neutral-700">{t("lastUpdated")}:</span>{" "}
+            {q.isSuccess && lastUpdated ? (
+              <span className="font-mono">{lastUpdated}</span>
+            ) : (
+              <span className="text-neutral-400">—</span>
+            )}
+          </p>
+          <label className="inline-flex cursor-pointer items-center gap-2 select-none">
+            <ArcoSwitch
+              size="small"
+              checked={autoPull}
+              onChange={onAutoPullChange}
+              aria-label={t("autoPullAria")}
+            />
+            <span className="text-neutral-600 dark:text-neutral-400">{t("autoPullLabel")}</span>
+          </label>
+        </div>
       )}
 
       <section aria-label={sectionAria} className="space-y-4">
         <div className="space-y-4">
           {q.isFetching && !q.data && !missingUrl && (
             <div className="flex items-center gap-2 text-sm text-ca-muted">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-500 dark:border-zinc-600 dark:border-t-zinc-400" />
               {t("fetching")}
             </div>
           )}
@@ -1016,74 +1046,71 @@ export default function TracesPage() {
           {q.isSuccess && !missingUrl && !q.isError ? (
             <div className="space-y-4 pb-1">
               {listKind === "traces" ? (
-                <TracesOpikTable
-                  rows={traceRows}
-                  sortKey={sortKey}
-                  listOrder={listOrder}
-                  onColumnSort={handleColumnSort}
-                  onRowClick={(r) => openTraceInspect(r)}
-                  channelFilter={filterChannel}
-                  channelOptions={channelOptions}
-                  onChannelFilterChange={setFilterChannel}
-                  agentFilter={filterAgent}
-                  agentOptions={agentOptions}
-                  onAgentFilterChange={setFilterAgent}
-                  statusFilter={filterStatus}
-                  onStatusFilterChange={setFilterStatus}
-                  hiddenOptional={tracesColumns.hiddenOptional}
-                  showColumnManager={false}
-                  emptyBody={
-                    traceRows.length === 0 ? (
-                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
-                    ) : undefined
-                  }
-                />
+                traceRows.length === 0 ? (
+                  <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
+                ) : (
+                  <TracesOpikTable
+                    rows={traceRows}
+                    sortKey={sortKey}
+                    listOrder={listOrder}
+                    onColumnSort={handleColumnSort}
+                    onRowClick={(r) => openTraceInspect(r)}
+                    channelFilter={filterChannel}
+                    channelOptions={channelOptions}
+                    onChannelFilterChange={setFilterChannel}
+                    agentFilter={filterAgent}
+                    agentOptions={agentOptions}
+                    onAgentFilterChange={setFilterAgent}
+                    statusFilter={filterStatus}
+                    onStatusFilterChange={setFilterStatus}
+                    hiddenOptional={tracesColumns.hiddenOptional}
+                    showColumnManager={false}
+                  />
+                )
               ) : null}
               {listKind === "threads" ? (
-                <ThreadsOpikTable
-                  rows={threadRows}
-                  sortKey={sortKey}
-                  listOrder={listOrder}
-                  onColumnSort={handleColumnSort}
-                  onRowClick={(row) => openThreadInspect(row)}
-                  channelFilter={filterChannel}
-                  channelOptions={channelOptions}
-                  onChannelFilterChange={setFilterChannel}
-                  agentFilter={filterAgent}
-                  agentOptions={agentOptions}
-                  onAgentFilterChange={setFilterAgent}
-                  hiddenOptional={threadsColumns.hiddenOptional}
-                  showColumnManager={false}
-                  emptyBody={
-                    threadRows.length === 0 ? (
-                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
-                    ) : undefined
-                  }
-                />
+                threadRows.length === 0 ? (
+                  <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
+                ) : (
+                  <ThreadsOpikTable
+                    rows={threadRows}
+                    sortKey={sortKey}
+                    listOrder={listOrder}
+                    onColumnSort={handleColumnSort}
+                    onRowClick={(row) => openThreadInspect(row)}
+                    channelFilter={filterChannel}
+                    channelOptions={channelOptions}
+                    onChannelFilterChange={setFilterChannel}
+                    agentFilter={filterAgent}
+                    agentOptions={agentOptions}
+                    onAgentFilterChange={setFilterAgent}
+                    hiddenOptional={threadsColumns.hiddenOptional}
+                    showColumnManager={false}
+                  />
+                )
               ) : null}
               {listKind === "spans" ? (
-                <SpansDataTable
-                  rows={spanRows}
-                  sortKey={sortKey}
-                  listOrder={listOrder}
-                  onColumnSort={handleColumnSort}
-                  onRowClick={(r) => openSpanInspect(r)}
-                  channelFilter={filterChannel}
-                  channelOptions={channelOptions}
-                  onChannelFilterChange={setFilterChannel}
-                  agentFilter={filterAgent}
-                  agentOptions={agentOptions}
-                  onAgentFilterChange={setFilterAgent}
-                  statusFilter={filterStatus}
-                  onStatusFilterChange={setFilterStatus}
-                  hiddenOptional={spansColumns.hiddenOptional}
-                  showColumnManager={false}
-                  emptyBody={
-                    spanRows.length === 0 ? (
-                      <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
-                    ) : undefined
-                  }
-                />
+                spanRows.length === 0 ? (
+                  <ListEmptyState variant="plain" className="min-h-0 py-2" title={emptyTitle} description={emptyDescription} />
+                ) : (
+                  <SpansDataTable
+                    rows={spanRows}
+                    sortKey={sortKey}
+                    listOrder={listOrder}
+                    onColumnSort={handleColumnSort}
+                    onRowClick={(r) => openSpanInspect(r)}
+                    channelFilter={filterChannel}
+                    channelOptions={channelOptions}
+                    onChannelFilterChange={setFilterChannel}
+                    agentFilter={filterAgent}
+                    agentOptions={agentOptions}
+                    onAgentFilterChange={setFilterAgent}
+                    statusFilter={filterStatus}
+                    onStatusFilterChange={setFilterStatus}
+                    hiddenOptional={spansColumns.hiddenOptional}
+                    showColumnManager={false}
+                  />
+                )
               ) : null}
             </div>
           ) : null}

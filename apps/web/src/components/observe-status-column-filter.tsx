@@ -65,12 +65,16 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
           size="icon-sm"
           className={cn(
             OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            value ? "text-primary hover:text-primary" : "text-neutral-600 hover:text-neutral-700",
+            value ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
           )}
           aria-label={t("statusColumnFilterAria")}
           aria-expanded={open}
         >
-          <IconFilter className="size-3.5" strokeWidth={2} aria-hidden />
+          <IconFilter
+            className={cn("size-3.5", value ? "text-primary" : "text-neutral-600")}
+            strokeWidth={2}
+            aria-hidden
+          />
         </Button>
       </Dropdown>
     </div>

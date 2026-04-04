@@ -27,3 +27,23 @@ export function formatShortId(id: string | null | undefined): string {
   // 无前缀或前缀过长，直接缩短
   return `${s.slice(0, 8)}…${s.slice(-6)}`;
 }
+
+/**
+ * 会话列表专用：比 {@link formatShortId} 保留更多字符，仍避免单行过长。
+ */
+export function formatThreadListSessionId(id: string | null | undefined): string {
+  if (!id) return "";
+  const s = id.trim();
+  if (s.length <= 36) return s;
+
+  const colonIndex = s.indexOf(":");
+  if (colonIndex > 0 && colonIndex < 28) {
+    const prefix = s.slice(0, colonIndex + 1);
+    const rest = s.slice(colonIndex + 1);
+    if (rest.length > 22) {
+      return `${prefix}${rest.slice(0, 12)}…${rest.slice(-10)}`;
+    }
+  }
+
+  return `${s.slice(0, 16)}…${s.slice(-10)}`;
+}

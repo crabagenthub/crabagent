@@ -25,7 +25,11 @@ import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover } from "@arco-design/web-react";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
-import { OBSERVE_TABLE_CLASSNAME, OBSERVE_TABLE_FRAME_CLASSNAME } from "@/lib/observe-table-style";
+import {
+  OBSERVE_TABLE_CLASSNAME,
+  OBSERVE_TABLE_FRAME_CLASSNAME,
+  OBSERVE_TABLE_SCROLL_X,
+} from "@/lib/observe-table-style";
 import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import {
   statusBandLabel,
@@ -34,9 +38,7 @@ import {
 } from "@/lib/trace-records";
 import { extractThreadListMessageText } from "@/lib/strip-inbound-meta";
 import { threadRowStableId, type ThreadRecordRow } from "@/lib/thread-records";
-import { cn, formatShortId } from "@/lib/utils";
-
-const TABLE_MIN_WIDTH = 1820;
+import { cn, formatThreadListSessionId } from "@/lib/utils";
 
 export const OBSERVE_THREADS_TABLE_ID = "observe-threads";
 
@@ -47,7 +49,6 @@ export const THREADS_OPTIONAL_KEYS: readonly string[] = [
   "channel_name",
   "trace_count",
   "total_tokens",
-  "total_cost",
 ];
 
 const headerCellClass =
@@ -92,7 +93,16 @@ function HeaderLabel({ children, title }: { children: ReactNode; title?: string 
   );
 }
 
-function TruncatedTextCell({ text, widthClass, className }: { text: string | null | undefined; widthClass: string; className?: string }) {
+function TruncatedTextCell({
+  text,
+  widthClass,
+  className,
+}: {
+  text: string | null | undefined;
+  /** 可选：限制最大宽度；未传时按内容自适应（最多两行） */
+  widthClass?: string;
+  className?: string;
+}) {
   const value = (text ?? "").trim();
   if (!value) {
     return <EmptyDash />;
@@ -100,8 +110,10 @@ function TruncatedTextCell({ text, widthClass, className }: { text: string | nul
   return (
     <span
       className={cn(
-        "block min-w-0 truncate whitespace-nowrap text-xs text-neutral-800",
-        widthClass,
+        "block min-w-0 text-xs text-neutral-800",
+        widthClass
+          ? cn("truncate whitespace-nowrap", widthClass)
+          : "line-clamp-2 whitespace-normal break-words [overflow-wrap:anywhere]",
         className,
       )}
     >
@@ -110,26 +122,46 @@ function TruncatedTextCell({ text, widthClass, className }: { text: string | nul
   );
 }
 
-function ThreadIdCell({ threadId }: { threadId: string }) {
+function ThreadIdCell({ row }: { row: ThreadRecordRow }) {
   const t = useTranslations("Traces");
+  const threadId = row.thread_id;
 
   if (!threadId.trim()) {
     return <EmptyDash />;
   }
 
+  const isSubagent = row.thread_type === "subagent";
+
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="block min-w-0 truncate whitespace-nowrap text-xs text-neutral-800" title={threadId}>
-        {formatShortId(threadId)}
-      </span>
-      <TraceCopyIconButton
-        text={threadId}
-        ariaLabel={t("threadDrawerCopyThreadId")}
-        tooltipLabel={t("copy")}
-        successLabel={t("copySuccessToast")}
-        className="p-1 hover:bg-neutral-100"
-        stopPropagation
-      />
+    <div className="flex min-w-0 flex-col gap-1.5 py-0.5">
+      <div className="flex min-w-0 items-start gap-1.5">
+        <span
+          className="min-w-0 flex-1 break-all font-mono text-[11px] leading-snug text-neutral-900"
+          title={threadId}
+        >
+          {formatThreadListSessionId(threadId)}
+        </span>
+        <TraceCopyIconButton
+          text={threadId}
+          ariaLabel={t("threadDrawerCopyThreadId")}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="shrink-0 p-1 hover:bg-neutral-100"
+          stopPropagation
+        />
+      </div>
+      <div>
+        <span
+          className={cn(
+            "inline-flex max-w-full rounded-md px-2 py-0.5 text-[11px] font-medium leading-tight",
+            isSubagent
+              ? "bg-violet-100 text-violet-900 dark:bg-violet-950/45 dark:text-violet-100"
+              : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800/80 dark:text-neutral-200",
+          )}
+        >
+          {isSubagent ? t("threadsListSessionKindSubagent") : t("threadsListSessionKindMain")}
+        </span>
+      </div>
     </div>
   );
 }
@@ -154,7 +186,7 @@ function ThreadMessageCell({
   const body = (
     <span
       aria-label={ariaLabel}
-      className="block min-w-0 whitespace-normal break-words text-xs leading-5 text-neutral-800"
+      className="block w-[20rem] max-w-full min-w-0 whitespace-normal break-words text-xs leading-5 text-neutral-800"
       style={{
         display: "-webkit-box",
         WebkitBoxOrient: "vertical",
@@ -252,7 +284,6 @@ export function ThreadsOpikTable({
       { key: "channel_name", label: t("threadsColChannel") },
       { key: "trace_count", label: t("threadsColMessageCount") },
       { key: "total_tokens", label: t("colTotalTokens") },
-      { key: "total_cost", label: t("colEstCost") },
     ],
     [t],
   );
@@ -282,14 +313,14 @@ export function ThreadsOpikTable({
         title: <HeaderLabel>{t("colTableSessionId")}</HeaderLabel>,
         dataIndex: "thread_id",
         key: "thread_id",
-        width: 220,
-        render: (_, row) => <ThreadIdCell threadId={row.thread_id} />,
+        fixed: "left",
+        width: 260,
+        render: (_, row) => <ThreadIdCell row={row} />,
       },
       {
         title: <HeaderLabel>{t("colStatus")}</HeaderLabel>,
         dataIndex: "status",
         key: "status",
-        width: 128,
         render: (_, row) => {
           const statusBand = traceListStatusBandFromApiStatus(row.status ?? null);
           return row.status ? (
@@ -320,8 +351,7 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "agent_name",
         key: "agent_name",
-        width: 160,
-        render: (_, row) => <TruncatedTextCell text={row.agent_name} widthClass="max-w-[8.5rem]" />,
+        render: (_, row) => <TruncatedTextCell text={row.agent_name} />,
       },
       {
         title: onChannelFilterChange ? (
@@ -337,16 +367,15 @@ export function ThreadsOpikTable({
         ),
         dataIndex: "channel_name",
         key: "channel_name",
-        width: 160,
-        render: (_, row) => <TruncatedTextCell text={row.channel_name} widthClass="max-w-[8.5rem]" />,
+        render: (_, row) => <TruncatedTextCell text={row.channel_name} />,
       },
       {
         title: <HeaderLabel>{t("threadsColLatestMessage")}</HeaderLabel>,
         dataIndex: "last_message_preview",
         key: "last_message_preview",
-        width: 360,
+        width: 320,
         render: (_, row) => (
-          <div className="min-w-0">
+          <div className="min-w-0 w-[20rem] max-w-full">
             <ThreadMessageCell
               raw={row.latest_input_preview ?? row.last_message_preview}
               ariaLabel={t("threadsLastMessageFullAria")}
@@ -359,7 +388,6 @@ export function ThreadsOpikTable({
         title: <HeaderLabel>{t("threadsColMessageCount")}</HeaderLabel>,
         dataIndex: "trace_count",
         key: "trace_count",
-        width: 120,
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-700">
             {row.trace_count.toLocaleString()}
@@ -370,24 +398,12 @@ export function ThreadsOpikTable({
         title: <HeaderLabel>{t("colTotalTokens")}</HeaderLabel>,
         dataIndex: "total_tokens",
         key: "total_tokens",
-        width: 144,
         sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
         sortOrder: observeColumnSortOrder("total_tokens", sortKey, listOrder),
         sortDirections: ["descend", "ascend"],
         render: (_, row) => (
           <span className="whitespace-nowrap text-xs tabular-nums text-neutral-800">
             {row.total_tokens > 0 ? row.total_tokens.toLocaleString() : "—"}
-          </span>
-        ),
-      },
-      {
-        title: <HeaderLabel title={t("threadsCostHint")}>{t("colEstCost")}</HeaderLabel>,
-        dataIndex: "total_cost",
-        key: "total_cost",
-        width: 136,
-        render: (_, row) => (
-          <span className="whitespace-nowrap text-xs tabular-nums text-neutral-600">
-            {row.total_cost != null && Number.isFinite(row.total_cost) ? row.total_cost.toFixed(4) : "—"}
           </span>
         ),
       },
@@ -432,21 +448,21 @@ export function ThreadsOpikTable({
       <ScrollableTableFrame
         variant="neutral"
         contentKey={`${rows.length}:${emptyBody ? 1 : 0}`}
-        scrollClassName="touch-pan-x overscroll-x-contain"
+        scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
       >
-        <div style={{ minWidth: TABLE_MIN_WIDTH }}>
+        <div className="min-w-0 w-full">
           <Table<ThreadRecordRow>
             className={cn(
               OBSERVE_TABLE_CLASSNAME,
-              "[&_.arco-table-th]:whitespace-nowrap [&_.arco-table-td]:align-top [&_.arco-table-cell]:min-w-0 [&_.arco-table-th-item]:whitespace-nowrap",
+              "[&_.arco-table-th]:whitespace-nowrap [&_.arco-table-th]:align-middle [&_.arco-table-td]:align-middle [&_.arco-table-cell]:min-w-0 [&_.arco-table-th-item]:whitespace-nowrap",
             )}
             size="small"
-            border={false}
+            border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}
             data={sortedRows}
             rowKey={(row) => threadRowStableId(row)}
             pagination={false}
-            tableLayoutFixed
+            scroll={OBSERVE_TABLE_SCROLL_X}
             hover={Boolean(onRowClick)}
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined

@@ -11,6 +11,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ObserveDatePreset, ObserveDateRange } from "@/lib/observe-date-range";
+import { OBSERVE_CONTROL_OUTLINE_CLASSNAME, OBSERVE_PANEL_BORDER_CLASSNAME } from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
 const RangePicker = DatePicker.RangePicker;
@@ -106,7 +107,12 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
       }}
       trigger="click"
       droplist={
-        <div className="w-[20rem] rounded-md bg-popover p-2 text-popover-foreground shadow-sm">
+        <div
+          className={cn(
+            "w-[20rem] rounded-md bg-popover p-2 text-popover-foreground shadow-sm",
+            OBSERVE_PANEL_BORDER_CLASSNAME
+          )}
+        >
           {!customOpen ? (
             <div className="space-y-1">
               <Menu
@@ -172,14 +178,15 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
         variant="outline"
         size="lg"
         className={cn(
-          "h-9 gap-2 bg-background/50 px-3 font-medium text-foreground/80 shadow-sm transition-all hover:bg-muted hover:text-foreground active:scale-[0.98]",
+          "h-9 gap-2 bg-white px-3 font-medium text-neutral-700 shadow-sm transition-all hover:text-neutral-900 active:scale-[0.98] dark:bg-zinc-950/50 dark:text-zinc-300 dark:hover:text-zinc-100",
+          OBSERVE_CONTROL_OUTLINE_CLASSNAME,
           className
         )}
         aria-label={t("dateRangeLabel")}
       >
-        <IconCalendar className="size-4 shrink-0 text-muted-foreground/70" aria-hidden />
+        <IconCalendar className="size-4 shrink-0 text-neutral-500 dark:text-zinc-400" aria-hidden />
         <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{triggerLabel}</span>
-        <IconDown className="size-4 shrink-0 text-muted-foreground/50" aria-hidden />
+        <IconDown className="size-4 shrink-0 text-neutral-400 dark:text-zinc-500" aria-hidden />
       </Button>
     </Dropdown>
   );

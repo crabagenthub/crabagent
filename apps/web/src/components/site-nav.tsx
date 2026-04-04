@@ -271,7 +271,7 @@ function SidebarUserProfile({
         "ring-offset-2 ring-offset-sidebar transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         sidebarCollapsed
           ? "h-auto w-auto flex-col items-center rounded-full p-1"
-          : "h-auto min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 pl-1 pr-2 text-left",
+          : "h-auto min-w-0 w-full flex-row items-center gap-2.5 rounded-lg py-1.5 pl-1 pr-2 text-left",
       ].join(" ")}
       aria-expanded={open}
       aria-haspopup="dialog"
@@ -280,7 +280,7 @@ function SidebarUserProfile({
     >
       {avatarFace}
       {!sidebarCollapsed ? (
-        <div className="min-w-0 flex-1 leading-tight">
+        <div className="min-w-0 flex-1 text-left leading-tight">
           <p className="truncate text-sm font-semibold text-sidebar-foreground">{t("userDisplayName")}</p>
           <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
         </div>
@@ -291,27 +291,32 @@ function SidebarUserProfile({
   return (
     <div className={[sidebarCollapsed ? "px-2 pb-1.5 pt-1" : "px-2.5 pb-2.5 pt-1.5"].join(" ")}>
       <div
-        className={["flex min-w-0 items-center gap-2", sidebarCollapsed ? "flex-col justify-center gap-1" : ""].join(
-          " ",
+        className={cn(
+          "flex min-w-0 items-center gap-2",
+          sidebarCollapsed ? "flex-col justify-center gap-1" : "flex-row",
         )}
       >
-        <Popover
-          className="site-nav-user-popover"
-          trigger="click"
-          position="top"
-          blurToHide={false}
-          escToClose
-          popupVisible={open}
-          onVisibleChange={setOpen}
-          style={{ maxWidth: 288 }}
-          triggerProps={{
-            showArrow: false,
-            duration: { enter: 180, exit: 140, appear: 180 },
-          }}
-          content={userMenuPanel}
-        >
-          {triggerBtn}
-        </Popover>
+        <div className={cn(!sidebarCollapsed && "min-w-0 flex-1")}>
+          <Popover
+            className="site-nav-user-popover"
+            trigger="click"
+            position="top"
+            blurToHide={false}
+            escToClose
+            popupVisible={open}
+            onVisibleChange={setOpen}
+            style={{ maxWidth: 288 }}
+            triggerProps={{
+              showArrow: false,
+              duration: { enter: 180, exit: 140, appear: 180 },
+              /** 避免 Arco 将触发器包成块级导致头像与文案上下叠放 */
+              className: sidebarCollapsed ? undefined : "flex w-full min-w-0 flex-row items-stretch",
+            }}
+            content={userMenuPanel}
+          >
+            {triggerBtn}
+          </Popover>
+        </div>
         {collapseBtn}
       </div>
     </div>
@@ -417,7 +422,7 @@ export function SiteNav() {
           href={it.href}
           title={it.label}
           className={[
-            "group mx-auto flex w-full max-w-[2.75rem] items-center justify-center rounded-full border-0 px-1.5 py-1.5 text-sm shadow-none ring-0 transition",
+            "group mx-auto flex w-full max-w-[2.75rem] items-center justify-center rounded-lg border-0 px-1.5 py-1.5 text-sm shadow-none ring-0 transition",
             active
               ? "bg-sidebar-active text-sidebar-active-foreground"
               : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -435,7 +440,7 @@ export function SiteNav() {
         key={it.href}
         href={it.href}
         className={[
-          "group flex min-w-0 items-center gap-2.5 rounded-full py-1.5 pl-2.5 pr-3 text-sm font-medium transition",
+          "group flex min-w-0 items-center gap-2.5 rounded-lg py-1.5 pl-2.5 pr-3 text-sm font-medium transition",
           active
             ? "bg-sidebar-active text-sidebar-active-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -461,7 +466,7 @@ export function SiteNav() {
   return (
     <aside
       className={[
-        "flex h-full min-h-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out",
+        "flex h-full min-h-0 shrink-0 flex-col border-r-[0.5px] border-r-[rgb(228,231,235)] bg-sidebar transition-[width] duration-200 ease-out",
         collapsed ? "w-[72px]" : "w-[272px]",
       ].join(" ")}
     >

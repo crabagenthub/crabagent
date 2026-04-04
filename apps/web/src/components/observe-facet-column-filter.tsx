@@ -58,12 +58,16 @@ export function ObserveFacetColumnFilter({ label, value, options, onChange, aria
           size="icon-sm"
           className={cn(
             OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            applied ? "text-primary hover:text-primary" : "text-neutral-600 hover:text-neutral-700",
+            applied ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
           )}
           aria-label={t(ariaLabelKey)}
           aria-expanded={open}
         >
-          <IconFilter className="size-3.5" strokeWidth={2} aria-hidden />
+          <IconFilter
+            className={cn("size-3.5", applied ? "text-primary" : "text-neutral-600")}
+            strokeWidth={2}
+            aria-hidden
+          />
         </Button>
       </Dropdown>
     </div>

@@ -89,16 +89,17 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
     --chart-3: #a871e3;
     --chart-4: #722ed1;
     --chart-5: #551db0;
-    /* 侧栏：参考浅灰底 + 近黑正文 + 中性胶囊选中（非冷色蓝灰） */
-    --sidebar: #f7f7f7;
+    /* 侧栏：与 Trace Tab 等统一的浅灰蓝底 */
+    --sidebar: #f2f5fa;
     --sidebar-foreground: #1a1a1a;
     --sidebar-primary: #262626;
     --sidebar-primary-foreground: #fafafa;
-    --sidebar-accent: #ededed;
+    --sidebar-accent: #e4e8f0;
     --sidebar-accent-foreground: #1a1a1a;
-    --sidebar-active: #ececec;
+    --sidebar-active: #e4e8f0;
     --sidebar-active-foreground: #1a1a1a;
-    --sidebar-border: #e5e5e5;
+    /** 与侧栏右边框一致 rgb(228, 231, 235) */
+    --sidebar-border: #e4e7eb;
     --sidebar-ring: #8d4eda;
     --sidebar-section-label: #999999;
   }
@@ -193,19 +194,6 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
   .ca-arco-app-drawer-wrap .ca-arco-app-drawer.arco-drawer {
     border-left: 1px solid var(--border);
     box-shadow: -8px 0 30px rgba(0, 0, 0, 0.08);
-  }
-
-  svg.arco-icon {
-    width: 32px !important;
-    height: 32px !important;
-    font-size: 32px !important;
-  }
-
-  svg.arco-icon,
-  svg.arco-icon * {
-    stroke-linecap: square !important;
-    stroke-linejoin: miter-clip !important;
-    stroke-width: 5 !important;
   }
 
   /** 主内容区：与 Trace 列表等页统一的左右、上下边距与最大宽度 */
@@ -367,4 +355,54 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
   details[open] > summary .ca-tree-chevron {
     @apply rotate-90;
   }
+}
+
+/**
+ * Arco Design：`arco.css` 将 `--primary-*` / `--link-*` 绑在 `body` 上且指向 arcoblue（蓝）。
+ * 在文件末尾、无 @layer，确保覆盖默认；亮/暗主题均改为 purple 色板 → Outline 按钮、Switch、Checkbox、链接等与暗夜紫一致。
+ */
+body {
+  --primary-1: var(--purple-1);
+  --primary-2: var(--purple-2);
+  --primary-3: var(--purple-3);
+  --primary-4: var(--purple-4);
+  --primary-5: var(--purple-5);
+  --primary-6: var(--purple-6);
+  --primary-7: var(--purple-7);
+  --primary-8: var(--purple-8);
+  --primary-9: var(--purple-9);
+  --primary-10: var(--purple-10);
+  --link-1: var(--purple-1);
+  --link-2: var(--purple-2);
+  --link-3: var(--purple-3);
+  --link-4: var(--purple-4);
+  --link-5: var(--purple-5);
+  --link-6: var(--purple-6);
+  --link-7: var(--purple-7);
+  --link-8: var(--purple-8);
+  --link-9: var(--purple-9);
+  --link-10: var(--purple-10);
+}
+
+body[arco-theme="dark"] {
+  --primary-1: var(--purple-1);
+  --primary-2: var(--purple-2);
+  --primary-3: var(--purple-3);
+  --primary-4: var(--purple-4);
+  --primary-5: var(--purple-5);
+  --primary-6: var(--purple-6);
+  --primary-7: var(--purple-7);
+  --primary-8: var(--purple-8);
+  --primary-9: var(--purple-9);
+  --primary-10: var(--purple-10);
+  --link-1: var(--purple-1);
+  --link-2: var(--purple-2);
+  --link-3: var(--purple-3);
+  --link-4: var(--purple-4);
+  --link-5: var(--purple-5);
+  --link-6: var(--purple-6);
+  --link-7: var(--purple-7);
+  --link-8: var(--purple-8);
+  --link-9: var(--purple-9);
+  --link-10: var(--purple-10);
 }

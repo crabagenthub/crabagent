@@ -463,11 +463,12 @@ export function ResourceAuditDashboard() {
           ) : (
             <>
               <Table
+                className="[&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc]"
                 rowKey="span_id"
                 columns={columns}
                 data={eventsQ.data?.items ?? []}
                 pagination={false}
-                border={false}
+                border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
                 size="small"
                 scroll={{ x: 1200 }}
               />

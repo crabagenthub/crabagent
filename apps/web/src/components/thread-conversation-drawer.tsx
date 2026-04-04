@@ -86,6 +86,7 @@ function syntheticDrillThreadRow(childThreadId: string, parent: ThreadRecordRow)
     thread_id: childThreadId.trim(),
     workspace_name: parent.workspace_name,
     project_name: parent.project_name,
+    thread_type: "subagent",
     first_seen_ms: parent.first_seen_ms,
     last_seen_ms: parent.last_seen_ms,
     metadata: {},
