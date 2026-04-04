@@ -220,7 +220,7 @@ function StepDetailContent() {
                         "w-full flex-col items-start rounded-xl border px-2.5 py-2 text-left text-sm transition sm:px-3 sm:py-2.5",
                         span.span_id === stepId
                           ? "border-primary bg-white shadow-sm ring-1 ring-primary/25"
-                          : "border-transparent bg-white/70 hover:border-border hover:bg-white"
+                          : "border-transparent bg-white/70 hover:border-border hover:bg-neutral-100/95"
                       )}
                     >
                       <div className="flex w-full items-center justify-between">

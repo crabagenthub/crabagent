@@ -55,8 +55,9 @@ export const SPANS_OPTIONAL_KEYS: readonly string[] = ["start_time_ms", "end_tim
 /** 默认仅隐藏：执行开始、执行结束、Token（其余为默认展示列）。 */
 export const SPANS_DEFAULT_HIDDEN_OPTIONAL: readonly string[] = [...SPANS_OPTIONAL_KEYS];
 
+/** 与 `threads-opik-table` 表头一致 */
 const headerCellClass =
-  "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
+  "inline-flex items-center whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600";
 
 function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
   const t = useTranslations("Traces");
@@ -210,7 +211,7 @@ export function SpansDataTable({
         dataIndex: "span_id",
         key: "span_id",
         fixed: "left",
-        width: 240,
+        width: 260,
         render: (_, r) => <SpanIdCell spanId={r.span_id} spanType={r.span_type} />,
       },
       {
@@ -333,9 +334,9 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColInput")}</span>,
         dataIndex: "input_preview",
         key: "input_preview",
-        width: 260,
+        width: 320,
         render: (_, r) => (
-          <div className="min-w-0 w-[260px] max-w-[260px]">
+          <div className="min-w-0 w-[20rem] max-w-full">
             <ObserveIoPreviewPopoverCell
               fullText={r.input_preview ?? ""}
               ariaLabel={t("spanListInputFullAria")}
@@ -348,9 +349,9 @@ export function SpansDataTable({
         title: <span className={headerCellClass}>{t("spansColOutput")}</span>,
         dataIndex: "output_preview",
         key: "output_preview",
-        width: 260,
+        width: 320,
         render: (_, r) => (
-          <div className="min-w-0 w-[260px] max-w-[260px]">
+          <div className="min-w-0 w-[20rem] max-w-full">
             <ObserveIoPreviewPopoverCell
               fullText={r.output_preview ?? ""}
               ariaLabel={t("spanListOutputFullAria")}
@@ -444,10 +445,6 @@ export function SpansDataTable({
       >
         <div className="min-w-0 w-full">
           <Table<SpanRecordRow>
-            className={cn(
-              OBSERVE_TABLE_CLASSNAME,
-              "[&_.arco-table-th]:align-middle [&_.arco-table-td]:align-middle [&_.arco-table-cell]:min-w-0",
-            )}
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}
@@ -455,11 +452,12 @@ export function SpansDataTable({
             rowKey={(r) => `${r.trace_id}:${r.span_id}`}
             pagination={false}
             scroll={OBSERVE_TABLE_SCROLL_X}
-            hover={Boolean(onRowClick)}
+            hover={true}
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
             }
             onChange={onTableChange}
+            rowClassName={onRowClick ? () => "cursor-pointer" : undefined}
             onRow={
               onRowClick
                 ? (record) => ({
@@ -475,7 +473,6 @@ export function SpansDataTable({
                         onRowClick(record);
                       }
                     },
-                    className: "cursor-pointer",
                   })
                 : undefined
             }

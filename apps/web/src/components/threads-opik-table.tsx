@@ -248,7 +248,9 @@ function ThreadMessageCell({
         </div>
       }
     >
-      <span className="block min-w-0 cursor-pointer">{body}</span>
+      <span className="block min-w-0 cursor-pointer select-text" data-row-click-stop>
+        {body}
+      </span>
     </Popover>
   );
 }
@@ -473,10 +475,6 @@ export function ThreadsOpikTable({
       >
         <div className="min-w-0 w-full">
           <Table<ThreadRecordRow>
-            className={cn(
-              OBSERVE_TABLE_CLASSNAME,
-              "[&_.arco-table-th]:whitespace-nowrap [&_.arco-table-th]:align-middle [&_.arco-table-td]:align-middle [&_.arco-table-cell]:min-w-0 [&_.arco-table-th-item]:whitespace-nowrap",
-            )}
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}
@@ -484,11 +482,12 @@ export function ThreadsOpikTable({
             rowKey={(row) => threadRowStableId(row)}
             pagination={false}
             scroll={OBSERVE_TABLE_SCROLL_X}
-            hover={Boolean(onRowClick)}
+            hover={true}
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
             }
             onChange={onTableChange}
+            rowClassName={onRowClick ? () => "cursor-pointer" : undefined}
             onRow={
               onRowClick
                 ? (record) => ({
@@ -504,7 +503,6 @@ export function ThreadsOpikTable({
                         onRowClick(record);
                       }
                     },
-                    className: "cursor-pointer",
                   })
                 : undefined
             }

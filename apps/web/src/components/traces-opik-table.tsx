@@ -142,12 +142,13 @@ function TraceIdCell({ traceId, traceTypeLabel }: { traceId: string; traceTypeLa
   );
 }
 
+/** 与 `threads-opik-table` 表头一致 */
 const headerCellClass =
-  "whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
+  "inline-flex items-center whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600";
 
 /** OpenClaw 路由列：中文下不用全大写，列头用 title 展示说明 */
 const openclawRoutingHeaderClass =
-  "whitespace-nowrap text-xs font-semibold text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
+  "inline-flex items-center whitespace-nowrap text-xs font-semibold text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
 
 function OpenclawRoutingTextCell({ value }: { value: string | undefined }) {
   if (value === undefined || value === "") {
@@ -298,7 +299,7 @@ export function TracesOpikTable({
         dataIndex: "trace_id",
         key: "trace_id",
         fixed: "left",
-        width: 240,
+        width: 260,
         render: (_, row) => (
           <TraceIdCell traceId={row.trace_id} traceTypeLabel={traceListTraceTypeLabel(row.trace_type, t)} />
         ),
@@ -495,9 +496,9 @@ export function TracesOpikTable({
         title: <span className={headerCellClass}>{t("colInput")}</span>,
         dataIndex: "input",
         key: "input",
-        width: 260,
+        width: 320,
         render: (_, row) => (
-          <div className="min-w-0 w-[260px] max-w-[260px]">
+          <div className="min-w-0 w-[20rem] max-w-full">
             <ObserveIoPreviewPopoverCell
               fullText={rowFullInputText(row)}
               ariaLabel={t("traceListInputFullAria")}
@@ -510,9 +511,9 @@ export function TracesOpikTable({
         title: <span className={headerCellClass}>{t("colOutput")}</span>,
         dataIndex: "output",
         key: "output",
-        width: 260,
+        width: 320,
         render: (_, row) => (
-          <div className="min-w-0 w-[260px] max-w-[260px]">
+          <div className="min-w-0 w-[20rem] max-w-full">
             <ObserveIoPreviewPopoverCell
               fullText={rowFullOutputText(row)}
               ariaLabel={t("traceListOutputFullAria")}
@@ -592,10 +593,6 @@ export function TracesOpikTable({
       >
         <div className="min-w-0 w-full">
           <Table<TraceRecordRow>
-            className={cn(
-              OBSERVE_TABLE_CLASSNAME,
-              "[&_.arco-table-th]:align-middle [&_.arco-table-td]:align-middle [&_.arco-table-cell]:min-w-0",
-            )}
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}
@@ -603,11 +600,12 @@ export function TracesOpikTable({
             rowKey={(r) => r.trace_id || `${r.thread_key}-${r.start_time}`}
             pagination={false}
             scroll={OBSERVE_TABLE_SCROLL_X}
-            hover={Boolean(onRowClick)}
+            hover={true}
             noDataElement={
               rows.length === 0 ? (emptyBody ?? <div className="flex justify-center px-4 py-10" />) : undefined
             }
             onChange={onTableChange}
+            rowClassName={onRowClick ? () => "cursor-pointer" : undefined}
             onRow={
               onRowClick
                 ? (record) => ({
@@ -623,7 +621,6 @@ export function TracesOpikTable({
                         onRowClick(record);
                       }
                     },
-                    className: "cursor-pointer",
                   })
                 : undefined
             }

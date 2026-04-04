@@ -384,6 +384,23 @@ body {
   --link-10: var(--purple-10);
 }
 
+/**
+ * Observe 列表表格行悬停：与表头同色 `observe-table-style` 中 `[&_.arco-table-th]:bg-[#f7f9fc]`。
+ * 无 `@layer`（见上条）；`tbody tr` 避免 `onRow` 覆盖行 class 导致 `.arco-table-tr:hover` 失效。
+ */
+.observe-arco-table.arco-table-hover tbody tr:not(.arco-table-empty-row):hover > .arco-table-td:not(.arco-table-col-fixed-left):not(.arco-table-col-fixed-right) {
+  background-color: #f7f9fc !important;
+}
+.observe-arco-table.arco-table-hover tbody tr.arco-table-tr-hover > .arco-table-td:not(.arco-table-col-fixed-left):not(.arco-table-col-fixed-right) {
+  background-color: #f7f9fc !important;
+}
+.observe-arco-table.arco-table-hover tbody tr:not(.arco-table-empty-row):hover > .arco-table-td.arco-table-col-fixed-left::before,
+.observe-arco-table.arco-table-hover tbody tr:not(.arco-table-empty-row):hover > .arco-table-td.arco-table-col-fixed-right::before,
+.observe-arco-table.arco-table-hover tbody tr.arco-table-tr-hover > .arco-table-td.arco-table-col-fixed-left::before,
+.observe-arco-table.arco-table-hover tbody tr.arco-table-tr-hover > .arco-table-td.arco-table-col-fixed-right::before {
+  background-color: #f7f9fc !important;
+}
+
 body[arco-theme="dark"] {
   --primary-1: var(--purple-1);
   --primary-2: var(--purple-2);

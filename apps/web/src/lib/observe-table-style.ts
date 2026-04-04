@@ -1,12 +1,8 @@
 export const OBSERVE_TABLE_CLASSNAME =
   "observe-arco-table text-sm [&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] " +
-  /** 表头与首行数据之间：横向滚动时 thead/tbody 分栏，仅靠 th 底边易「断线」，在表头容器底补一条与行间一致的线 */
   "[&_.arco-table-header]:border-b [&_.arco-table-header]:border-neutral-200 dark:[&_.arco-table-header]:border-zinc-700 " +
-  /** 表头单元格上下留白 */
   "[&_.arco-table-th-item]:!py-1.5 [&_.arco-table-col-has-sorter_.arco-table-cell-with-sorter]:!py-1.5 " +
-  /** 固定列右侧 `::after` 阴影易被看成多一条竖线，观察列表去掉 */
   "[&_.arco-table-col-fixed-left-last::after]:shadow-none [&_.arco-table-col-fixed-left-last]:border-r-0 " +
-  /** 首列表头左侧多余竖线（Arco `border-header-cell` / 固定列与容器边对齐时） */
   "[&_.arco-table-border-header-cell_thead_.arco-table-th:first-child]:!border-l-0 " +
   "[&_thead_.arco-table-tr:first-child_.arco-table-th.arco-table-col-fixed-left:first-child]:!border-l-0";
 
