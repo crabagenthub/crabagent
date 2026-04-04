@@ -17,8 +17,27 @@ export const COLLECTOR_API = {
 export const COLLECTOR_QUERY_SCOPE = {
   conversationList: "conversation-list",
   traceList: "trace-list",
+  traceGraph: "trace-graph",
+  executionGraph: "execution-graph",
   traceSpans: "trace-spans",
   spanList: "span-list",
   resourceAuditEvents: "resource-audit-events",
   resourceAuditStats: "resource-audit-stats",
 } as const;
+
+/** `GET /v1/conversation/:threadId/trace-graph` — encode thread id for path segment. */
+export function conversationTraceGraphPath(threadId: string): string {
+  const id = threadId.trim();
+  return `/v1/conversation/${encodeURIComponent(id)}/trace-graph`;
+}
+
+/** `GET /v1/conversation/:threadId/execution-graph` — span-level graph + trace headers. */
+export function conversationExecutionGraphPath(threadId: string): string {
+  const id = threadId.trim();
+  return `/v1/conversation/${encodeURIComponent(id)}/execution-graph`;
+}
+
+/** `GET /v1/trace/execution-graph?trace_id=` */
+export function traceExecutionGraphPath(): string {
+  return `/v1/trace/execution-graph`;
+}

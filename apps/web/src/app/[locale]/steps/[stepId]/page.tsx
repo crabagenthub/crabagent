@@ -12,11 +12,7 @@ import { Button } from "@/components/ui/button";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
 import { TraceSpanAttributesPanel } from "@/components/trace-span-attributes-panel";
-import {
-  collectorAuthHeaders,
-  loadApiKey,
-  loadCollectorUrl,
-} from "@/lib/collector";
+import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
@@ -82,7 +78,13 @@ function StepDetailContent() {
 
   const spanQuery = useQuery({
     queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, stepQuery.data?.traceId ?? ""],
-    queryFn: () => loadSemanticSpans(baseUrl, apiKey, stepQuery.data?.traceId!),
+    queryFn: () => {
+      const tid = stepQuery.data?.traceId?.trim();
+      if (!tid) {
+        return Promise.reject(new Error("missing trace id"));
+      }
+      return loadSemanticSpans(baseUrl, apiKey, tid);
+    },
     enabled: mounted && baseUrl.trim().length > 0 && Boolean(stepQuery.data?.traceId),
   });
 

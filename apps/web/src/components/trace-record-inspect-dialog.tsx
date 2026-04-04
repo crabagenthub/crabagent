@@ -2,10 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { IconRobot, IconInfoCircle, IconMessage, IconLanguage, IconSearch, IconEdit, IconClose } from "@arco-design/web-react/icon";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { IconInfoCircle, IconMessage, IconSearch, IconClose } from "@arco-design/web-react/icon";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageHint } from "@/components/message-hint";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
+import { ExecutionTraceFlow } from "@/components/execution-trace-flow";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
@@ -63,6 +64,7 @@ export function TraceRecordInspectDialog({
   const treeSearchRef = useRef<HTMLInputElement>(null);
   const [treeFilter, setTreeFilter] = useState("");
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const [leftPanel, setLeftPanel] = useState<"tree" | "execution">("tree");
 
   const listEnabled = open && baseUrl.trim().length > 0 && traceId.length > 0;
 
@@ -102,9 +104,14 @@ export function TraceRecordInspectDialog({
     if (!open) {
       setTreeFilter("");
       setSelectedSpanId(null);
+      setLeftPanel("tree");
       return;
     }
   }, [open]);
+
+  useEffect(() => {
+    setLeftPanel("tree");
+  }, [traceId]);
 
   useEffect(() => {
     if (spanForest.length === 0) {
@@ -165,6 +172,16 @@ export function TraceRecordInspectDialog({
   const statusDotClass =
     selectedSpan == null ? "bg-neutral-300" : statusError ? "bg-red-400" : "bg-emerald-400";
 
+  const handleOpenTraceFromGraph = useCallback(
+    (tid: string) => {
+      const hit = rows.find((r) => r.trace_id === tid);
+      if (hit) {
+        onNavigate(hit);
+      }
+    },
+    [rows, onNavigate],
+  );
+
   return (
     <Drawer
       open={open}
@@ -181,6 +198,32 @@ export function TraceRecordInspectDialog({
             </span>
             <h2 className="text-lg font-semibold leading-tight text-foreground">{t("traceInspectTitle")}</h2>
           </div>
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
+            <button
+              type="button"
+              onClick={() => setLeftPanel("tree")}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                leftPanel === "tree"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("messageViewTree")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeftPanel("execution")}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                leftPanel === "execution"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("threadDrawerViewCallGraph")}
+            </button>
+          </div>
           <DrawerClose
             className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("threadDrawerCloseAria")}
@@ -189,33 +232,44 @@ export function TraceRecordInspectDialog({
           </DrawerClose>
         </div>
 
+        {leftPanel === "execution" ? (
+          <div className="flex min-h-0 min-h-[min(520px,70dvh)] flex-1 flex-row overflow-hidden">
+            <ExecutionTraceFlow
+              variant="trace"
+              baseUrl={baseUrl}
+              apiKey={apiKey}
+              traceId={traceId}
+              maxNodes={500}
+              className="min-h-0 flex-1 bg-background"
+              onOpenTrace={handleOpenTraceFromGraph}
+              onSelectSpan={(id) => setSelectedSpanId(id)}
+            />
+          </div>
+        ) : (
         <div className="flex min-h-0 min-h-[min(520px,70dvh)] flex-1 flex-col overflow-hidden lg:flex-row">
               {/* Left: trace tree */}
               <div className="flex min-h-[240px] w-full shrink-0 flex-col border-border lg:w-[min(100%,17.5rem)] lg:max-w-[min(100%,20rem)] lg:shrink-0 lg:border-r">
-                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2.5">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-background px-3 py-2.5">
                   <div className="flex min-w-0 items-center gap-2">
                     <h3 className="truncate text-sm font-semibold text-foreground">
                       {t("traceInspectTreeTitle", { count: String(items.length) })}
                     </h3>
                     <IconInfoCircle className="size-4 shrink-0 text-neutral-400" aria-hidden />
                   </div>
-                  <div className="flex items-center gap-0.5 text-neutral-400">
-                    <IconEdit className="size-4" strokeWidth={1.25} aria-hidden />
-                  </div>
                 </div>
                 <div className="shrink-0 border-b border-border bg-background px-3 py-2.5">
-                   <div className="relative">
-                     <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" strokeWidth={2} />
-                     <input
-                       ref={treeSearchRef}
-                       type="search"
-                       value={treeFilter}
-                       onChange={(e) => setTreeFilter(e.target.value)}
-                       placeholder={t("detailTreeSearchPlaceholder")}
-                       className="w-full rounded-lg border border-input bg-muted/50 py-1.5 pl-8 pr-2.5 text-xs text-foreground shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                       aria-label={t("detailTreeSearchPlaceholder")}
-                     />
-                   </div>
+                  <div className="relative">
+                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" strokeWidth={2} />
+                    <input
+                      ref={treeSearchRef}
+                      type="search"
+                      value={treeFilter}
+                      onChange={(e) => setTreeFilter(e.target.value)}
+                      placeholder={t("detailTreeSearchPlaceholder")}
+                      className="w-full rounded-lg border border-input bg-muted/50 py-1.5 pl-8 pr-2.5 text-xs text-foreground shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={t("detailTreeSearchPlaceholder")}
+                    />
+                  </div>
                 </div>
                 <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-muted/20">
                   {spansQuery.isError ? (
@@ -375,6 +429,7 @@ export function TraceRecordInspectDialog({
                 </div>
               </aside>
             </div>
+        )}
       </div>
       ) : null}
     </Drawer>

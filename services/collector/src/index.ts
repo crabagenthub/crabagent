@@ -18,6 +18,7 @@ import {
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
+import { queryConversationExecutionGraph, queryTraceExecutionGraph } from "./execution-graph-query.js";
 import { queryThreadTraceGraph } from "./trace-graph-query.js";
 import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
@@ -275,7 +276,7 @@ app.get("/v1/conversation/:threadId/turns", (c) => {
   return c.json({ thread_id, items });
 });
 
-/** Trace 调用图（React Flow）：合并会话范围内 traces，metadata `parent_turn_id` → edges。 */
+/** Trace 调用图（React Flow）：合并会话范围内 traces，metadata `parent_turn_id` → edges。Query: `max_nodes`（默认 80，上限 200）。 */
 app.get("/v1/conversation/:threadId/trace-graph", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
@@ -286,7 +287,41 @@ app.get("/v1/conversation/:threadId/trace-graph", (c) => {
   } catch {
     /* keep raw */
   }
-  const body = queryThreadTraceGraph(db, threadId);
+  const rawMax = Number(c.req.query("max_nodes") ?? "");
+  const maxNodes = Number.isFinite(rawMax) && rawMax > 0 ? Math.floor(rawMax) : undefined;
+  const body = queryThreadTraceGraph(db, threadId, { maxNodes });
+  return c.json(body);
+});
+
+/** Span-level execution graph (LLM / tool / skill / memory / …) + trace headers; cross-trace edges from metadata.parent_turn_id. */
+app.get("/v1/conversation/:threadId/execution-graph", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let threadId = c.req.param("threadId") ?? "";
+  try {
+    threadId = decodeURIComponent(threadId);
+  } catch {
+    /* keep raw */
+  }
+  const rawMax = Number(c.req.query("max_nodes") ?? "");
+  const maxNodes = Number.isFinite(rawMax) && rawMax > 0 ? Math.floor(rawMax) : undefined;
+  const body = queryConversationExecutionGraph(db, threadId, { maxNodes });
+  return c.json(body);
+});
+
+/** Single-trace execution graph for message detail (`trace_id` query). */
+app.get("/v1/trace/execution-graph", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const traceId = optionalQueryString(c, "trace_id")?.trim() ?? "";
+  if (!traceId) {
+    return c.json({ error: "trace_id required" }, 400);
+  }
+  const rawMax = Number(c.req.query("max_nodes") ?? "");
+  const maxNodes = Number.isFinite(rawMax) && rawMax > 0 ? Math.floor(rawMax) : undefined;
+  const body = queryTraceExecutionGraph(db, traceId, { maxNodes });
   return c.json(body);
 });
 

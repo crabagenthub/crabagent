@@ -851,6 +851,8 @@ type ActiveTurn = {
   toolSpanByCallId: Map<string, string>;
   /** Fallback when OpenClaw omits `toolCallId` on after_tool_call. */
   lastToolSpanId?: string | null;
+  /** 本回合已写入 `trace.metadata.tool_execution_mode`（仅首次 before_tool 生效）。 */
+  toolExecutionModeWritten?: boolean;
   spanSort: number;
   startedAt: number;
   threadRow: Record<string, unknown>;
@@ -858,6 +860,20 @@ type ActiveTurn = {
   spans: Record<string, unknown>[];
   pendingUserMessage?: Record<string, unknown>;
 };
+
+function normalizeToolExecutionModeFromHookPayload(
+  ev: Record<string, unknown>,
+): "parallel" | "sequential" | undefined {
+  const raw = ev.tool_execution_mode ?? ev.toolExecutionMode ?? ev.toolExecution;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const s = raw.trim().toLowerCase();
+  if (s === "parallel" || s === "sequential") {
+    return s;
+  }
+  return undefined;
+}
 
 /** OpenClaw 部分通道先 `agent_end` 再 `llm_output`；回合已 close 后用此引用补写 span.usage / trace.output。 */
 type LateLlmRef = {
@@ -1949,7 +1965,17 @@ export class OpikOpenClawRuntime {
     return null;
   }
 
-  onBeforeTool(sk: string, ev: { toolName?: string; toolCallId?: string; params?: unknown }): void {
+  onBeforeTool(
+    sk: string,
+    ev: {
+      toolName?: string;
+      toolCallId?: string;
+      params?: unknown;
+      tool_execution_mode?: unknown;
+      toolExecutionMode?: unknown;
+      toolExecution?: unknown;
+    },
+  ): void {
     const cur = this.active.get(sk);
     if (!cur) {
       this.debugTrace?.("before_tool_no_active_turn", {
@@ -1959,6 +1985,15 @@ export class OpikOpenClawRuntime {
         note: "无 ActiveTurn，工具 span 未写入",
       });
       return;
+    }
+    const mode = normalizeToolExecutionModeFromHookPayload(ev as Record<string, unknown>);
+    if (mode && !cur.toolExecutionModeWritten) {
+      cur.toolExecutionModeWritten = true;
+      const prevMeta =
+        typeof cur.traceRow.metadata === "object" && cur.traceRow.metadata !== null
+          ? (cur.traceRow.metadata as Record<string, unknown>)
+          : {};
+      cur.traceRow.metadata = { ...prevMeta, tool_execution_mode: mode };
     }
     const id = ev.toolCallId?.trim() || randomUUID();
     const t = nowMs();

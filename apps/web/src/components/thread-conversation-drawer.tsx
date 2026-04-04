@@ -20,9 +20,10 @@ import {
   resolveLinkedRunIdForTurn,
   type TurnListStatus,
 } from "@/lib/user-turn-list";
+import { ConversationTraceFlow } from "@/components/conversation-trace-flow";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import { IconCode, IconDashboard, IconMessage, IconClose, IconCommon,IconClockCircle } from "@arco-design/web-react/icon";
+import { IconCode, IconMessage, IconClose, IconCommon, IconClockCircle } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import { cn, formatShortId } from "@/lib/utils";
 
@@ -101,13 +102,17 @@ function syntheticDrillThreadRow(childThreadId: string, parent: ThreadRecordRow)
   };
 }
 
+type DrawerViewMode = "messages" | "call_graph";
+
 export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, apiKey, onOpenTrace }: Props) {
   const t = useTranslations("Traces");
   const [drillRow, setDrillRow] = useState<ThreadRecordRow | null>(null);
+  const [viewMode, setViewMode] = useState<DrawerViewMode>("messages");
 
   useEffect(() => {
     if (!open) {
       setDrillRow(null);
+      setViewMode("messages");
     }
   }, [open]);
 
@@ -440,7 +445,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {drillRow ? (
               <button
@@ -458,6 +463,32 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
               {t("threadDrawerTitle")}
             </h2>
           </div>
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode("messages")}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                viewMode === "messages"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("threadDrawerViewMessages")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("call_graph")}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                viewMode === "call_graph"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t("threadDrawerViewCallGraph")}
+            </button>
+          </div>
           <DrawerClose
             className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("threadDrawerCloseAria")}
@@ -467,7 +498,16 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
         </div>
 
         <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
-          {eventsQuery.isFetching ? (
+          {viewMode === "call_graph" ? (
+            <ConversationTraceFlow
+              className="min-h-0 flex-1 bg-background"
+              baseUrl={baseUrl}
+              apiKey={apiKey}
+              threadId={threadKey}
+              maxNodes={500}
+              onOpenTrace={onOpenTrace}
+            />
+          ) : eventsQuery.isFetching ? (
             <div className="flex flex-1 items-center gap-2 p-6 text-sm text-muted-foreground">
               <span className="inline-block size-4 animate-spin rounded-full border-2 border-border border-t-primary" />
               {t("loading")}

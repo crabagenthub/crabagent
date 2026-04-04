@@ -162,6 +162,29 @@ describe("OpikOpenClawRuntime — 无 LLM 回合上报", () => {
     assert.equal(sr?.thinking, "inherit");
   });
 
+  it("首次 before_tool 将 tool_execution_mode 写入 trace.metadata（后续不覆盖）", () => {
+    const rt = new OpikOpenClawRuntime("default", "openclaw");
+    const sk = "sess-tool-exec-mode";
+    const ctx = { agentId: "main", sessionKey: sk };
+    rt.onLlmInput(sk, { provider: "p", model: "m", prompt: "x" }, ctx, 10_000, [sk]);
+    rt.onBeforeTool(sk, {
+      toolName: "read",
+      toolCallId: "c1",
+      params: {},
+      tool_execution_mode: "sequential",
+    });
+    rt.onBeforeTool(sk, {
+      toolName: "read",
+      toolCallId: "c2",
+      params: {},
+      tool_execution_mode: "parallel",
+    });
+    const batch = rt.onAgentEnd(sk, { success: true, messages: [] }, ctx, [sk]);
+    assert.ok(batch?.traces?.length);
+    const meta = batch?.traces?.[0]?.metadata as Record<string, unknown> | undefined;
+    assert.equal(meta?.tool_execution_mode, "sequential");
+  });
+
   it("llm_input 带 run_id 时在 trace 顶层写入 subagent_thread_id（供 Collector 落库）", () => {
     const rt = new OpikOpenClawRuntime("default", "openclaw");
     rt.mergePendingContext("feishu/oc_sub_tid", {

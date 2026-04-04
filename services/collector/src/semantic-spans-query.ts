@@ -15,7 +15,7 @@ function parseJsonObject(raw: string | null | undefined): Record<string, unknown
   return {};
 }
 
-function parseUsageExtended(usageJson: string | null | undefined): {
+export function parseUsageExtended(usageJson: string | null | undefined): {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   total_tokens: number | null;
@@ -193,19 +193,86 @@ function parseUsageExtended(usageJson: string | null | undefined): {
   };
 }
 
-function mapSpanTypeToApi(spanType: string, name: string, metadata: Record<string, unknown>): string {
-  const sk = metadata.semantic_kind;
+/** Align with openclaw-trace-plugin `resource-audit` + common agent tool names. */
+function normalizeSemanticKind(metadata: Record<string, unknown>): string {
+  const sk = metadata.semantic_kind ?? metadata.semanticKind;
+  if (typeof sk !== "string") {
+    return "";
+  }
+  return sk.trim().toLowerCase();
+}
+
+function metadataResourceUri(metadata: Record<string, unknown>): string | undefined {
+  const r = metadata.resource;
+  if (r == null || typeof r !== "object" || Array.isArray(r)) {
+    return undefined;
+  }
+  const u = (r as { uri?: unknown }).uri;
+  return typeof u === "string" && u.trim() ? u.trim() : undefined;
+}
+
+/** `skills.run` / `skill.x` — check before memory heuristics. */
+function inferSkillFromToolName(toolName: string): boolean {
+  const n = toolName.toLowerCase().replace(/-/g, "_").trim();
+  if (!n) {
+    return false;
+  }
+  if (n === "skill" || n === "skills") {
+    return true;
+  }
+  return n.startsWith("skills.") || n.startsWith("skill.");
+}
+
+/** When `semantic_kind` was not persisted, still surface memory in call graph / span list. */
+function inferMemoryFromToolName(toolName: string): boolean {
+  const n = toolName.toLowerCase();
+  if (!n.trim()) {
+    return false;
+  }
+  if (inferSkillFromToolName(toolName)) {
+    return false;
+  }
+  if (n.includes("memory") || n.includes("recall") || n.includes("rag")) {
+    return true;
+  }
+  return (
+    n.includes("search") &&
+    (n.includes("kb") || n.includes("knowledge") || n.includes("vector"))
+  );
+}
+
+function toolSpanSemanticFromMetadata(
+  name: string,
+  metadata: Record<string, unknown>,
+): "MEMORY" | "SKILL" | "TOOL" {
+  const sk = normalizeSemanticKind(metadata);
+  if (sk === "memory") {
+    return "MEMORY";
+  }
+  if (sk === "skill") {
+    return "SKILL";
+  }
+  const uri = metadataResourceUri(metadata);
+  if (uri != null && uri.toLowerCase().startsWith("memory://")) {
+    return "MEMORY";
+  }
+  if (inferSkillFromToolName(name)) {
+    return "SKILL";
+  }
+  if (inferMemoryFromToolName(name)) {
+    return "MEMORY";
+  }
+  return "TOOL";
+}
+
+/** Exported for execution-graph batch builder (same semantics as list API `type`). */
+export function mapSpanTypeToApi(spanType: string, name: string, metadata: Record<string, unknown>): string {
+  const sk = normalizeSemanticKind(metadata);
   if (spanType === "llm") {
     return "LLM";
   }
   if (spanType === "tool") {
-    if (sk === "memory") {
-      return "MEMORY";
-    }
-    if (sk === "skill") {
-      return "SKILL";
-    }
-    return "TOOL";
+    return toolSpanSemanticFromMetadata(name, metadata);
   }
   if (spanType === "guardrail") {
     return "GUARDRAIL";

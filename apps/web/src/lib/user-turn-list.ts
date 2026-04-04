@@ -733,9 +733,8 @@ export function resolveSubagentSessionThreadKey(
         : {};
     const oc = payload.openclaw;
     if (oc && typeof oc === "object" && !Array.isArray(oc)) {
-      const sk = typeof (oc as Record<string, unknown>).sessionKey === "string"
-        ? (oc as Record<string, unknown>).sessionKey!.trim()
-        : "";
+      const rawSk = (oc as Record<string, unknown>).sessionKey;
+      const sk = typeof rawSk === "string" ? rawSk.trim() : "";
       if (sk && sk !== parent) {
         return sk;
       }

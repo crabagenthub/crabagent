@@ -578,6 +578,8 @@ export default {
         toolName: event.toolName,
         toolCallId: event.toolCallId,
         params: event.params,
+        tool_execution_mode: event.tool_execution_mode,
+        toolExecution: event.toolExecution,
       });
     });
 

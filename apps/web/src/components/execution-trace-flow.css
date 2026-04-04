@@ -1,0 +1,10 @@
+/* React Flow animated edges: stroke-dash flows along the path (data direction). */
+.exec-flow-graph .react-flow__edge.animated path {
+  animation-duration: 0.9s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exec-flow-graph .react-flow__edge.animated path {
+    animation: none;
+  }
+}

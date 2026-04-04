@@ -22,6 +22,9 @@ export type SpanRecordRow = {
   agent_name: string | null;
   channel_name: string | null;
   total_tokens: number;
+  /** When collector returns token split (optional). */
+  prompt_tokens: number;
+  completion_tokens: number;
   list_status: ObserveListStatusParam;
 };
 
@@ -74,6 +77,14 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
     agent_name: ag != null && String(ag).trim() !== "" ? String(ag) : null,
     channel_name: ch != null && String(ch).trim() !== "" ? String(ch) : null,
     total_tokens: totalTokens,
+    prompt_tokens:
+      r.prompt_tokens != null && r.prompt_tokens !== "" && Number.isFinite(Number(r.prompt_tokens))
+        ? Math.max(0, Math.floor(Number(r.prompt_tokens)))
+        : 0,
+    completion_tokens:
+      r.completion_tokens != null && r.completion_tokens !== "" && Number.isFinite(Number(r.completion_tokens))
+        ? Math.max(0, Math.floor(Number(r.completion_tokens)))
+        : 0,
     list_status: parseRowStatus(r.list_status),
   };
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AppPageShell } from "@/components/app-page-shell";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { LocalizedLink } from "@/components/localized-link";
@@ -11,20 +12,19 @@ import { MessageHint } from "@/components/message-hint";
 import { Button } from "@/components/ui/button";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
+import { ExecutionTraceFlow } from "@/components/execution-trace-flow";
+import { SpanTraceFlow } from "@/components/span-trace-flow";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
-import {
-  collectorAuthHeaders,
-  loadApiKey,
-  loadCollectorUrl,
-} from "@/lib/collector";
+import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
-import { formatShortId } from "@/lib/utils";
+import { cn, formatShortId } from "@/lib/utils";
 
 function MessageDetailContent() {
   const t = useTranslations("Messages");
+  const tTr = useTranslations("Traces");
   const router = useRouter();
   const params = useParams<{ messageId: string }>();
   const messageId = decodeURIComponent(params.messageId ?? "");
@@ -33,7 +33,9 @@ function MessageDetailContent() {
   const [apiKey, setApiKey] = useState("");
   const [mounted, setMounted] = useState(false);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
-  const [treeFilter, setTreeFilter] = useState("");
+  const [spanView, setSpanView] = useState<"tree" | "graph" | "execution">("tree");
+
+  const traceId = messageId.trim();
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -41,45 +43,45 @@ function MessageDetailContent() {
     setMounted(true);
   }, []);
 
-  // Mock message data - replace with actual API call
-  const messageQuery = useQuery({
-    queryKey: ["message", messageId],
-    queryFn: async () => {
-      // This should be replaced with actual message API call
-      const start = new Date();
-      const totalDuration = 5900;
-      const end = new Date(start.getTime() + totalDuration);
-      return {
-        id: messageId,
-        content: "Sample message content",
-        traceId: "trace_" + messageId,
-        agentId: "agent_001",
-        agentName: "Assistant",
-        channelId: "channel_001",
-        channelName: "Default",
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        stepCount: 1,
-        totalDuration,
-        totalTokens: 14081,
-        status: "success",
-      };
-    },
-    enabled: mounted && messageId.length > 0,
+  const spansQuery = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, traceId],
+    queryFn: () => loadSemanticSpans(baseUrl, apiKey, traceId),
+    enabled: mounted && baseUrl.trim().length > 0 && traceId.length > 0,
   });
 
-  const spansQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, messageQuery.data?.traceId ?? ""],
-    queryFn: () => loadSemanticSpans(baseUrl, apiKey, messageQuery.data?.traceId!),
-    enabled: mounted && baseUrl.trim().length > 0 && Boolean(messageQuery.data?.traceId),
-  });
+  const spanDerived = useMemo(() => {
+    const items = spansQuery.data?.items ?? [];
+    if (items.length === 0) {
+      return null;
+    }
+    const starts = items.map((i) => i.start_time).filter((x) => Number.isFinite(x));
+    const ends = items.map((i) => i.end_time).filter((x): x is number => x != null && Number.isFinite(x));
+    const minStart = starts.length > 0 ? Math.min(...starts) : 0;
+    const maxEnd = ends.length > 0 ? Math.max(...ends) : null;
+    let totalTok = 0;
+    for (const s of items) {
+      if (s.total_tokens != null && Number.isFinite(s.total_tokens)) {
+        totalTok += s.total_tokens;
+      }
+    }
+    const hasErr = items.some((s) => s.error != null && String(s.error).trim().length > 0);
+    return {
+      startTime: minStart > 0 ? new Date(minStart).toISOString() : null,
+      endTime: maxEnd != null ? new Date(maxEnd).toISOString() : null,
+      totalTokens: totalTok,
+      stepCount: items.length,
+      totalDuration:
+        maxEnd != null && minStart > 0 && maxEnd >= minStart ? Math.max(0, maxEnd - minStart) : null,
+      status: hasErr ? ("error" as const) : ("success" as const),
+    };
+  }, [spansQuery.data?.items]);
 
   const spanForest = useMemo(
     () => buildSpanForest(spansQuery.data?.items ?? []),
     [spansQuery.data?.items],
   );
 
-  const filteredSpanForest = useMemo(() => filterSpanForest(spanForest, treeFilter), [spanForest, treeFilter]);
+  const filteredSpanForest = useMemo(() => filterSpanForest(spanForest, ""), [spanForest]);
 
   const selectedSpan = useMemo(() => {
     const items = spansQuery.data?.items ?? [];
@@ -104,6 +106,23 @@ function MessageDetailContent() {
   }, [selectedSpan?.module]);
 
   const messageShort = formatShortId(messageId);
+
+  const openTraceFromGraph = useCallback(
+    (tid: string) => {
+      const id = tid.trim();
+      if (!id || id === traceId) {
+        return;
+      }
+      router.push(`/messages/${encodeURIComponent(id)}`);
+    },
+    [router, traceId],
+  );
+
+  const viewToggleBtn = (active: boolean) =>
+    cn(
+      "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+      active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+    );
 
   if (!mounted) {
     return (
@@ -151,6 +170,45 @@ function MessageDetailContent() {
           </Button>
         </header>
 
+        {spanView === "execution" ? (
+          <section
+            aria-label={t("messageDetails")}
+            className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-neutral-50/60"
+          >
+            <div className="shrink-0 border-b border-border px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-neutral-900">{t("executionSteps")}</h2>
+                <div className="flex shrink-0 flex-wrap items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
+                  <button type="button" onClick={() => setSpanView("tree")} className={viewToggleBtn(false)}>
+                    {tTr("messageViewTree")}
+                  </button>
+                  <button type="button" onClick={() => setSpanView("graph")} className={viewToggleBtn(false)}>
+                    {tTr("messageViewGraph")}
+                  </button>
+                  <button type="button" onClick={() => setSpanView("execution")} className={viewToggleBtn(true)}>
+                    {tTr("threadDrawerViewCallGraph")}
+                  </button>
+                </div>
+              </div>
+              <MessageHint
+                text={t("executionStepsHint")}
+                className="mt-0.5"
+                textClassName="text-xs text-ca-muted"
+                clampClass="line-clamp-2"
+              />
+            </div>
+            <ExecutionTraceFlow
+              variant="trace"
+              baseUrl={baseUrl}
+              apiKey={apiKey}
+              traceId={traceId}
+              maxNodes={500}
+              className="min-h-0 flex-1 bg-background"
+              onOpenTrace={openTraceFromGraph}
+              onSelectSpan={(id) => setSelectedSpanId(id)}
+            />
+          </section>
+        ) : (
         <section aria-label={t("messageDetails")} className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-col gap-4 lg:flex-row lg:items-stretch">
           {/* Left — execution steps */}
           <aside
@@ -158,7 +216,20 @@ function MessageDetailContent() {
             aria-label={t("executionSteps")}
           >
             <div className="border-b border-border px-3 py-2.5">
-              <h2 className="text-sm font-semibold text-neutral-900">{t("executionSteps")}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-neutral-900">{t("executionSteps")}</h2>
+                <div className="flex shrink-0 flex-wrap items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
+                  <button type="button" onClick={() => setSpanView("tree")} className={viewToggleBtn(spanView === "tree")}>
+                    {tTr("messageViewTree")}
+                  </button>
+                  <button type="button" onClick={() => setSpanView("graph")} className={viewToggleBtn(spanView === "graph")}>
+                    {tTr("messageViewGraph")}
+                  </button>
+                  <button type="button" onClick={() => setSpanView("execution")} className={viewToggleBtn(false)}>
+                    {tTr("threadDrawerViewCallGraph")}
+                  </button>
+                </div>
+              </div>
               <MessageHint
                 text={t("executionStepsHint")}
                 className="mt-0.5"
@@ -174,6 +245,10 @@ function MessageDetailContent() {
                 </div>
               ) : spansQuery.isError ? (
                 <div className="p-4 text-sm text-red-700">{String(spansQuery.error)}</div>
+              ) : spanView === "graph" ? (
+                <div className="min-h-[min(52vh,420px)] w-full">
+                  <SpanTraceFlow items={spansQuery.data?.items ?? []} semanticOnly />
+                </div>
               ) : spanForest.length > 0 ? (
                 filteredSpanForest.length > 0 ? (
                   <TraceSemanticTree
@@ -213,67 +288,74 @@ function MessageDetailContent() {
                 <TraceInspectBasicHeader
                   layout="sidebar"
                   selectedSpan={selectedSpan}
-                  traceId={messageQuery.data?.traceId ?? ""}
+                  traceId={traceId}
                   chipTags={messageInspectChipTags}
-                  rowTokens={messageQuery.data?.totalTokens ?? null}
-                  rowDurationMs={selectedSpanDurMs ?? messageQuery.data?.totalDuration ?? null}
+                  rowTokens={spanDerived?.totalTokens ?? null}
+                  rowDurationMs={selectedSpanDurMs ?? spanDerived?.totalDuration ?? null}
                 />
                 <p className="mb-2 mt-3 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">{t("messageSummarySection")}</p>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("startTime")}</span>
                   <span className="text-xs text-neutral-900">
-                    {formatTraceDateTimeLocal(messageQuery.data?.startTime ?? null)}
+                    {formatTraceDateTimeLocal(spanDerived?.startTime ?? null)}
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("endTime")}</span>
                   <span className="text-xs text-neutral-900">
-                    {formatTraceDateTimeLocal(messageQuery.data?.endTime ?? null)}
+                    {formatTraceDateTimeLocal(spanDerived?.endTime ?? null)}
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("messageTotalDurationLabel")}</span>
                   <span className="text-xs tabular-nums text-neutral-900">
-                    {messageQuery.data?.totalDuration != null
-                      ? t("duration", { ms: messageQuery.data.totalDuration })
+                    {spanDerived?.totalDuration != null
+                      ? t("duration", { ms: spanDerived.totalDuration })
                       : "—"}
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("agent")}</span>
                   <span className="text-xs text-neutral-900">
-                    {messageQuery.data?.agentName || messageQuery.data?.agentId || "—"}
+                    —
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("channel")}</span>
                   <span className="text-xs text-neutral-900">
-                    {messageQuery.data?.channelName || messageQuery.data?.channelId || "—"}
+                    —
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 border-b border-neutral-200/80 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("stepCountLabel")}</span>
                   <span className="text-xs tabular-nums text-neutral-900">
-                    {messageQuery.data?.stepCount != null ? messageQuery.data.stepCount.toLocaleString() : "—"}
+                    {spanDerived?.stepCount != null ? spanDerived.stepCount.toLocaleString() : "—"}
                   </span>
                 </div>
                 <div className="flex flex-col gap-0.5 py-2.5">
                   <span className="text-[11px] font-medium text-neutral-500">{t("status")}</span>
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium">
-                    <span
-                      className={[
-                        "h-2 w-2 rounded-full",
-                        messageQuery.data?.status === "success" ? "bg-emerald-500" : "bg-red-500",
-                      ].join(" ")}
-                      aria-hidden
-                    />
-                    {messageQuery.data?.status === "success" ? t("success") : t("error")}
+                    {spanDerived == null ? (
+                      "—"
+                    ) : (
+                      <>
+                        <span
+                          className={[
+                            "h-2 w-2 rounded-full",
+                            spanDerived.status === "success" ? "bg-emerald-500" : "bg-red-500",
+                          ].join(" ")}
+                          aria-hidden
+                        />
+                        {spanDerived.status === "success" ? t("success") : t("error")}
+                      </>
+                    )}
                   </span>
                 </div>
               </div>
             </div>
           </aside>
         </section>
+        )}
       </main>
     </AppPageShell>
   );

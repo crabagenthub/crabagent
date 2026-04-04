@@ -14,6 +14,7 @@ import {
   spanToolOversizedResult,
 } from "@/lib/span-insights";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
+import { MemoryBranchesIcon } from "@/icons";
 import { cn } from "@/lib/utils";
 
 function typeBadgeClass(spanType: string): string {
@@ -275,10 +276,19 @@ function TreeNodeRow({
           ) : null}
           <div className="flex items-start gap-2">
             <span
-              className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-pink-100 text-[10px] font-bold text-pink-700"
+              className={cn(
+                "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold",
+                node.type === "MEMORY"
+                  ? "bg-fuchsia-100 text-fuchsia-800"
+                  : "bg-pink-100 text-pink-700",
+              )}
               aria-hidden
             >
-              {node.type.slice(0, 1)}
+              {node.type === "MEMORY" ? (
+                <MemoryBranchesIcon className="size-4" />
+              ) : (
+                node.type.slice(0, 1)
+              )}
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
@@ -387,7 +397,12 @@ function TreeNodeRow({
         ].join(" ")}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${typeBadgeClass(node.type)}`}>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ring-1 ${typeBadgeClass(node.type)}`}
+          >
+            {node.type === "MEMORY" ? (
+              <MemoryBranchesIcon className="size-3.5 shrink-0 opacity-90" aria-hidden />
+            ) : null}
             {node.type}
           </span>
           <span className="text-[10px] text-ca-muted">{when}</span>

@@ -145,6 +145,13 @@ export type BeforeToolEvent = {
   toolCallId?: string;
   params: Record<string, unknown>;
   runId?: string;
+  /**
+   * pi-agent-core `Agent.toolExecution`（`parallel` | `sequential`）。
+   * OpenClaw 在首次 `before_tool_call` 注入；trace 仅在每回合第一次工具调用时写入 `trace.metadata.tool_execution_mode`。
+   */
+  tool_execution_mode?: "parallel" | "sequential";
+  /** 别名，与部分 payload 对齐 */
+  toolExecution?: "parallel" | "sequential";
 };
 
 export type AfterToolEvent = {
