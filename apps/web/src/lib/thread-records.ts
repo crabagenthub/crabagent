@@ -19,7 +19,10 @@ export type ThreadRecordRow = {
   trace_count: number;
   first_message_preview?: string | null;
   last_message_preview?: string | null;
-  /** 与 `last_message_preview` 对应的最新一条 trace 的 `created_at_ms`（毫秒） */
+  /**
+   * 列表「最新消息」第二行时间（毫秒）。
+   * API 初值为最新 trace 的 `created_at_ms`；拉取事件后会覆盖为**最后一轮用户回合**的 `whenMs`（与抽屉时间轴 `whenLabel` 同源）。
+   */
   last_message_created_at_ms?: number | null;
   latest_input_preview?: string | null;
   total_tokens: number;
@@ -157,31 +160,51 @@ export async function loadThreadRecords(
   }
   const j = (await res.json()) as { items?: Record<string, unknown>[]; total?: number };
   const items = (j.items ?? []).map(normalizeThreadRecord);
-  const needLatestInput = items.filter((item) => item.trace_count > 1 && item.thread_id.trim().length > 0);
-  if (needLatestInput.length > 0) {
+  /**
+   * 与会话抽屉时间轴同源：用最后一轮用户回合的 `whenMs`（`message_received` / `llm_input` 的 client_ts），
+   * 覆盖 API 里「最新一条 trace 的 created_at_ms」（后者常为跟进 trace 入库时间，会与抽屉不一致）。
+   */
+  const needThreadEvents = items.filter((item) => item.trace_count >= 1 && item.thread_id.trim().length > 0);
+  if (needThreadEvents.length > 0) {
     const enriched = await Promise.allSettled(
-      needLatestInput.map(async (item) => {
+      needThreadEvents.map(async (item) => {
         const ev = await loadTraceEvents(baseUrl, apiKey, item.thread_id);
         const turns = buildUserTurnList(ev.items ?? []);
         const latest = turns[turns.length - 1];
+        const whenMs = latest?.whenMs != null && latest.whenMs > 0 ? latest.whenMs : null;
+        const multi = item.trace_count > 1;
         return {
           threadId: item.thread_id,
-          latestInputPreview: latest?.fullText?.trim() || latest?.preview?.trim() || item.latest_input_preview || "",
+          latestInputPreview: multi
+            ? latest?.fullText?.trim() || latest?.preview?.trim() || item.latest_input_preview || ""
+            : "",
+          lastMessageWhenMs: whenMs,
         };
       }),
     );
-    const latestByThread = new Map<string, string>();
+    const previewByThread = new Map<string, string>();
+    const whenMsByThread = new Map<string, number>();
     for (const entry of enriched) {
       if (entry.status !== "fulfilled") {
         continue;
       }
-      const text = entry.value.latestInputPreview.trim();
+      const v = entry.value;
+      const text = v.latestInputPreview.trim();
       if (text) {
-        latestByThread.set(entry.value.threadId, text);
+        previewByThread.set(v.threadId, text);
+      }
+      if (v.lastMessageWhenMs != null) {
+        whenMsByThread.set(v.threadId, v.lastMessageWhenMs);
       }
     }
     for (const item of items) {
-      item.latest_input_preview = latestByThread.get(item.thread_id) ?? item.latest_input_preview ?? null;
+      if (item.trace_count > 1) {
+        item.latest_input_preview = previewByThread.get(item.thread_id) ?? item.latest_input_preview ?? null;
+      }
+      const w = whenMsByThread.get(item.thread_id);
+      if (w != null) {
+        item.last_message_created_at_ms = w;
+      }
     }
   }
   const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;

@@ -19,6 +19,7 @@ import {
   useObserveTableColumnVisibility,
 } from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
+import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
@@ -142,10 +143,6 @@ function TraceIdCell({ traceId, traceTypeLabel }: { traceId: string; traceTypeLa
   );
 }
 
-/** 与 `threads-opik-table` 表头一致 */
-const headerCellClass =
-  "inline-flex items-center whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600";
-
 /** OpenClaw 路由列：中文下不用全大写，列头用 title 展示说明 */
 const openclawRoutingHeaderClass =
   "inline-flex items-center whitespace-nowrap text-xs font-semibold text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
@@ -255,9 +252,9 @@ export function TracesOpikTable({
   const columnManagerItems = useMemo(
     () => [
       { key: "trace_id", mandatory: true as const, label: t("colTableMessageId") },
-      { key: "channel", mandatory: true as const, label: t("filterChannelLabel") },
-      { key: "agent", mandatory: true as const, label: t("filterAgentLabel") },
       { key: "status", mandatory: true as const, label: t("colStatus") },
+      { key: "agent", mandatory: true as const, label: t("filterAgentLabel") },
+      { key: "channel", mandatory: true as const, label: t("filterChannelLabel") },
       { key: "duration", mandatory: true as const, label: t("colDuration") },
       { key: "openclaw_routing_kind", label: t("openclawRoutingFieldKind") },
       { key: "openclaw_routing_thinking", label: t("openclawRoutingFieldThinking") },
@@ -295,7 +292,7 @@ export function TracesOpikTable({
   const allColumns: TableColumnProps<TraceRecordRow>[] = useMemo(
     () => [
       {
-        title: <span className={headerCellClass}>{t("colTableMessageId")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colTableMessageId")}</ObserveTableHeaderLabel>,
         dataIndex: "trace_id",
         key: "trace_id",
         fixed: "left",
@@ -305,76 +302,14 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {onChannelFilterChange ? (
-              <ObserveFacetColumnFilter
-                label={t("filterChannelLabel")}
-                value={channelFilter}
-                options={channelOptions}
-                onChange={onChannelFilterChange}
-                ariaLabelKey="channelColumnFilterAria"
-              />
-            ) : (
-              t("filterChannelLabel")
-            )}
-          </span>
-        ),
-        dataIndex: "channel",
-        key: "channel",
-        render: (_, row) => {
-          const channelDisp = traceRecordChannel(row);
-          return channelDisp ? (
-            <span className="line-clamp-2 break-words text-xs text-neutral-800" title={channelDisp}>
-              {channelDisp}
-            </span>
-          ) : (
-            <span className="text-xs text-neutral-400">—</span>
-          );
-        },
-      },
-      {
-        title: (
-          <span className={headerCellClass}>
-            {onAgentFilterChange ? (
-              <ObserveFacetColumnFilter
-                label={t("filterAgentLabel")}
-                value={agentFilter}
-                options={agentOptions}
-                onChange={onAgentFilterChange}
-                ariaLabelKey="agentColumnFilterAria"
-              />
-            ) : (
-              t("filterAgentLabel")
-            )}
-          </span>
-        ),
-        dataIndex: "agent",
-        key: "agent",
-        render: (_, row) => {
-          const agentDisp = traceRecordAgentName(row);
-          return agentDisp ? (
-            <span className="line-clamp-2 break-words text-xs text-neutral-800" title={agentDisp}>
-              {agentDisp}
-            </span>
-          ) : (
-            <span className="text-xs text-neutral-400">—</span>
-          );
-        },
-      },
-      {
-        title: (
-          <span className={headerCellClass}>
-            {onStatusFilterChange ? (
-              <ObserveStatusColumnFilter
-                label={t("colStatus")}
-                value={statusFilter}
-                onChange={onStatusFilterChange}
-              />
-            ) : (
-              t("colStatus")
-            )}
-          </span>
+        title: onStatusFilterChange ? (
+          <ObserveStatusColumnFilter
+            label={t("colStatus")}
+            value={statusFilter}
+            onChange={onStatusFilterChange}
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("colStatus")}</ObserveTableHeaderLabel>
         ),
         dataIndex: "status",
         key: "status",
@@ -392,7 +327,57 @@ export function TracesOpikTable({
           ),
       },
       {
-        title: <span className={headerCellClass}>{t("colDuration")}</span>,
+        title: onAgentFilterChange ? (
+          <ObserveFacetColumnFilter
+            label={t("filterAgentLabel")}
+            value={agentFilter}
+            options={agentOptions}
+            onChange={onAgentFilterChange}
+            ariaLabelKey="agentColumnFilterAria"
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("filterAgentLabel")}</ObserveTableHeaderLabel>
+        ),
+        dataIndex: "agent",
+        key: "agent",
+        render: (_, row) => {
+          const agentDisp = traceRecordAgentName(row);
+          return agentDisp ? (
+            <span className="line-clamp-2 break-words text-xs text-neutral-800" title={agentDisp}>
+              {agentDisp}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          );
+        },
+      },
+      {
+        title: onChannelFilterChange ? (
+          <ObserveFacetColumnFilter
+            label={t("filterChannelLabel")}
+            value={channelFilter}
+            options={channelOptions}
+            onChange={onChannelFilterChange}
+            ariaLabelKey="channelColumnFilterAria"
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("filterChannelLabel")}</ObserveTableHeaderLabel>
+        ),
+        dataIndex: "channel",
+        key: "channel",
+        render: (_, row) => {
+          const channelDisp = traceRecordChannel(row);
+          return channelDisp ? (
+            <span className="line-clamp-2 break-words text-xs text-neutral-800" title={channelDisp}>
+              {channelDisp}
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">—</span>
+          );
+        },
+      },
+      {
+        title: <ObserveTableHeaderLabel>{t("colDuration")}</ObserveTableHeaderLabel>,
         dataIndex: "duration",
         key: "duration",
         width: 200,
@@ -480,7 +465,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("colStartTime")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colStartTime")}</ObserveTableHeaderLabel>,
         dataIndex: "start_time",
         key: "start_time",
         sorter: (a, b) => (a.start_time ?? 0) - (b.start_time ?? 0),
@@ -493,7 +478,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("colInput")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colInput")}</ObserveTableHeaderLabel>,
         dataIndex: "input",
         key: "input",
         width: 320,
@@ -508,7 +493,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("colOutput")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colOutput")}</ObserveTableHeaderLabel>,
         dataIndex: "output",
         key: "output",
         width: 320,
@@ -523,7 +508,7 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("colErrors")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colErrors")}</ObserveTableHeaderLabel>,
         dataIndex: "errors",
         key: "errors",
         align: "left",
@@ -533,7 +518,7 @@ export function TracesOpikTable({
         },
       },
       {
-        title: <span className={headerCellClass}>{t("colTotalTokens")}</span>,
+        title: <ObserveTableHeaderLabel>{t("colTotalTokens")}</ObserveTableHeaderLabel>,
         dataIndex: "total_tokens",
         key: "total_tokens",
         sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
@@ -593,6 +578,7 @@ export function TracesOpikTable({
       >
         <div className="min-w-0 w-full">
           <Table<TraceRecordRow>
+            tableLayoutFixed
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}

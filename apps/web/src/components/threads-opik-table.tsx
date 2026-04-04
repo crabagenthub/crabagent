@@ -21,6 +21,7 @@ import { Markdown } from "@/components/prompt-kit/markdown";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
+import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover } from "@arco-design/web-react";
@@ -52,9 +53,6 @@ export const THREADS_OPTIONAL_KEYS: readonly string[] = [
   "total_tokens",
 ];
 
-const headerCellClass =
-  "inline-flex items-center whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600";
-
 const threadMessagePopoverMarkdownComponents: Partial<Components> = {
   pre: ({ children }) => (
     <pre className="my-2 box-border w-max min-w-0 max-w-none rounded-lg bg-neutral-50 px-3 py-2 text-[12px] leading-5 text-neutral-800 whitespace-pre">
@@ -84,14 +82,6 @@ const threadMessagePopoverMarkdownComponents: Partial<Components> = {
 
 function EmptyDash() {
   return <span className="text-xs text-neutral-400">—</span>;
-}
-
-function HeaderLabel({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <span className={headerCellClass} title={title}>
-      {children}
-    </span>
-  );
 }
 
 function TruncatedTextCell({
@@ -329,7 +319,7 @@ export function ThreadsOpikTable({
   const allColumns: TableColumnProps<ThreadRecordRow>[] = useMemo(
     () => [
       {
-        title: <HeaderLabel>{t("colTableSessionId")}</HeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("colTableSessionId")}</ObserveTableHeaderLabel>,
         dataIndex: "thread_id",
         key: "thread_id",
         fixed: "left",
@@ -337,7 +327,7 @@ export function ThreadsOpikTable({
         render: (_, row) => <ThreadIdCell row={row} />,
       },
       {
-        title: <HeaderLabel>{t("colStatus")}</HeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("colStatus")}</ObserveTableHeaderLabel>,
         dataIndex: "status",
         key: "status",
         render: (_, row) => {
@@ -366,7 +356,7 @@ export function ThreadsOpikTable({
             ariaLabelKey="agentColumnFilterAria"
           />
         ) : (
-          <HeaderLabel>{t("threadsColAgent")}</HeaderLabel>
+          <ObserveTableHeaderLabel>{t("threadsColAgent")}</ObserveTableHeaderLabel>
         ),
         dataIndex: "agent_name",
         key: "agent_name",
@@ -382,14 +372,14 @@ export function ThreadsOpikTable({
             ariaLabelKey="channelColumnFilterAria"
           />
         ) : (
-          <HeaderLabel>{t("threadsColChannel")}</HeaderLabel>
+          <ObserveTableHeaderLabel>{t("threadsColChannel")}</ObserveTableHeaderLabel>
         ),
         dataIndex: "channel_name",
         key: "channel_name",
         render: (_, row) => <TruncatedTextCell text={row.channel_name} />,
       },
       {
-        title: <HeaderLabel>{t("threadsColLatestMessage")}</HeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("threadsColLatestMessage")}</ObserveTableHeaderLabel>,
         dataIndex: "last_message_preview",
         key: "last_message_preview",
         width: 320,
@@ -408,7 +398,7 @@ export function ThreadsOpikTable({
         ),
       },
       {
-        title: <HeaderLabel>{t("threadsColMessageCount")}</HeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("threadsColMessageCount")}</ObserveTableHeaderLabel>,
         dataIndex: "trace_count",
         key: "trace_count",
         render: (_, row) => (
@@ -418,7 +408,7 @@ export function ThreadsOpikTable({
         ),
       },
       {
-        title: <HeaderLabel>{t("colTotalTokens")}</HeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("colTotalTokens")}</ObserveTableHeaderLabel>,
         dataIndex: "total_tokens",
         key: "total_tokens",
         sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
@@ -475,6 +465,7 @@ export function ThreadsOpikTable({
       >
         <div className="min-w-0 w-full">
           <Table<ThreadRecordRow>
+            tableLayoutFixed
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}

@@ -1,10 +1,3 @@
-export const OBSERVE_TABLE_CLASSNAME =
-  "observe-arco-table text-sm [&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] " +
-  "[&_.arco-table-header]:border-b [&_.arco-table-header]:border-neutral-200 dark:[&_.arco-table-header]:border-zinc-700 " +
-  "[&_.arco-table-th-item]:!py-1.5 [&_.arco-table-col-has-sorter_.arco-table-cell-with-sorter]:!py-1.5 " +
-  "[&_.arco-table-col-fixed-left-last::after]:shadow-none [&_.arco-table-col-fixed-left-last]:border-r-0 " +
-  "[&_.arco-table-border-header-cell_thead_.arco-table-th:first-child]:!border-l-0 " +
-  "[&_thead_.arco-table-tr:first-child_.arco-table-th.arco-table-col-fixed-left:first-child]:!border-l-0";
 
 export const OBSERVE_TABLE_FRAME_CLASSNAME = "min-w-0 overflow-hidden rounded-md border border-neutral-200/90 bg-white";
 

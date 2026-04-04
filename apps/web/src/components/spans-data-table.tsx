@@ -19,6 +19,7 @@ import {
   useObserveTableColumnVisibility,
 } from "@/components/observe-table-column-manager";
 import { ObserveStatusColumnFilter } from "@/components/observe-status-column-filter";
+import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { Button } from "@/components/ui/button";
@@ -54,10 +55,6 @@ export const SPANS_OPTIONAL_KEYS: readonly string[] = ["start_time_ms", "end_tim
 
 /** 默认仅隐藏：执行开始、执行结束、Token（其余为默认展示列）。 */
 export const SPANS_DEFAULT_HIDDEN_OPTIONAL: readonly string[] = [...SPANS_OPTIONAL_KEYS];
-
-/** 与 `threads-opik-table` 表头一致 */
-const headerCellClass =
-  "inline-flex items-center whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-600";
 
 function SpanStatusCell({ status }: { status: ObserveListStatusParam }) {
   const t = useTranslations("Traces");
@@ -170,10 +167,10 @@ export function SpansDataTable({
   const columnManagerItems = useMemo(
     () => [
       { key: "span_id", mandatory: true as const, label: t("spansColSpanId") },
-      { key: "channel_name", mandatory: true as const, label: t("spansColChannel") },
-      { key: "agent_name", mandatory: true as const, label: t("spansColAgent") },
-      { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
+      { key: "agent_name", mandatory: true as const, label: t("spansColAgent") },
+      { key: "channel_name", mandatory: true as const, label: t("spansColChannel") },
+      { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "duration_ms", mandatory: true as const, label: t("spansColDuration") },
       { key: "span_type", mandatory: true as const, label: t("spansColType") },
       { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
@@ -207,7 +204,7 @@ export function SpansDataTable({
   const allColumns: TableColumnProps<SpanRecordRow>[] = useMemo(
     () => [
       {
-        title: <span className={headerCellClass}>{t("spansColSpanId")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColSpanId")}</ObserveTableHeaderLabel>,
         dataIndex: "span_id",
         key: "span_id",
         fixed: "left",
@@ -215,47 +212,30 @@ export function SpansDataTable({
         render: (_, r) => <SpanIdCell spanId={r.span_id} spanType={r.span_type} />,
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {onChannelFilterChange ? (
-              <ObserveFacetColumnFilter
-                label={t("spansColChannel")}
-                value={channelFilter}
-                options={channelOptions}
-                onChange={onChannelFilterChange}
-                ariaLabelKey="channelColumnFilterAria"
-              />
-            ) : (
-              t("spansColChannel")
-            )}
-          </span>
+        title: onStatusFilterChange ? (
+          <ObserveStatusColumnFilter
+            label={t("spansColStatus")}
+            value={statusFilter}
+            onChange={onStatusFilterChange}
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("spansColStatus")}</ObserveTableHeaderLabel>
         ),
-        dataIndex: "channel_name",
-        key: "channel_name",
-        render: (_, r) => (
-          <span
-            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
-            title={r.channel_name ?? ""}
-          >
-            {r.channel_name ?? "—"}
-          </span>
-        ),
+        dataIndex: "list_status",
+        key: "list_status",
+        render: (_, r) => <SpanStatusCell status={r.list_status} />,
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {onAgentFilterChange ? (
-              <ObserveFacetColumnFilter
-                label={t("spansColAgent")}
-                value={agentFilter}
-                options={agentOptions}
-                onChange={onAgentFilterChange}
-                ariaLabelKey="agentColumnFilterAria"
-              />
-            ) : (
-              t("spansColAgent")
-            )}
-          </span>
+        title: onAgentFilterChange ? (
+          <ObserveFacetColumnFilter
+            label={t("spansColAgent")}
+            value={agentFilter}
+            options={agentOptions}
+            onChange={onAgentFilterChange}
+            ariaLabelKey="agentColumnFilterAria"
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("spansColAgent")}</ObserveTableHeaderLabel>
         ),
         dataIndex: "agent_name",
         key: "agent_name",
@@ -269,7 +249,30 @@ export function SpansDataTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("spansColName")}</span>,
+        title: onChannelFilterChange ? (
+          <ObserveFacetColumnFilter
+            label={t("spansColChannel")}
+            value={channelFilter}
+            options={channelOptions}
+            onChange={onChannelFilterChange}
+            ariaLabelKey="channelColumnFilterAria"
+          />
+        ) : (
+          <ObserveTableHeaderLabel>{t("spansColChannel")}</ObserveTableHeaderLabel>
+        ),
+        dataIndex: "channel_name",
+        key: "channel_name",
+        render: (_, r) => (
+          <span
+            className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 [overflow-wrap:anywhere]"
+            title={r.channel_name ?? ""}
+          >
+            {r.channel_name ?? "—"}
+          </span>
+        ),
+      },
+      {
+        title: <ObserveTableHeaderLabel>{t("spansColName")}</ObserveTableHeaderLabel>,
         dataIndex: "name",
         key: "name",
         render: (_, r) => (
@@ -282,25 +285,7 @@ export function SpansDataTable({
         ),
       },
       {
-        title: (
-          <span className={headerCellClass}>
-            {onStatusFilterChange ? (
-              <ObserveStatusColumnFilter
-                label={t("spansColStatus")}
-                value={statusFilter}
-                onChange={onStatusFilterChange}
-              />
-            ) : (
-              t("spansColStatus")
-            )}
-          </span>
-        ),
-        dataIndex: "list_status",
-        key: "list_status",
-        render: (_, r) => <SpanStatusCell status={r.list_status} />,
-      },
-      {
-        title: <span className={headerCellClass}>{t("spansColDuration")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColDuration")}</ObserveTableHeaderLabel>,
         dataIndex: "duration_ms",
         key: "duration_ms",
         width: 200,
@@ -325,13 +310,13 @@ export function SpansDataTable({
         },
       },
       {
-        title: <span className={headerCellClass}>{t("spansColType")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColType")}</ObserveTableHeaderLabel>,
         dataIndex: "span_type",
         key: "span_type",
         render: (_, r) => <span className="text-xs text-neutral-600">{r.span_type}</span>,
       },
       {
-        title: <span className={headerCellClass}>{t("spansColInput")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColInput")}</ObserveTableHeaderLabel>,
         dataIndex: "input_preview",
         key: "input_preview",
         width: 320,
@@ -346,7 +331,7 @@ export function SpansDataTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("spansColOutput")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColOutput")}</ObserveTableHeaderLabel>,
         dataIndex: "output_preview",
         key: "output_preview",
         width: 320,
@@ -361,7 +346,7 @@ export function SpansDataTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("spansColExecStart")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColExecStart")}</ObserveTableHeaderLabel>,
         dataIndex: "start_time_ms",
         key: "start_time_ms",
         sorter: (a, b) => (a.start_time_ms ?? 0) - (b.start_time_ms ?? 0),
@@ -376,7 +361,7 @@ export function SpansDataTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("spansColExecEnd")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColExecEnd")}</ObserveTableHeaderLabel>,
         dataIndex: "end_time_ms",
         key: "end_time_ms",
         render: (_, r) => (
@@ -386,7 +371,7 @@ export function SpansDataTable({
         ),
       },
       {
-        title: <span className={headerCellClass}>{t("spansColTokens")}</span>,
+        title: <ObserveTableHeaderLabel>{t("spansColTokens")}</ObserveTableHeaderLabel>,
         dataIndex: "total_tokens",
         key: "total_tokens",
         sorter: (a, b) => (a.total_tokens ?? 0) - (b.total_tokens ?? 0),
@@ -445,6 +430,7 @@ export function SpansDataTable({
       >
         <div className="min-w-0 w-full">
           <Table<SpanRecordRow>
+            tableLayoutFixed
             size="small"
             border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
             columns={columns}

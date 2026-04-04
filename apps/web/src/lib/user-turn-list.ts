@@ -33,6 +33,8 @@ export type UserTurnListItem = {
   mergedAsyncFollowUpCount?: number;
   /** 合并进来的子代理 / system 内流类 message_received 条数（左侧统计）。 */
   mergedSubagentFollowUpCount?: number;
+  /** 与 `whenLabel` 同源：`client_ts` / `created_at` 解析为毫秒，供会话列表与抽屉时间对齐。 */
+  whenMs?: number | null;
 };
 
 function rowNumericId(e: TraceTimelineEvent): number {
@@ -123,6 +125,19 @@ function previewOf(text: string): string {
 
 function whenOf(e: TraceTimelineEvent): string {
   return formatTraceDateTimeLocal(e.client_ts ?? e.created_at);
+}
+
+/** 与抽屉时间轴 `whenLabel` 同源，用于会话列表「最新消息」时间行与抽屉一致。 */
+export function traceEventWhenMs(e: TraceTimelineEvent): number | null {
+  const raw = e.client_ts ?? e.created_at;
+  if (raw == null) {
+    return null;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw > 0 ? raw : null;
+  }
+  const ms = Date.parse(String(raw));
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 
 function strOrNull(v: unknown): string | null {
@@ -273,6 +288,7 @@ function turnFromMessageReceived(
     chatTitle: strOrNull(primary.chat_title),
     msgId: eventMsgId(primary),
     mergedTraceRootIds: mergedTraceRootIds && mergedTraceRootIds.length > 0 ? mergedTraceRootIds : null,
+    whenMs: traceEventWhenMs(primary),
   };
 }
 
@@ -691,6 +707,7 @@ export function buildUserTurnList(events: TraceTimelineEvent[]): UserTurnListIte
       agentName: strOrNull(e.agent_name),
       chatTitle: strOrNull(e.chat_title),
       msgId: eventMsgId(e),
+      whenMs: traceEventWhenMs(e),
     };
   });
 }
