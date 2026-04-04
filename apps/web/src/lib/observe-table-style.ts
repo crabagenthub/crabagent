@@ -1,5 +1,5 @@
 export const OBSERVE_TABLE_CLASSNAME =
-  "observe-arco-table text-sm [&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] [&_.arco-table-tr]:divide-neutral-100 " +
+  "observe-arco-table text-sm [&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] " +
   /** 表头与首行数据之间：横向滚动时 thead/tbody 分栏，仅靠 th 底边易「断线」，在表头容器底补一条与行间一致的线 */
   "[&_.arco-table-header]:border-b [&_.arco-table-header]:border-neutral-200 dark:[&_.arco-table-header]:border-zinc-700 " +
   /** 表头单元格上下留白 */
