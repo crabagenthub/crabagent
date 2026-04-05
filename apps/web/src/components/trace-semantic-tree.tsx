@@ -1,9 +1,9 @@
 "use client";
 
-import { Popover } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { IconExclamationCircle, IconSwap, IconClockCircle, IconCommon, IconTag } from "@arco-design/web-react/icon";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { formatDurationMsSemantic } from "@/lib/trace-records";
 import type { SpanTreeNode } from "@/lib/build-span-tree";
 import {
   spanResourceUri,
@@ -14,7 +14,7 @@ import {
   spanToolOversizedResult,
 } from "@/lib/span-insights";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import { TokenUsageDetailsCard } from "@/components/token-usage-details-card";
+import { TokenUsagePopover } from "@/components/token-usage-details-card";
 import { LlmModelIcon, MemoryBranchesIcon, ToolWrenchIcon } from "@/icons";
 import { semanticSpanTokenEntries } from "@/lib/span-token-display";
 import { cn } from "@/lib/utils";
@@ -72,22 +72,6 @@ function durationMs(row: SpanTreeNode): number | null {
   }
   const d = b - a;
   return d >= 0 ? d : null;
-}
-
-function formatDurSeconds(durMs: number | null): string {
-  if (durMs == null || !Number.isFinite(durMs) || durMs < 0) {
-    return "—";
-  }
-  if (durMs < 1000) {
-    return `${Math.round(durMs)} ms`;
-  }
-  if (durMs >= 60_000) {
-    const totalSeconds = durMs / 1000;
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds - minutes * 60;
-    return `${minutes} min ${seconds.toFixed(2)} s`;
-  }
-  return `${(durMs / 1000).toFixed(2)} s`;
 }
 
 function spanTagCount(node: SpanTreeNode): number {
@@ -252,13 +236,13 @@ function TreeNodeRow({
               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums text-neutral-600">
                 <span className="inline-flex items-center gap-0.5" title={t("semanticTreeDurHint")}>
                    <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
-                   {formatDurSeconds(dur)}
+                   {formatDurationMsSemantic(dur)}
                  </span>
                 {showTokens && totalTok != null ? (
-                  <Popover
+                  <TokenUsagePopover
                     position="rt"
                     trigger="hover"
-                    content={<TokenUsageDetailsCard entries={semanticSpanTokenEntries(node)} />}
+                    entries={semanticSpanTokenEntries(node)}
                   >
                     <span
                       className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"
@@ -268,7 +252,6 @@ function TreeNodeRow({
                       <span>{totalTok.toLocaleString()}</span>
                       {typeof pt === "number" && typeof ct === "number" ? (
                         <>
-                          <span className="mx-0.5 text-neutral-300">·</span>
                           <IconSwap className="size-3 shrink-0 text-neutral-400" aria-hidden />
                           <span>
                             {pt.toLocaleString()}/{ct.toLocaleString()}
@@ -276,7 +259,7 @@ function TreeNodeRow({
                         </>
                       ) : null}
                     </span>
-                  </Popover>
+                  </TokenUsagePopover>
                 ) : null}
                 {tagsN > 0 ? (
                   <span
@@ -299,16 +282,6 @@ function TreeNodeRow({
             </div>
           </div>
         </div>
-        {node.span_id.trim() ? (
-          <TraceCopyIconButton
-            text={node.span_id}
-            ariaLabel={t("copySpanIdAria")}
-            tooltipLabel={t("copy")}
-            successLabel={t("copySuccessToast")}
-            className="mt-1 shrink-0 p-0.5 hover:bg-neutral-200/80"
-            stopPropagation
-          />
-        ) : null}
         </div>
         {node.children.length > 0 ? (
           <div className="mt-2 space-y-2 border-l border-neutral-200 pl-2">

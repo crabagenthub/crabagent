@@ -302,7 +302,7 @@ export function SpanRecordInspectDrawer({
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
-                  <TokenUsageDetailsCard entries={tokenEntries} hideHeader className="!py-0" />
+                  <TokenUsageDetailsCard entries={tokenEntries} hideHeader variant="flat" className="!py-0" />
                 </div>
               </div>
             </div>

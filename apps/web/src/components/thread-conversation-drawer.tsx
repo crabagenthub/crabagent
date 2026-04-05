@@ -9,7 +9,7 @@ import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
 import { filterTraceEventsToThreadKey, loadTraceEvents } from "@/lib/trace-events";
 import { type ThreadRecordRow } from "@/lib/thread-records";
-import { formatDurationMs } from "@/lib/trace-records";
+import { formatDurationMsSemantic } from "@/lib/trace-records";
 import {
   buildConversationTurnWindowEvents,
   buildDetailEventList,
@@ -23,8 +23,10 @@ import {
 import { ConversationTraceFlow } from "@/components/conversation-trace-flow";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import { IconCode, IconMessage, IconClose, IconCommon, IconClockCircle } from "@arco-design/web-react/icon";
+import { IconCommon, IconMessage, IconClose, IconClockCircle, IconSwap } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
+import { TokenUsagePopover } from "@/components/token-usage-details-card";
+import { turnWindowTokenEntries } from "@/lib/span-token-display";
 import { cn, formatShortId } from "@/lib/utils";
 
 function turnStatusLabelKey(st: TurnListStatus): string {
@@ -171,6 +173,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
         endedAtMs,
         promptTokens: windowMetrics.promptTokens,
         completionTokens: windowMetrics.completionTokens,
+        cacheReadTokens: windowMetrics.cacheReadTokens,
         displayTotal: windowMetrics.displayTotal,
       });
     }
@@ -284,16 +287,23 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     const st = turnStatusByKey.get(u.listKey) ?? "unknown";
     const metrics = turnMetricsByKey.get(u.listKey);
     const durLabel =
-      metrics?.durationMs != null && metrics.durationMs >= 0 ? formatDurationMs(metrics.durationMs) : "—";
+      metrics?.durationMs != null && metrics.durationMs >= 0 ? formatDurationMsSemantic(metrics.durationMs) : "—";
     const startedLabel =
       metrics?.startedAtMs != null && metrics.startedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.startedAtMs) : "—";
     const endedLabel =
       metrics?.endedAtMs != null && metrics.endedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.endedAtMs) : "—";
     const tokTotal = metrics?.displayTotal;
-    const tokShow =
-      tokTotal != null && Number.isFinite(tokTotal) && tokTotal > 0 ? tokTotal.toLocaleString() : "—";
-    const tokBreakdown =
-      (metrics?.promptTokens ?? 0) > 0 || (metrics?.completionTokens ?? 0) > 0 || tokTotal != null;
+    const pt = metrics?.promptTokens;
+    const ct = metrics?.completionTokens;
+    const cr = metrics?.cacheReadTokens;
+    /** 与 `trace-semantic-tree` inspect 卡片：优先显式 total，否则 prompt+completion(+cache)。 */
+    const totalTokNumeric =
+      tokTotal != null && Number.isFinite(tokTotal) && tokTotal > 0
+        ? tokTotal
+        : typeof pt === "number" && typeof ct === "number"
+          ? pt + ct + (typeof cr === "number" ? cr : 0)
+          : null;
+    const tokenEntries = metrics ? turnWindowTokenEntries(metrics) : {};
     const isLast = turnIdx === userTurns.length - 1;
     const mergedAsyncCount =
       typeof u.mergedAsyncFollowUpCount === "number" && u.mergedAsyncFollowUpCount > 0
@@ -357,70 +367,49 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
               ) : null}
             </div>
           ) : null}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums">
-            <Popover
-              trigger="hover"
-              position="top"
-              content={
-                <div className="space-y-1.5 p-1 text-xs">
-                  <div className="font-medium text-foreground">{t("threadDrawerTurnExecTime")}</div>
-                  <div className="text-muted-foreground">{t("threadDrawerTurnExecStart")}: {startedLabel}</div>
-                  <div className="text-muted-foreground">{t("threadDrawerTurnExecEnd")}: {endedLabel}</div>
-                </div>
-              }
-            >
-              <span
-                className="inline-flex items-center gap-0.5 font-medium text-amber-700 dark:text-amber-400/90"
-                title={t("threadDrawerTurnExecTime")}
-              >
-                <IconClockCircle className="size-3.5 shrink-0" strokeWidth={3}/>
-                {durLabel}
-              </span>
-            </Popover>
-            {tokBreakdown ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums text-neutral-600">
               <Popover
-                position="top"
                 trigger="hover"
+                position="top"
                 content={
-                  <div className="min-w-[12rem] space-y-2.5 py-1 text-left">
-                    <div className="flex items-center gap-1.5 border-b border-neutral-100 pb-2">
-                      <IconCommon className="size-3.5 text-violet-500" />
-                      <span className="text-xs font-bold text-neutral-800">{t("semanticTokenUsageTitle")}</span>
+                  <div className="space-y-1.5 p-1 text-xs">
+                    <div className="font-medium text-foreground">{t("threadDrawerTurnExecTime")}</div>
+                    <div className="text-muted-foreground">
+                      {t("threadDrawerTurnExecStart")}: {startedLabel}
                     </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="text-neutral-500">{t("detailAttrTokenPrompt")}</span>
-                        <span className="tabular-nums text-neutral-800">{(metrics?.promptTokens ?? 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-4">
-                        <span className="text-neutral-500">{t("detailAttrTokenCompletion")}</span>
-                        <span className="tabular-nums text-neutral-800">{(metrics?.completionTokens ?? 0).toLocaleString()}</span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-4 border-t border-neutral-100 pt-2 font-bold">
-                        <span className="text-neutral-700">{t("colTotalTokens")}</span>
-                        <span className="tabular-nums text-violet-600">{(metrics?.displayTotal ?? 0).toLocaleString()}</span>
-                      </div>
+                    <div className="text-muted-foreground">
+                      {t("threadDrawerTurnExecEnd")}: {endedLabel}
                     </div>
                   </div>
                 }
               >
                 <span
-                  className="inline-flex cursor-default items-center gap-0.5 font-medium text-violet-700 dark:text-violet-400/90"
-                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-0.5"
+                  title={t("threadDrawerTurnExecTime")}
                 >
-                  <IconCode className="size-3 shrink-0 opacity-90" strokeWidth={2} aria-hidden />
-                  {tokShow}
+                  <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                  {durLabel}
                 </span>
               </Popover>
-            ) : (
-              <span
-                className="inline-flex items-center gap-0.5 font-medium text-muted-foreground/80"
-                title={t("threadDrawerTurnTokensTotal")}
-              >
-                <IconCode className="size-3 shrink-0 opacity-70" strokeWidth={2} aria-hidden />
-                {tokShow}
-              </span>
-            )}
+              {totalTokNumeric != null ? (
+                <TokenUsagePopover position="rt" trigger="hover" entries={tokenEntries}>
+                  <span
+                    className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <IconCommon className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                    <span>{totalTokNumeric.toLocaleString()}</span>
+                    {typeof pt === "number" && typeof ct === "number" ? (
+                      <>
+                        <IconSwap className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                        <span>
+                          {pt.toLocaleString()}/{ct.toLocaleString()}
+                        </span>
+                      </>
+                    ) : null}
+                  </span>
+                </TokenUsagePopover>
+              ) : null}
           </div>
         </button>
         {typeof u.traceRootId === "string" && u.traceRootId.trim() ? (

@@ -1020,6 +1020,8 @@ export type TurnWindowMetrics = {
   endedAtMs: number | null;
   promptTokens: number;
   completionTokens: number;
+  /** 各 `llm_output` usage 中 cache read 之和，供 `TokenUsageDetailsCard` 与执行步骤一致。 */
+  cacheReadTokens: number;
   /** 优先 prompt+completion+cacheRead；仅有 API `total_tokens` 时为各轮之和。 */
   displayTotal: number | null;
 };
@@ -1031,7 +1033,15 @@ export type TurnWindowMetrics = {
  */
 export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): TurnWindowMetrics {
   if (windowEvents.length === 0) {
-    return { durationMs: null, startedAtMs: null, endedAtMs: null, promptTokens: 0, completionTokens: 0, displayTotal: null };
+    return {
+      durationMs: null,
+      startedAtMs: null,
+      endedAtMs: null,
+      promptTokens: 0,
+      completionTokens: 0,
+      cacheReadTokens: 0,
+      displayTotal: null,
+    };
   }
   const sorted = [...windowEvents].sort(compareTimelineChrono);
   let promptSum = 0;
@@ -1132,6 +1142,7 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
     endedAtMs: endMs,
     promptTokens: promptSum,
     completionTokens: completionSum,
+    cacheReadTokens: cacheSum,
     displayTotal,
   };
 }

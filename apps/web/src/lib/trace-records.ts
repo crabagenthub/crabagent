@@ -167,6 +167,25 @@ export function formatDurationMs(ms: number | null | undefined): string {
   return rm > 0 ? `${h}h${rm}m` : `${h}h`;
 }
 
+/**
+ * 与 `trace-semantic-tree` 执行步骤卡片一致：`51.88 s`、`3 min 12.00 s` 等（用于会话抽屉左侧与语义树对齐）。
+ */
+export function formatDurationMsSemantic(durMs: number | null | undefined): string {
+  if (durMs == null || !Number.isFinite(durMs) || durMs < 0) {
+    return "—";
+  }
+  if (durMs < 1000) {
+    return `${Math.round(durMs)} ms`;
+  }
+  if (durMs >= 60_000) {
+    const totalSeconds = durMs / 1000;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds - minutes * 60;
+    return `${minutes} min ${seconds.toFixed(2)} s`;
+  }
+  return `${(durMs / 1000).toFixed(2)} s`;
+}
+
 export function traceRecordDurationMs(row: TraceRecordRow): number | null {
   const a = row.start_time;
   const b = row.end_time;
