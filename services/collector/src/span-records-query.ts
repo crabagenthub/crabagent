@@ -148,6 +148,22 @@ ${whereSql}`;
 
 export type SpanRecordRawRow = Record<string, unknown>;
 
+/** Prefer stored `duration_ms`; if missing but start/end exist, use wall-clock span (matches execution-graph). */
+function coalesceSpanDurationMs(rawDur: unknown, startMs: unknown, endMs: unknown): number | null {
+  if (rawDur != null && rawDur !== "" && Number.isFinite(Number(rawDur))) {
+    const d = Number(rawDur);
+    if (d >= 0) {
+      return d;
+    }
+  }
+  const a = startMs != null && startMs !== "" ? Number(startMs) : NaN;
+  const b = endMs != null && endMs !== "" ? Number(endMs) : NaN;
+  if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
+    return b - a;
+  }
+  return null;
+}
+
 function parseListStatus(raw: unknown): ObserveListStatus {
   const s = String(raw ?? "").trim().toLowerCase();
   if (s === "running" || s === "success" || s === "error" || s === "timeout") {
@@ -175,10 +191,7 @@ export function mapSpanRecordRow(r: SpanRecordRawRow): Record<string, unknown> {
     span_type: r.span_type ?? "general",
     start_time_ms: r.start_time_ms ?? null,
     end_time_ms: r.end_time_ms ?? null,
-    duration_ms:
-      r.duration_ms != null && r.duration_ms !== "" && Number.isFinite(Number(r.duration_ms))
-        ? Number(r.duration_ms)
-        : null,
+    duration_ms: coalesceSpanDurationMs(r.duration_ms, r.start_time_ms, r.end_time_ms),
     model: r.model ?? null,
     provider: r.provider ?? null,
     is_complete: Number(r.is_complete) === 1,

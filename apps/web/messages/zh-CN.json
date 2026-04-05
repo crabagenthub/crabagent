@@ -338,6 +338,7 @@
     "tableMetricP50": "p50 {v}",
     "tableMetricAvg": "均值 {v}",
     "colStartTime": "开始时间",
+    "colEndTime": "结束时间",
     "colInput": "输入",
     "traceListInputFullAria": "查看输入全文",
     "traceListOutputFullAria": "查看输出全文",

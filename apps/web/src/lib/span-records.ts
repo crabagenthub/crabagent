@@ -50,23 +50,49 @@ function parseRowStatus(raw: unknown): ObserveListStatusParam {
   return "success";
 }
 
+/**
+ * 优先使用入库的 `duration_ms`；若为空但起止时间齐全，则用墙钟差（与 execution-graph 的 spanWall 一致）。
+ * 部分 OpenClaw/Opik 上报未写 `duration_ms` 时仍可展示耗时。
+ */
+function coalesceSpanDurationMs(
+  rawDur: unknown,
+  startMs: number | null,
+  endMs: number | null,
+): number | null {
+  if (rawDur != null && rawDur !== "" && Number.isFinite(Number(rawDur))) {
+    const d = Number(rawDur);
+    if (d >= 0) {
+      return d;
+    }
+  }
+  if (startMs != null && endMs != null) {
+    const a = Number(startMs);
+    const b = Number(endMs);
+    if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
+      return b - a;
+    }
+  }
+  return null;
+}
+
 function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
   const pid = r.parent_span_id;
-  const dur = r.duration_ms;
   const tt = r.total_tokens;
   const totalTokens =
     tt != null && tt !== "" && Number.isFinite(Number(tt)) ? Math.max(0, Math.floor(Number(tt))) : 0;
   const ag = r.agent_name;
   const ch = r.channel_name;
+  const start_time_ms = r.start_time_ms != null && r.start_time_ms !== "" ? Number(r.start_time_ms) : null;
+  const end_time_ms = r.end_time_ms != null && r.end_time_ms !== "" ? Number(r.end_time_ms) : null;
   return {
     span_id: String(r.span_id ?? ""),
     trace_id: String(r.trace_id ?? ""),
     parent_span_id: pid == null || String(pid).trim() === "" ? null : String(pid),
     name: String(r.name ?? ""),
     span_type: String(r.span_type ?? "general"),
-    start_time_ms: r.start_time_ms != null && r.start_time_ms !== "" ? Number(r.start_time_ms) : null,
-    end_time_ms: r.end_time_ms != null && r.end_time_ms !== "" ? Number(r.end_time_ms) : null,
-    duration_ms: dur != null && dur !== "" && Number.isFinite(Number(dur)) ? Number(dur) : null,
+    start_time_ms,
+    end_time_ms,
+    duration_ms: coalesceSpanDurationMs(r.duration_ms, start_time_ms, end_time_ms),
     model: r.model != null ? String(r.model) : null,
     provider: r.provider != null ? String(r.provider) : null,
     is_complete: Number(r.is_complete) === 1 || r.is_complete === true,

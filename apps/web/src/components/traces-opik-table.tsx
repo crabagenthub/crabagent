@@ -2,10 +2,10 @@
 
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps, TableProps } from "@arco-design/web-react";
-import { Table } from "@arco-design/web-react";
-import { IconCopy } from "@arco-design/web-react/icon";
+import { Popover, Table } from "@arco-design/web-react";
+import { IconCopy, IconHistory } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
 import {
   applyObserveTableSortChange,
@@ -379,25 +379,45 @@ export function TracesOpikTable({
         title: <ObserveTableHeaderLabel>{t("colDuration")}</ObserveTableHeaderLabel>,
         dataIndex: "duration",
         key: "duration",
-        width: 200,
+        width: 100,
         render: (_, row) => {
           const startFmt = formatTraceDateTimeLocal(new Date(row.start_time).toISOString());
           const endFmt =
             row.end_time != null && typeof row.end_time === "number" && Number.isFinite(row.end_time)
               ? formatTraceDateTimeLocal(new Date(row.end_time).toISOString())
               : "—";
+          const durationText = formatDurationMs(traceRecordDurationMs(row));
+          const popoverStyle: CSSProperties = {
+            maxWidth: "min(100vw - 2rem, 20rem)",
+            padding: 0,
+            boxSizing: "border-box",
+          };
           return (
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="text-xs tabular-nums text-neutral-800">
-                {formatDurationMs(traceRecordDurationMs(row))}
-              </span>
+            <Popover
+              trigger="hover"
+              position="top"
+              triggerProps={{ popupStyle: popoverStyle }}
+              content={
+                <div className="box-border min-w-0 px-3 py-2 text-xs text-neutral-800">
+                  <div className="flex min-w-0 gap-2">
+                    <span className="shrink-0 text-neutral-500">{t("colStartTime")}</span>
+                    <span className="min-w-0 break-words tabular-nums">{startFmt}</span>
+                  </div>
+                  <div className="mt-1.5 flex min-w-0 gap-2">
+                    <span className="shrink-0 text-neutral-500">{t("colEndTime")}</span>
+                    <span className="min-w-0 break-words tabular-nums">{endFmt}</span>
+                  </div>
+                </div>
+              }
+            >
               <span
-                className="line-clamp-2 break-words text-[11px] leading-snug text-neutral-500 dark:text-neutral-400"
-                title={`${startFmt} – ${endFmt}`}
+                className="inline-flex min-w-0 cursor-default items-center gap-1 tabular-nums"
+                data-row-click-stop
               >
-                {startFmt} – {endFmt}
+                <IconHistory className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
+                <span className="text-xs text-neutral-800">{durationText}</span>
               </span>
-            </div>
+            </Popover>
           );
         },
       },

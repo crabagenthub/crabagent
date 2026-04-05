@@ -338,6 +338,7 @@
     "tableMetricP50": "p50 {v}",
     "tableMetricAvg": "avg {v}",
     "colStartTime": "Start time",
+    "colEndTime": "End time",
     "colInput": "Input",
     "traceListInputFullAria": "Full input text",
     "traceListOutputFullAria": "Full output text",

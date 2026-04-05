@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/feedback";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { IconClockCircle } from "@arco-design/web-react/icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover } from "@arco-design/web-react";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
@@ -390,7 +391,8 @@ export function ThreadsOpikTable({
               extractText={extractThreadListMessageText}
               previewLineClamp={1}
             />
-            <span className="text-[10px] leading-4 text-neutral-500 tabular-nums">
+            <span className="inline-flex min-w-0 items-center gap-1 text-[10px] leading-4 text-neutral-500 tabular-nums">
+              <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
               {formatTraceDateTimeFromMs(row.last_message_created_at_ms ?? null)}
             </span>
           </div>

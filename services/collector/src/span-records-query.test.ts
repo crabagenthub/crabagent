@@ -32,4 +32,31 @@ describe("mapSpanRecordRow", () => {
     assert.equal(row.cache_read_tokens, 9);
     assert.equal(row.total_tokens, 99);
   });
+
+  it("derives duration_ms from end - start when duration_ms is null", () => {
+    const row = mapSpanRecordRow({
+      span_id: "s1",
+      trace_id: "t1",
+      parent_span_id: null,
+      name: "x",
+      span_type: "tool",
+      start_time_ms: 1000,
+      end_time_ms: 1350,
+      duration_ms: null,
+      model: null,
+      provider: null,
+      is_complete: 1,
+      input_preview: null,
+      output_preview: null,
+      thread_key: "tk",
+      workspace_name: "default",
+      project_name: "openclaw",
+      agent_name: null,
+      channel_name: null,
+      total_tokens: 0,
+      usage_json: null,
+      list_status: "success",
+    });
+    assert.equal(row.duration_ms, 350);
+  });
 });
