@@ -6,7 +6,6 @@ import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, u
 import { ThreadDrawerMessageTranscript } from "@/components/thread-drawer-message-transcript";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
-import { aggregateThreadLlmOutputUsage } from "@/lib/trace-payload-usage";
 import { filterTraceEventsToThreadKey, loadTraceEvents } from "@/lib/trace-events";
 import { type ThreadRecordRow } from "@/lib/thread-records";
 import { formatDurationMsSemantic } from "@/lib/trace-records";
@@ -26,7 +25,7 @@ import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { IconCommon, IconMessage, IconClose, IconClockCircle, IconSwap } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import { TokenUsagePopover } from "@/components/token-usage-details-card";
-import { turnWindowTokenEntries } from "@/lib/span-token-display";
+import { aggregateLlmOutputTokenEntries, usageRecordDisplayTotals } from "@/lib/span-token-display";
 import { cn, formatShortId } from "@/lib/utils";
 
 function turnStatusLabelKey(st: TurnListStatus): string {
@@ -155,12 +154,20 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     return m;
   }, [merged, userTurns]);
 
+  const turnWindowEventsByKey = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof buildConversationTurnWindowEvents>>();
+    for (const u of userTurns) {
+      m.set(u.listKey, buildConversationTurnWindowEvents(merged, u, userTurns));
+    }
+    return m;
+  }, [merged, userTurns]);
+
   const turnMetricsByKey = useMemo(() => {
     const m = new Map<string, ReturnType<typeof inferTurnWindowMetrics>>();
     for (const u of userTurns) {
       const linkedRunId = resolveLinkedRunIdForTurn(u, merged);
       const runEv = filterEventsForRun(merged, linkedRunId);
-      const windowEv = buildConversationTurnWindowEvents(merged, u, userTurns);
+      const windowEv = turnWindowEventsByKey.get(u.listKey) ?? buildConversationTurnWindowEvents(merged, u, userTurns);
       const runMetrics = runEv.length > 0 ? inferTurnWindowMetrics(runEv) : null;
       const windowMetrics = inferTurnWindowMetrics(windowEv);
       const startedAtMs = runMetrics?.startedAtMs ?? windowMetrics.startedAtMs;
@@ -178,7 +185,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       });
     }
     return m;
-  }, [merged, userTurns]);
+  }, [merged, userTurns, turnWindowEventsByKey]);
 
   const [selectedListKey, setSelectedListKey] = useState("");
   /** 主轴相对此 ul 定位，并位于 ul 内部，避免被 ul 的层叠挡住 */
@@ -279,9 +286,6 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
 
   const threadShort = formatShortId(threadKey);
 
-  const listTotalTokens = activeRow != null ? activeRow.total_tokens : 0;
-  const threadUsage = useMemo(() => aggregateThreadLlmOutputUsage(merged), [merged]);
-
   const turnRail = userTurns.map((u, turnIdx) => {
     const active = u.listKey === selectedListKey;
     const st = turnStatusByKey.get(u.listKey) ?? "unknown";
@@ -292,18 +296,13 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       metrics?.startedAtMs != null && metrics.startedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.startedAtMs) : "—";
     const endedLabel =
       metrics?.endedAtMs != null && metrics.endedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.endedAtMs) : "—";
-    const tokTotal = metrics?.displayTotal;
-    const pt = metrics?.promptTokens;
-    const ct = metrics?.completionTokens;
-    const cr = metrics?.cacheReadTokens;
-    /** 与 `trace-semantic-tree` inspect 卡片：优先显式 total，否则 prompt+completion(+cache)。 */
-    const totalTokNumeric =
-      tokTotal != null && Number.isFinite(tokTotal) && tokTotal > 0
-        ? tokTotal
-        : typeof pt === "number" && typeof ct === "number"
-          ? pt + ct + (typeof cr === "number" ? cr : 0)
-          : null;
-    const tokenEntries = metrics ? turnWindowTokenEntries(metrics) : {};
+    const windowEv = turnWindowEventsByKey.get(u.listKey) ?? [];
+    let tokenEntries = aggregateLlmOutputTokenEntries(windowEv);
+    if (Object.keys(tokenEntries).length === 0 && metrics?.displayTotal != null && metrics.displayTotal > 0) {
+      tokenEntries = { total_tokens: metrics.displayTotal };
+    }
+    const totals = usageRecordDisplayTotals(tokenEntries);
+    const totalTokNumeric = totals.displayTotal;
     const isLast = turnIdx === userTurns.length - 1;
     const mergedAsyncCount =
       typeof u.mergedAsyncFollowUpCount === "number" && u.mergedAsyncFollowUpCount > 0
@@ -399,11 +398,11 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                   >
                     <IconCommon className="size-3 shrink-0 text-neutral-400" aria-hidden />
                     <span>{totalTokNumeric.toLocaleString()}</span>
-                    {typeof pt === "number" && typeof ct === "number" ? (
+                    {totals.prompt != null && totals.completion != null ? (
                       <>
                         <IconSwap className="size-3 shrink-0 text-neutral-400" aria-hidden />
                         <span>
-                          {pt.toLocaleString()}/{ct.toLocaleString()}
+                          {totals.prompt.toLocaleString()}/{totals.completion.toLocaleString()}
                         </span>
                       </>
                     ) : null}
@@ -559,7 +558,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 onOpenSubagentSession={openSubagentSession}
               />
               <aside
-                className="flex min-h-0 w-[min(100%,21rem)] shrink-0 flex-col border-border bg-muted/10 dark:bg-neutral-900/25"
+                className="flex min-h-0 w-[min(100%,17rem)] shrink-0 flex-col border-border bg-muted/10 dark:bg-neutral-900/25"
                 aria-label={t("threadDrawerAuxInfoTitle")}
               >
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
@@ -568,8 +567,6 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                     row={activeRow}
                     threadKey={threadKey}
                     threadShort={threadShort}
-                    listTotalTokens={listTotalTokens}
-                    threadUsage={threadUsage}
                   />
                 </div>
               </aside>

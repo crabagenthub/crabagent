@@ -10,7 +10,6 @@ import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
 import { TraceSemanticTree } from "@/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/components/trace-span-run-panel";
-import { TokenUsageDetailsCard } from "@/components/token-usage-details-card";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
@@ -18,7 +17,6 @@ import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatDurationMs } from "@/lib/trace-records";
-import { semanticSpanTokenEntries } from "@/lib/span-token-display";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { cn, formatShortId } from "@/lib/utils";
 type Props = {
@@ -114,13 +112,6 @@ export function SpanRecordInspectDrawer({
     }
     return items.find((s) => s.span_id === selectedSpanId) ?? null;
   }, [items, selectedSpanId]);
-
-  const tokenEntries = useMemo(() => {
-    if (!selectedSpan) {
-      return {};
-    }
-    return semanticSpanTokenEntries(selectedSpan);
-  }, [selectedSpan]);
 
   const rowDur = row?.duration_ms ?? null;
   const listStartLabel =
@@ -232,7 +223,7 @@ export function SpanRecordInspectDrawer({
           </div>
 
           <aside
-            className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/40 lg:max-h-none lg:w-[min(100%,22rem)] lg:min-w-[260px] lg:max-w-[24rem] lg:shrink-0 lg:border-l lg:border-t-0"
+            className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/40 lg:max-h-none lg:w-[min(100%,18rem)] lg:min-w-[240px] lg:max-w-[21rem] lg:shrink-0 lg:border-l lg:border-t-0"
             aria-label={t("inspectBasicInfoTitle")}
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -291,18 +282,6 @@ export function SpanRecordInspectDrawer({
                       )}
                     </span>
                   </div>
-                </div>
-              </div>
-
-              <div className="mt-4 border-t border-neutral-200/80 pt-4 dark:border-neutral-700/80">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
-                    <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-                  </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
-                  <TokenUsageDetailsCard entries={tokenEntries} hideHeader variant="flat" className="!py-0" />
                 </div>
               </div>
             </div>

@@ -22,7 +22,6 @@ import {
   traceRecordDurationMs,
   type TraceRecordRow,
 } from "@/lib/trace-records";
-import { spanTokenTotals } from "@/lib/span-token-display";
 import { collectSkillsUsedFromSemanticSpans } from "@/lib/trace-skills-used";
 import { cn, formatShortId } from "@/lib/utils";
 type Props = {
@@ -137,7 +136,6 @@ export function TraceRecordInspectDialog({
   }, [items, selectedSpanId]);
 
   const rowDur = row ? traceRecordDurationMs(row) : null;
-  const rowTokens = row && typeof row.total_tokens === "number" ? row.total_tokens : null;
   const traceRowWhenLabel =
     row && row.start_time
       ? formatTraceDateTimeLocal(new Date(row.start_time).toISOString())
@@ -147,16 +145,6 @@ export function TraceRecordInspectDialog({
   const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
   const traceAgent = row ? traceRecordAgentName(row) : null;
   const traceChannel = row ? traceRecordChannel(row) : null;
-  const spanTokens = selectedSpan ? spanTokenTotals(selectedSpan) : null;
-  const tokenIn = spanTokens?.hasAny ? spanTokens.prompt : 0;
-  const tokenOut = spanTokens?.hasAny ? spanTokens.completion : 0;
-  const tokenCache = spanTokens?.hasAny ? spanTokens.cacheRead : 0;
-  const tokenTotal =
-    spanTokens?.displayTotal != null && spanTokens.displayTotal > 0
-      ? spanTokens.displayTotal
-      : rowTokens != null && rowTokens > 0
-        ? rowTokens
-        : 0;
   const serviceName =
     selectedSpan?.model_name?.trim() || selectedSpan?.name?.trim() || "—";
   const providerName =
@@ -358,7 +346,7 @@ export function TraceRecordInspectDialog({
 
               {/* Right: basic information */}
               <aside
-                className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/60 lg:max-h-none lg:w-[min(100%,24rem)] lg:min-w-[280px] lg:max-w-[26rem] lg:shrink-0 lg:border-l lg:border-t-0"
+                className="flex max-h-[min(60vh,520px)] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-border bg-neutral-50/60 lg:max-h-none lg:w-[min(100%,19rem)] lg:min-w-[240px] lg:max-w-[22rem] lg:shrink-0 lg:border-l lg:border-t-0"
                 aria-label={t("inspectBasicInfoTitle")}
               >
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -399,35 +387,6 @@ export function TraceRecordInspectDialog({
                           {statusLabel}
                         </span>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 border-t border-neutral-200/80 pt-4 dark:border-neutral-700/80">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
-                        <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-                      </div>
-                    </div>
-                    <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
-                      <dl className="m-0 space-y-2 text-xs leading-relaxed">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenInput")}</dt>
-                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenIn.toLocaleString()}</dd>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenOutput")}</dt>
-                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenOut.toLocaleString()}</dd>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenTotal")}</dt>
-                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenTotal.toLocaleString()}</dd>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenCache")}</dt>
-                          <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{tokenCache.toLocaleString()}</dd>
-                        </div>
-                      </dl>
                     </div>
                   </div>
                 </div>

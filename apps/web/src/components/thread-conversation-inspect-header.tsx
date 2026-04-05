@@ -1,9 +1,7 @@
 "use client";
 
-import { IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import type { ThreadLlmUsageAggregate } from "@/lib/trace-payload-usage";
 import type { ThreadRecordRow } from "@/lib/thread-records";
 import { cn } from "@/lib/utils";
 
@@ -30,60 +28,27 @@ function threadRowStatusPresentation(st: string | null | undefined): {
   return { labelKey: "statusOther", error: false, timeout: false, running: false, muted: true };
 }
 
-function formatTokenAmount(n: number | null): string {
-  if (n == null) {
-    return "—";
-  }
-  return n.toLocaleString();
-}
-
 type Props = {
   row: ThreadRecordRow | null;
   threadKey: string;
   threadShort: string;
-  /** 会话列表接口合计，在无 `llm_output` 分项时用于「总 token」兜底 */
-  listTotalTokens: number;
-  threadUsage: ThreadLlmUsageAggregate;
   /** 右侧窄栏：双列栅格；会话 ID 置顶并占满一行 */
   variant?: "default" | "sidebar";
 };
 
 /**
- * 与会话详情右栏：顶栏栅格（会话 ID 置顶，智能体、渠道、耗时、开始时间、轮次、状态）+ 计费/Token 用量。
+ * 与会话详情右栏：顶栏栅格（会话 ID 置顶，智能体、渠道、状态等）。
  */
 export function ThreadConversationInspectHeader({
   row,
   threadKey,
   threadShort,
-  listTotalTokens,
-  threadUsage,
   variant = "default",
 }: Props) {
   const t = useTranslations("Traces");
 
   const agentLine = row?.agent_name?.trim() || "—";
   const channelLine = row?.channel_name?.trim() || "—";
-
-  const fromEvents = threadUsage.llmOutputCount > 0;
-  const inputVal = fromEvents ? threadUsage.prompt : null;
-  const outputVal = fromEvents ? threadUsage.completion : null;
-  const cacheVal = fromEvents ? threadUsage.cacheRead : null;
-  const totalVal: number | null = (() => {
-    if (fromEvents) {
-      if (threadUsage.displayTotal != null) {
-        return threadUsage.displayTotal;
-      }
-      const parts = threadUsage.prompt + threadUsage.completion + threadUsage.cacheRead;
-      if (parts > 0) {
-        return parts;
-      }
-      if (listTotalTokens > 0) {
-        return listTotalTokens;
-      }
-      return 0;
-    }
-    return listTotalTokens > 0 ? listTotalTokens : null;
-  })();
 
   const st = threadRowStatusPresentation(row?.status);
   const rawStatus = row?.status?.trim();
@@ -172,46 +137,6 @@ export function ThreadConversationInspectHeader({
             <div className="min-w-0 md:col-span-3">{statusCell}</div>
           </>
         )}
-      </div>
-
-      <div
-        className={cn(
-          "border-t border-neutral-200/80 pt-4 dark:border-neutral-700/80",
-          variant === "sidebar" ? "mt-4" : "mt-5",
-        )}
-      >
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-x-2 gap-y-1 text-sm",
-            variant === "sidebar" ? "flex-col items-stretch" : "",
-          )}
-        >
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold text-neutral-900 dark:text-neutral-50">{t("inspectTokenUsageSubtitle")}</span>
-            <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-lg border border-amber-200/40 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/35 dark:bg-amber-950/25">
-          <dl className="m-0 space-y-2 text-xs leading-relaxed">
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenInput")}</dt>
-              <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{formatTokenAmount(inputVal)}</dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenOutput")}</dt>
-              <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{formatTokenAmount(outputVal)}</dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenTotal")}</dt>
-              <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{formatTokenAmount(totalVal)}</dd>
-            </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="shrink-0 text-neutral-600 dark:text-neutral-400">{t("threadSidebarTokenCache")}</dt>
-              <dd className="tabular-nums font-semibold text-amber-700 dark:text-amber-500">{formatTokenAmount(cacheVal)}</dd>
-            </div>
-          </dl>
-        </div>
       </div>
     </div>
   );

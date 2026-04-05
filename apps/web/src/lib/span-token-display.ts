@@ -1,5 +1,31 @@
+import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
+import { usageFromTracePayload } from "@/lib/trace-payload-usage";
 import type { TurnWindowMetrics } from "@/lib/user-turn-list";
+
+/** 与 `semanticSpanTokenEntries` / `usage_breakdown` 中 cache 键对齐（Collector 可能只写 breakdown、不写 `cache_read_tokens`）。 */
+function cacheReadFromSpanUsageBreakdown(span: SemanticSpanRow): number {
+  const bd =
+    span.usage_breakdown && typeof span.usage_breakdown === "object" && !Array.isArray(span.usage_breakdown)
+      ? (span.usage_breakdown as Record<string, unknown>)
+      : {};
+  const keys = [
+    "cache_read_tokens",
+    "cacheRead",
+    "cache_read",
+    "cached_prompt_tokens",
+    "prompt_cache_hit_tokens",
+    "cached_tokens",
+  ];
+  let max = 0;
+  for (const k of keys) {
+    const v = bd[k];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      max = Math.max(max, Math.trunc(v));
+    }
+  }
+  return max;
+}
 
 /** 与语义树 / Collector `usage_json` 解析一致，用于侧栏、抽屉、Run 面板的 Token 展示。 */
 export function spanTokenTotals(span: SemanticSpanRow): {
@@ -14,7 +40,9 @@ export function spanTokenTotals(span: SemanticSpanRow): {
 } {
   const prompt = span.prompt_tokens ?? 0;
   const completion = span.completion_tokens ?? 0;
-  const cacheRead = span.cache_read_tokens ?? 0;
+  const cacheCanonical =
+    span.cache_read_tokens != null && Number.isFinite(span.cache_read_tokens) ? Math.trunc(span.cache_read_tokens) : 0;
+  const cacheRead = Math.max(cacheCanonical, cacheReadFromSpanUsageBreakdown(span));
   const sumParts = prompt + completion + cacheRead;
   const explicitTotal =
     span.total_tokens != null && Number.isFinite(span.total_tokens)
@@ -94,6 +122,103 @@ export function semanticSpanTokenEntries(span: SemanticSpanRow): Record<string, 
   return out;
 }
 
+function mergeTokenEntriesSum(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    out[k] = (out[k] ?? 0) + v;
+  }
+  return out;
+}
+
+/**
+ * 单条 `llm_output` payload → 与 `semanticSpanTokenEntries` 同逻辑（`usage_breakdown` 优先，缺再用 `usageFromTracePayload`）。
+ */
+export function tokenEntriesFromLlmOutputPayload(p: Record<string, unknown>): Record<string, number> {
+  const bd =
+    p.usage_breakdown && typeof p.usage_breakdown === "object" && !Array.isArray(p.usage_breakdown)
+      ? (p.usage_breakdown as Record<string, number>)
+      : {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(bd)) {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[k] = Math.trunc(v);
+    }
+  }
+  const u = usageFromTracePayload(p);
+  const set = (k: string, v: number | null | undefined) => {
+    if (v == null || !Number.isFinite(v)) {
+      return;
+    }
+    if (out[k] === undefined) {
+      out[k] = Math.trunc(v);
+    }
+  };
+  set("prompt_tokens", u.prompt);
+  set("completion_tokens", u.completion);
+  set("cache_read_tokens", u.cacheRead);
+  if (u.total != null && u.total > 0) {
+    set("total_tokens", u.total);
+  }
+  return out;
+}
+
+/**
+ * 用户轮次窗口内全部 `llm_output` 的 usage（含 `usage_breakdown`）累加，
+ * 与 Trace 详情语义树 LLM 节点数据来源一致。
+ */
+export function aggregateLlmOutputTokenEntries(events: readonly TraceTimelineEvent[]): Record<string, number> {
+  let acc: Record<string, number> = {};
+  for (const e of events) {
+    if ((e.type ?? "") !== "llm_output") {
+      continue;
+    }
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+    acc = mergeTokenEntriesSum(acc, tokenEntriesFromLlmOutputPayload(payload));
+  }
+  return acc;
+}
+
+/**
+ * 与语义树 LLM 行「合计 ⇌ 输入/输出」一致：从合并后的 usage 记录取展示数字。
+ */
+export function usageRecordDisplayTotals(entries: Record<string, number>): {
+  displayTotal: number | null;
+  prompt: number | null;
+  completion: number | null;
+  cacheRead: number;
+} {
+  const prompt =
+    typeof entries.prompt_tokens === "number"
+      ? entries.prompt_tokens
+      : typeof entries.input === "number"
+        ? entries.input
+        : null;
+  const completion =
+    typeof entries.completion_tokens === "number"
+      ? entries.completion_tokens
+      : typeof entries.output === "number"
+        ? entries.output
+        : null;
+  const cacheRead =
+    typeof entries.cache_read_tokens === "number"
+      ? entries.cache_read_tokens
+      : typeof entries.cacheRead === "number"
+        ? entries.cacheRead
+        : 0;
+  const explicitTotal =
+    typeof entries.total_tokens === "number" && entries.total_tokens > 0
+      ? Math.trunc(entries.total_tokens)
+      : typeof entries.total === "number" && entries.total > 0
+        ? Math.trunc(entries.total)
+        : null;
+  const sumParts = (prompt ?? 0) + (completion ?? 0) + cacheRead;
+  const displayTotal = explicitTotal ?? (sumParts > 0 ? sumParts : null);
+  return { displayTotal, prompt, completion, cacheRead };
+}
+
 /** 会话抽屉单轮 `TurnWindowMetrics` → 与 `semanticSpanTokenEntries` 同形的 `Record`，供 `TokenUsageDetailsCard` 使用。 */
 export function turnWindowTokenEntries(m: TurnWindowMetrics): Record<string, number> {
   const out: Record<string, number> = {};
@@ -109,6 +234,10 @@ export function turnWindowTokenEntries(m: TurnWindowMetrics): Record<string, num
   out.completion_tokens = m.completionTokens;
   if (m.cacheReadTokens > 0) {
     out.cache_read_tokens = m.cacheReadTokens;
+  }
+  const sumParts = out.prompt_tokens + out.completion_tokens + (out.cache_read_tokens ?? 0);
+  if (m.displayTotal != null && m.displayTotal > 0 && sumParts === 0) {
+    out.total_tokens = Math.trunc(m.displayTotal);
   }
   return out;
 }
