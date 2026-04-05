@@ -10,7 +10,7 @@ import {
   readHiddenOptionalKeys,
   writeHiddenOptionalKeys,
 } from "@/lib/observe-table-column-storage";
-import { OBSERVE_CONTROL_OUTLINE_CLASSNAME, OBSERVE_TOOLBAR_ICON_HOVER } from "@/lib/observe-table-style";
+import { OBSERVE_CONTROL_OUTLINE_CLASSNAME, OBSERVE_TOOLBAR_HOVER_FG_ICO } from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
 export type ObserveColumnManagerItem = {
@@ -164,14 +164,18 @@ export function ObserveTableColumnManager({ items, hiddenOptional, onToggleOptio
         title={t("columnManagerTitle")}
         aria-label={t("columnManagerAria")}
         className={cn(
-          "shrink-0 bg-white text-neutral-600 hover:text-neutral-800 dark:bg-zinc-950/50 dark:text-zinc-400 dark:hover:text-zinc-200",
+          "group/ico shrink-0 rounded-md bg-white dark:bg-zinc-950/50",
           OBSERVE_CONTROL_OUTLINE_CLASSNAME,
-          // Arco `iconOnly` 仍可能保留内边距/行高，导致 SVG 视觉偏上；强制方形盒内绝对居中
           "!inline-flex !h-9 !w-9 !min-h-9 !min-w-9 !items-center !justify-center !gap-0 !p-0 !leading-none",
         )}
         data-row-click-stop
       >
-        <ColumnManagerIcon className={cn("block h-5 w-5 shrink-0 align-middle leading-none", OBSERVE_TOOLBAR_ICON_HOVER)} />
+        <ColumnManagerIcon
+          className={cn(
+            "block h-5 w-5 shrink-0 text-neutral-500 transition-colors duration-150 dark:text-zinc-400",
+            OBSERVE_TOOLBAR_HOVER_FG_ICO,
+          )}
+        />
       </Button>
     </Dropdown>
   );

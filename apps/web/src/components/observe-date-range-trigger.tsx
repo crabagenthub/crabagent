@@ -14,7 +14,7 @@ import type { ObserveDatePreset, ObserveDateRange } from "@/lib/observe-date-ran
 import {
   OBSERVE_CONTROL_OUTLINE_CLASSNAME,
   OBSERVE_PANEL_BORDER_CLASSNAME,
-  OBSERVE_TOOLBAR_ICON_HOVER_TINT,
+  OBSERVE_TOOLBAR_HOVER_FG_ICO,
 } from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
@@ -183,19 +183,32 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
         variant="outline"
         size="lg"
         className={cn(
-          "h-9 gap-2 bg-white px-3 font-medium text-neutral-700 shadow-sm transition-all hover:text-neutral-900 active:scale-[0.98] dark:bg-zinc-950/50 dark:text-zinc-300 dark:hover:text-zinc-100",
+          "group/ico h-9 gap-2 rounded-md bg-white px-3 font-medium text-neutral-700 shadow-sm transition-all active:scale-[0.98] dark:bg-zinc-950/50 dark:text-zinc-300",
           OBSERVE_CONTROL_OUTLINE_CLASSNAME,
           className
         )}
         aria-label={t("dateRangeLabel")}
       >
         <IconCalendar
-          className={cn("size-4 shrink-0 text-neutral-500 dark:text-zinc-400", OBSERVE_TOOLBAR_ICON_HOVER_TINT)}
+          className={cn(
+            "size-4 shrink-0 text-neutral-500 transition-colors duration-150 dark:text-zinc-400",
+            OBSERVE_TOOLBAR_HOVER_FG_ICO,
+          )}
           aria-hidden
         />
-        <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{triggerLabel}</span>
+        <span
+          className={cn(
+            "max-w-[11rem] truncate text-neutral-700 transition-colors duration-150 sm:max-w-[14rem] dark:text-zinc-300",
+            OBSERVE_TOOLBAR_HOVER_FG_ICO,
+          )}
+        >
+          {triggerLabel}
+        </span>
         <IconDown
-          className={cn("size-4 shrink-0 text-neutral-400 dark:text-zinc-500", OBSERVE_TOOLBAR_ICON_HOVER_TINT)}
+          className={cn(
+            "size-4 shrink-0 text-neutral-400 transition-colors duration-150 dark:text-zinc-500",
+            OBSERVE_TOOLBAR_HOVER_FG_ICO,
+          )}
           aria-hidden
         />
       </Button>

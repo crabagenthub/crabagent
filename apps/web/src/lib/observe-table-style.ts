@@ -14,16 +14,17 @@ export const OBSERVE_CONTROL_OUTLINE_CLASSNAME =
   "dark:!border-zinc-700/80 dark:hover:!border-zinc-700/80 dark:active:!border-zinc-700/80 dark:focus-visible:!border-zinc-700/80 " +
   "hover:bg-neutral-100 dark:hover:bg-zinc-800";
 
-/** 工具栏图标悬停色（蓝 / 天蓝），与中性灰对比更明显 */
-export const OBSERVE_TOOLBAR_ICON_HOVER_TINT =
-  "transition-colors duration-150 group-hover/button:text-blue-600 dark:group-hover/button:text-sky-400";
+/**
+ * 工具栏 `group/ico` 子元素：悬停时图标/文案为近黑（暗色主题为近白，保证可读）。
+ */
+export const OBSERVE_TOOLBAR_HOVER_FG_ICO =
+  "group-hover/ico:text-neutral-950 dark:group-hover/ico:text-zinc-50";
 
-/** 默认中性色 + 悬停（用于字段管理、刷新等） */
-export const OBSERVE_TOOLBAR_ICON_HOVER =
-  `text-neutral-500 dark:text-zinc-400 ${OBSERVE_TOOLBAR_ICON_HOVER_TINT}`;
-
-export const OBSERVE_TOOLBAR_SEARCH_ICON_HOVER =
-  "text-neutral-500 transition-colors duration-150 group-hover/search:text-blue-600 group-focus-within/search:text-blue-600 dark:text-zinc-500 dark:group-hover/search:text-sky-400 dark:group-focus-within/search:text-sky-400";
+/**
+ * 工具栏搜索框：悬停时输入文字与放大镜（父级需 `group/sch`）。
+ */
+export const OBSERVE_TOOLBAR_HOVER_FG_SCH =
+  "group-hover/sch:text-neutral-950 dark:group-hover/sch:text-zinc-50";
 
 /**
  * Arco Table 横向滚动：`scroll.x` 由组件在 `.arco-table-content-inner` 上处理 overflow，
