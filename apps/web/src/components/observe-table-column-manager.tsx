@@ -2,7 +2,6 @@
 
 import "@/lib/arco-react19-setup";
 import { Checkbox, Dropdown } from "@arco-design/web-react";
-import { IconList } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,7 @@ import {
   readHiddenOptionalKeys,
   writeHiddenOptionalKeys,
 } from "@/lib/observe-table-column-storage";
-import { OBSERVE_CONTROL_OUTLINE_CLASSNAME } from "@/lib/observe-table-style";
+import { OBSERVE_CONTROL_OUTLINE_CLASSNAME, OBSERVE_TOOLBAR_ICON_HOVER } from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
 export type ObserveColumnManagerItem = {
@@ -72,6 +71,30 @@ type ManagerProps = {
   onToggleOptional: (key: string) => void;
   onReset: () => void;
 };
+
+function ColumnManagerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M351.372549 742.901961H170.666667c-22.086275 0-40.156863 18.070588-40.156863 40.156863s18.070588 40.156863 40.156863 40.156862h180.705882c22.086275 0 40.156863-18.070588 40.156863-40.156862s-18.070588-40.156863-40.156863-40.156863zM351.372549 461.803922H170.666667c-22.086275 0-40.156863 18.070588-40.156863 40.156862s18.070588 40.156863 40.156863 40.156863h180.705882c22.086275 0 40.156863-18.070588 40.156863-40.156863s-18.070588-40.156863-40.156863-40.156862zM853.333333 180.705882H170.666667c-22.086275 0-40.156863 18.070588-40.156863 40.156863s18.070588 40.156863 40.156863 40.156863h682.666666c22.086275 0 40.156863-18.070588 40.156863-40.156863s-18.070588-40.156863-40.156863-40.156863z"
+        fill="currentColor"
+      />
+      <path
+        d="M662.588235 612.392157m-70.27451 0a70.27451 70.27451 0 1 0 140.54902 0 70.27451 70.27451 0 1 0-140.54902 0Z"
+        fill="currentColor"
+      />
+      <path
+        d="M831.247059 465.819608l-124.486275-72.282353-6.023529-2.007843c-24.094118-12.047059-52.203922-12.047059-76.298039 0l-6.02353 2.007843-124.486274 72.282353c-26.101961 16.062745-42.164706 44.172549-42.164706 74.290196v144.564706c0 30.117647 16.062745 58.227451 42.164706 74.290196l124.486274 72.282353c26.101961 16.062745 58.227451 16.062745 86.337255 0l124.486275-72.282353c26.101961-16.062745 42.164706-44.172549 42.164706-74.290196v-144.564706c2.007843-30.117647-14.054902-60.235294-40.156863-74.290196z m-34.133334 218.854902c0 4.015686-2.007843 6.023529-4.015686 8.031372l-124.486274 72.282353c-2.007843 2.007843-6.023529 2.007843-10.039216 0L532.078431 692.705882c-2.007843-2.007843-4.015686-4.015686-4.015686-8.031372v-146.572549c0-4.015686 2.007843-6.023529 4.015686-8.031373l124.486275-72.282353c2.007843-2.007843 6.023529-2.007843 10.039216 0l124.486274 72.282353c4.015686 2.007843 4.015686 4.015686 4.015686 8.031373v146.572549z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 
 export function ObserveTableColumnManager({ items, hiddenOptional, onToggleOptional, onReset }: ManagerProps) {
   const t = useTranslations("Traces");
@@ -143,10 +166,12 @@ export function ObserveTableColumnManager({ items, hiddenOptional, onToggleOptio
         className={cn(
           "shrink-0 bg-white text-neutral-600 hover:text-neutral-800 dark:bg-zinc-950/50 dark:text-zinc-400 dark:hover:text-zinc-200",
           OBSERVE_CONTROL_OUTLINE_CLASSNAME,
+          // Arco `iconOnly` 仍可能保留内边距/行高，导致 SVG 视觉偏上；强制方形盒内绝对居中
+          "!inline-flex !h-9 !w-9 !min-h-9 !min-w-9 !items-center !justify-center !gap-0 !p-0 !leading-none",
         )}
         data-row-click-stop
       >
-        <IconList className="h-4 w-4 text-neutral-500 dark:text-zinc-400" aria-hidden />
+        <ColumnManagerIcon className={cn("block h-5 w-5 shrink-0 align-middle leading-none", OBSERVE_TOOLBAR_ICON_HOVER)} />
       </Button>
     </Dropdown>
   );

@@ -11,7 +11,11 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ObserveDatePreset, ObserveDateRange } from "@/lib/observe-date-range";
-import { OBSERVE_CONTROL_OUTLINE_CLASSNAME, OBSERVE_PANEL_BORDER_CLASSNAME } from "@/lib/observe-table-style";
+import {
+  OBSERVE_CONTROL_OUTLINE_CLASSNAME,
+  OBSERVE_PANEL_BORDER_CLASSNAME,
+  OBSERVE_TOOLBAR_ICON_HOVER_TINT,
+} from "@/lib/observe-table-style";
 import { cn } from "@/lib/utils";
 
 const RangePicker = DatePicker.RangePicker;
@@ -185,9 +189,15 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
         )}
         aria-label={t("dateRangeLabel")}
       >
-        <IconCalendar className="size-4 shrink-0 text-neutral-500 dark:text-zinc-400" aria-hidden />
+        <IconCalendar
+          className={cn("size-4 shrink-0 text-neutral-500 dark:text-zinc-400", OBSERVE_TOOLBAR_ICON_HOVER_TINT)}
+          aria-hidden
+        />
         <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{triggerLabel}</span>
-        <IconDown className="size-4 shrink-0 text-neutral-400 dark:text-zinc-500" aria-hidden />
+        <IconDown
+          className={cn("size-4 shrink-0 text-neutral-400 dark:text-zinc-500", OBSERVE_TOOLBAR_ICON_HOVER_TINT)}
+          aria-hidden
+        />
       </Button>
     </Dropdown>
   );

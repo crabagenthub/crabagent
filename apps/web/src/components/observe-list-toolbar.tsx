@@ -7,7 +7,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger";
 import type { ObserveDateRange } from "@/lib/observe-date-range";
-import { OBSERVE_CONTROL_OUTLINE_CLASSNAME } from "@/lib/observe-table-style";
+import {
+  OBSERVE_CONTROL_OUTLINE_CLASSNAME,
+  OBSERVE_TOOLBAR_ICON_HOVER,
+  OBSERVE_TOOLBAR_SEARCH_ICON_HOVER,
+} from "@/lib/observe-table-style";
 
 export type { ObserveDateRange, ObserveDatePreset } from "@/lib/observe-date-range";
 
@@ -48,8 +52,13 @@ export function ObserveListToolbar({
       <div className="rounded-xl border border-neutral-200/90 bg-neutral-50/40 p-2 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/25 sm:p-2.5">
         <div className="flex flex-wrap items-center gap-2 gap-y-3 xl:flex-nowrap">
           <div className="flex min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink flex-1 basis-[min(100%,44rem)] items-center gap-2 sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
-            <div className="relative min-w-[12rem] flex-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-neutral-500 dark:text-zinc-500">
+            <div className="group/search relative min-w-[12rem] flex-1">
+              <span
+                className={cn(
+                  "pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2",
+                  OBSERVE_TOOLBAR_SEARCH_ICON_HOVER,
+                )}
+              >
                 <IconSearch className="h-4 w-4" aria-hidden />
               </span>
               <input
@@ -84,7 +93,8 @@ export function ObserveListToolbar({
             >
               <IconRefresh
                 className={cn(
-                  "h-4 w-4 origin-center text-neutral-500 will-change-transform dark:text-zinc-400",
+                  "h-4 w-4 origin-center will-change-transform",
+                  OBSERVE_TOOLBAR_ICON_HOVER,
                   isFetching && "motion-reduce:animate-none motion-reduce:opacity-80 animate-spin",
                 )}
                 aria-hidden
