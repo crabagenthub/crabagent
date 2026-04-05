@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
+import { JsonHighlightedBlock } from "@/components/json-highlighted-block";
 import { MessageHint } from "@/components/message-hint";
 import type { ParsedCrabagentPayload } from "@/lib/trace-crabagent-layers";
 
@@ -43,11 +44,11 @@ function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?
     return <span className="text-[11px] text-ca-muted">—</span>;
   }
   return (
-    <pre
-      className={`ca-code-block m-0 overflow-auto rounded-md border border-border/60 bg-white/80 p-2 text-[10px] leading-relaxed text-neutral-800 ${maxHeightClass ?? "max-h-40"}`}
-    >
-      {value}
-    </pre>
+    <JsonHighlightedBlock
+      text={value}
+      query=""
+      className={`ca-code-block overflow-auto rounded-md border border-border/60 bg-white/80 p-2 text-[10px] leading-relaxed dark:bg-neutral-950/40 ${maxHeightClass ?? "max-h-40"}`}
+    />
   );
 }
 

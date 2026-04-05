@@ -18,6 +18,7 @@ import {
   PromptStagesMultiCompare,
 } from "@/components/prompt-context-compare";
 import { TraceInspectBasicHeader } from "@/components/trace-inspect-basic-header";
+import { HighlightedBlockWithOptionalJson } from "@/components/json-highlighted-block";
 
 type MainTab = "run" | "metadata" | "feedback";
 
@@ -27,50 +28,6 @@ function formatJson(obj: unknown): string {
   } catch {
     return String(obj);
   }
-}
-
-function splitHighlight(text: string, q: string): { hit: boolean; v: string }[] {
-  const query = q.trim();
-  if (!query) {
-    return [{ hit: false, v: text }];
-  }
-  const esc = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(esc, "gi");
-  const out: { hit: boolean; v: string }[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  const s = text;
-  while ((m = re.exec(s)) !== null) {
-    if (m.index > last) {
-      out.push({ hit: false, v: s.slice(last, m.index) });
-    }
-    out.push({ hit: true, v: m[0] });
-    last = m.index + m[0].length;
-    if (m[0].length === 0) {
-      re.lastIndex += 1;
-    }
-  }
-  if (last < s.length) {
-    out.push({ hit: false, v: s.slice(last) });
-  }
-  return out.length > 0 ? out : [{ hit: false, v: text }];
-}
-
-function HighlightedBlock({ text, query }: { text: string; query: string }) {
-  const parts = useMemo(() => splitHighlight(text, query), [text, query]);
-  return (
-    <pre className="m-0 whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-neutral-800">
-      {parts.map((p, i) =>
-        p.hit ? (
-          <mark key={i} className="rounded-sm bg-amber-200/90 px-0.5 text-neutral-900">
-            {p.v}
-          </mark>
-        ) : (
-          <span key={i}>{p.v}</span>
-        ),
-      )}
-    </pre>
-  );
 }
 
 function formatErrorBody(error: string): string {
@@ -426,7 +383,7 @@ export function TraceSpanRunPanel({
                 showPrettyBadge={false}
                 t={t}
               >
-                <HighlightedBlock text={errorBody} query={sErr} />
+                <HighlightedBlockWithOptionalJson text={errorBody} query={sErr} json />
               </SpanInspectSection>
             ) : null}
             <SpanInspectSection
@@ -440,7 +397,11 @@ export function TraceSpanRunPanel({
               showPrettyBadge={false}
               t={t}
             >
-              <HighlightedBlock text={displayInputStr || "—"} query={sIn} />
+              <HighlightedBlockWithOptionalJson
+                text={displayInputStr || "—"}
+                query={sIn}
+                json={!llmInputStageText && inputBlocks.length === 0}
+              />
             </SpanInspectSection>
             <SpanInspectSection
               title={t("detailOutputSection")}
@@ -453,7 +414,11 @@ export function TraceSpanRunPanel({
               showPrettyBadge={false}
               t={t}
             >
-              <HighlightedBlock text={displayOutputStr || "—"} query={sOut} />
+              <HighlightedBlockWithOptionalJson
+                text={displayOutputStr || "—"}
+                query={sOut}
+                json={outputBlocks.length === 0}
+              />
             </SpanInspectSection>
             <SpanInspectSection
               title={t("spanInspectSectionMetadata")}
@@ -466,7 +431,7 @@ export function TraceSpanRunPanel({
               showPrettyBadge={false}
               t={t}
             >
-              <HighlightedBlock text={metadataJson} query={sMeta} />
+              <HighlightedBlockWithOptionalJson text={metadataJson} query={sMeta} json />
             </SpanInspectSection>
             {showToolHint ? (
               <div className="border-b border-border px-3 py-2 sm:px-4">
@@ -543,15 +508,25 @@ export function TraceSpanRunPanel({
               <div className="space-y-4">
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase text-neutral-500">{t("inspectorTabInput")}</p>
-                  <HighlightedBlock text={llmInputStageText ?? inputJson} query={search} />
+                  <HighlightedBlockWithOptionalJson
+                    text={llmInputStageText ?? inputJson}
+                    query={search}
+                    json={!llmInputStageText}
+                  />
                 </div>
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase text-neutral-500">{t("inspectorTabOutput")}</p>
-                  <HighlightedBlock text={outputJson} query={search} />
+                  <HighlightedBlockWithOptionalJson text={outputJson} query={search} json />
                 </div>
               </div>
             ) : viewMode === "json" ? (
-              <HighlightedBlock text={`${inputJson}\n\n---\n\n${outputJson}`} query={search} />
+              <div className="space-y-0">
+                <HighlightedBlockWithOptionalJson text={inputJson} query={search} json />
+                <div className="select-none py-2 text-center font-mono text-[10px] text-muted-foreground">
+                  ---
+                </div>
+                <HighlightedBlockWithOptionalJson text={outputJson} query={search} json />
+              </div>
             ) : (
               <div className="space-y-3">
                 {inputBlocks.map((b, i) => (
@@ -572,7 +547,7 @@ export function TraceSpanRunPanel({
                   </>
                 ) : null}
                 {inputBlocks.length === 0 && outputBlocks.length === 0 ? (
-                  <HighlightedBlock text={inputJson} query={search} />
+                  <HighlightedBlockWithOptionalJson text={inputJson} query={search} json />
                 ) : null}
               </div>
             )}
@@ -607,7 +582,7 @@ export function TraceSpanRunPanel({
             />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <HighlightedBlock text={metadataJson} query={search} />
+            <HighlightedBlockWithOptionalJson text={metadataJson} query={search} json />
           {hasPromptCompare ? (
             <div className="mt-6 border-t border-border pt-4">
               <p className="mb-2 text-xs font-semibold text-neutral-800">{t("inspectorTabContext")}</p>

@@ -941,7 +941,7 @@
     "inspectorMemoryTopK": "Retrieval preview (payload)",
     "inspectorToolPayloadHint": "Tool returned ~{kb} KB — consider preprocessing or summarizing before the model sees it.",
     "inspectorToolResultSize": "Result size: ~{chars} chars",
-    "inspectorSearchPlaceholder": "Search in JSON…",
+    "inspectorSearchPlaceholder": "Search text…",
     "inspectorTabInput": "Input",
     "inspectorTabOutput": "Output",
     "inspectorTabContext": "Context Δ",

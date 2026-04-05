@@ -947,7 +947,7 @@
     "inspectorMemoryTopK": "检索预览（payload）",
     "inspectorToolPayloadHint": "工具返回约 {kb} KB — 建议在进入模型前做摘要或过滤。",
     "inspectorToolResultSize": "结果约 {chars} 字符",
-    "inspectorSearchPlaceholder": "在 JSON 中搜索…",
+    "inspectorSearchPlaceholder": "搜索文本…",
     "inspectorTabInput": "输入",
     "inspectorTabOutput": "输出",
     "inspectorTabContext": "上下文 Δ",
