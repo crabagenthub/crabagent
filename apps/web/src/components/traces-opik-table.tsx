@@ -294,9 +294,6 @@ export function TracesOpikTable({
         key: "trace_id",
         fixed: "left",
         width: 230,
-        sorter: (a, b) => (a.start_time ?? 0) - (b.start_time ?? 0),
-        sortOrder: observeColumnSortOrder("start_time", sortKey, listOrder),
-        sortDirections: ["descend", "ascend"],
         render: (_, row) => (
           <TraceIdCell traceId={row.trace_id} traceTypeLabel={traceListTraceTypeLabel(row.trace_type, t)} />
         ),
