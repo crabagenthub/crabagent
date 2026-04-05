@@ -171,10 +171,13 @@ function SpanInspectSection(props: {
 export function TraceSpanRunPanel({
   span,
   chrome = "full",
+  /** Trace-level `input_json`; `systemPrompt` is merged into input display only for `type === "LLM"` spans. */
+  traceInput = null,
 }: {
   span: SemanticSpanRow | null;
   /** `embedded`: no span summary header, only Details + Feedback tabs (Opik-style inspector). */
   chrome?: "full" | "embedded";
+  traceInput?: Record<string, unknown> | null;
 }) {
   const t = useTranslations("Traces");
   const embedded = chrome === "embedded";
@@ -217,7 +220,22 @@ export function TraceSpanRunPanel({
 
   const tabDefs = embedded ? (["run"] as const) : (["run", "metadata", "feedback"] as const);
 
-  const inputJson = useMemo(() => formatJson(span?.input), [span?.input]);
+  const effectiveSpanInput = useMemo(() => {
+    if (!span) {
+      return {} as Record<string, unknown>;
+    }
+    const base = span.input && typeof span.input === "object" ? { ...span.input } : {};
+    if (span.type !== "LLM") {
+      return base;
+    }
+    const sysRaw = traceInput?.systemPrompt;
+    if (typeof sysRaw === "string" && sysRaw.trim().length > 0) {
+      return { ...base, systemPrompt: sysRaw.trim() };
+    }
+    return base;
+  }, [span, traceInput]);
+
+  const inputJson = useMemo(() => formatJson(span ? effectiveSpanInput : {}), [span, effectiveSpanInput]);
   const outputJson = useMemo(() => formatJson(span?.output), [span?.output]);
   const metadataJson = useMemo(() => formatJson(span?.metadata), [span?.metadata]);
 
@@ -274,18 +292,34 @@ export function TraceSpanRunPanel({
     return rawInputBlocks;
   }, [llmInputStageText, rawInputBlocks]);
 
+  const traceSystemPromptText = useMemo(() => {
+    if (!span || span.type !== "LLM") {
+      return "";
+    }
+    const sysRaw = traceInput?.systemPrompt;
+    return typeof sysRaw === "string" && sysRaw.trim().length > 0 ? sysRaw.trim() : "";
+  }, [span, traceInput]);
+
   const displayInputStr = useMemo(() => {
     if (!span) {
       return "";
     }
     if (llmInputStageText) {
+      if (traceSystemPromptText) {
+        return `${roleLabel(t, "system")}:\n${traceSystemPromptText}\n\n---\n\n${llmInputStageText}`;
+      }
       return llmInputStageText;
     }
     if (inputBlocks.length > 0) {
-      return inputBlocks.map((b) => `${roleLabel(t, b.role)}:\n${b.content}`).join("\n\n---\n\n");
+      const hasSys = inputBlocks.some((b) => b.role === "system");
+      const blocks =
+        traceSystemPromptText && !hasSys
+          ? ([{ role: "system" as const, content: traceSystemPromptText }, ...inputBlocks] as const)
+          : inputBlocks;
+      return blocks.map((b) => `${roleLabel(t, b.role)}:\n${b.content}`).join("\n\n---\n\n");
     }
     return inputJson;
-  }, [span, inputBlocks, inputJson, t, llmInputStageText]);
+  }, [span, inputBlocks, inputJson, t, llmInputStageText, traceSystemPromptText]);
 
   const displayOutputStr = useMemo(() => {
     if (!span) {

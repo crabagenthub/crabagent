@@ -30,7 +30,12 @@ export async function loadSemanticSpans(
   baseUrl: string,
   apiKey: string,
   traceId: string,
-): Promise<{ trace_id: string; items: SemanticSpanRow[] }> {
+): Promise<{
+  trace_id: string;
+  items: SemanticSpanRow[];
+  /** From `opik_traces.input_json` when present (e.g. OpenClaw `systemPrompt`, full `prompt`). */
+  trace_input: Record<string, unknown> | null;
+}> {
   const b = baseUrl.replace(/\/+$/, "");
   const sp = new URLSearchParams();
   sp.set("trace_id", traceId.trim());
@@ -40,9 +45,16 @@ export async function loadSemanticSpans(
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
-  const raw = (await res.json()) as { trace_id?: string; items?: Partial<SemanticSpanRow>[] };
+  const raw = (await res.json()) as {
+    trace_id?: string;
+    items?: Partial<SemanticSpanRow>[];
+    trace_input?: unknown;
+  };
   const items = (raw.items ?? []).map((r) => normalizeSemanticSpan(r));
-  return { trace_id: raw.trace_id ?? traceId.trim(), items };
+  const ti = raw.trace_input;
+  const trace_input =
+    ti && typeof ti === "object" && !Array.isArray(ti) ? (ti as Record<string, unknown>) : null;
+  return { trace_id: raw.trace_id ?? traceId.trim(), items, trace_input };
 }
 
 function normalizeSemanticSpan(r: Partial<SemanticSpanRow>): SemanticSpanRow {

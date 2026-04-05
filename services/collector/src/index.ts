@@ -6,7 +6,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { openDatabase } from "./db.js";
 import { sseSubscribe } from "./sse-hub.js";
-import { querySemanticSpansByTraceId } from "./semantic-spans-query.js";
+import { querySemanticSpansByTraceId, queryTraceInputByTraceId } from "./semantic-spans-query.js";
 import { queryTraceMessages } from "./trace-messages-query.js";
 import { parseObserveListStatus } from "./observe-list-filters.js";
 import {
@@ -169,7 +169,8 @@ const handleTraceSpans = (c: Context) => {
     return c.json({ error: "missing trace_id" }, 400);
   }
   const items = querySemanticSpansByTraceId(db, tid);
-  return c.json({ trace_id: tid, items });
+  const trace_input = queryTraceInputByTraceId(db, tid);
+  return c.json({ trace_id: tid, items, trace_input });
 };
 
 app.get("/v1/trace/spans", handleTraceSpans);

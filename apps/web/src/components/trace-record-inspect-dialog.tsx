@@ -348,7 +348,11 @@ export function TraceRecordInspectDialog({
                   ) : null}
                 </div>
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />
+                  <TraceSpanRunPanel
+                    span={selectedSpan}
+                    chrome="embedded"
+                    traceInput={spansQuery.data?.trace_input ?? null}
+                  />
                 </div>
               </div>
 

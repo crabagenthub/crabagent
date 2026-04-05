@@ -311,6 +311,17 @@ export type SemanticSpanRow = {
   usage_breakdown: Record<string, number>;
 };
 
+/** Parsed `opik_traces.input_json` for the trace (`systemPrompt`, `prompt`, `user_turn`, …). */
+export function queryTraceInputByTraceId(db: Database.Database, traceId: string): Record<string, unknown> {
+  const r = db
+    .prepare(`SELECT input_json FROM opik_traces WHERE trace_id = ? LIMIT 1`)
+    .get(traceId.trim()) as { input_json: string | null } | undefined;
+  if (!r) {
+    return {};
+  }
+  return parseJsonObject(r.input_json != null ? String(r.input_json) : null);
+}
+
 export function querySemanticSpansByTraceId(db: Database.Database, traceId: string): SemanticSpanRow[] {
   const rows = db
     .prepare(
