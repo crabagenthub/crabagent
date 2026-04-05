@@ -14,9 +14,11 @@ import {
   buildDetailEventList,
   filterEventsForRun,
   buildUserTurnList,
+  inferTurnE2ETimeline,
   inferTurnListStatus,
   inferTurnWindowMetrics,
   resolveLinkedRunIdForTurn,
+  type TurnE2ETimeline,
   type TurnListStatus,
 } from "@/lib/user-turn-list";
 import { ConversationTraceFlow } from "@/components/conversation-trace-flow";
@@ -163,7 +165,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   }, [merged, userTurns]);
 
   const turnMetricsByKey = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof inferTurnWindowMetrics>>();
+    const m = new Map<string, ReturnType<typeof inferTurnWindowMetrics> & { e2eTimeline: TurnE2ETimeline }>();
     for (const u of userTurns) {
       const linkedRunId = resolveLinkedRunIdForTurn(u, merged);
       const runEv = filterEventsForRun(merged, linkedRunId);
@@ -174,6 +176,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       const endedAtMs = windowMetrics.endedAtMs ?? runMetrics?.endedAtMs ?? null;
       const durationMs =
         startedAtMs != null && endedAtMs != null && endedAtMs >= startedAtMs ? endedAtMs - startedAtMs : null;
+      const e2eTimeline = inferTurnE2ETimeline(u, windowEv, { startedAtMs, endedAtMs, durationMs });
       m.set(u.listKey, {
         durationMs,
         startedAtMs,
@@ -182,6 +185,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
         completionTokens: windowMetrics.completionTokens,
         cacheReadTokens: windowMetrics.cacheReadTokens,
         displayTotal: windowMetrics.displayTotal,
+        e2eTimeline,
       });
     }
     return m;
@@ -290,12 +294,13 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     const active = u.listKey === selectedListKey;
     const st = turnStatusByKey.get(u.listKey) ?? "unknown";
     const metrics = turnMetricsByKey.get(u.listKey);
+    const e2eTimeline = metrics?.e2eTimeline;
     const durLabel =
-      metrics?.durationMs != null && metrics.durationMs >= 0 ? formatDurationMsSemantic(metrics.durationMs) : "—";
-    const startedLabel =
-      metrics?.startedAtMs != null && metrics.startedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.startedAtMs) : "—";
-    const endedLabel =
-      metrics?.endedAtMs != null && metrics.endedAtMs > 0 ? formatTraceDateTimeFromMs(metrics.endedAtMs) : "—";
+      e2eTimeline?.e2eDurationMs != null && e2eTimeline.e2eDurationMs >= 0
+        ? formatDurationMsSemantic(e2eTimeline.e2eDurationMs)
+        : metrics?.durationMs != null && metrics.durationMs >= 0
+          ? formatDurationMsSemantic(metrics.durationMs)
+          : "—";
     const windowEv = turnWindowEventsByKey.get(u.listKey) ?? [];
     let tokenEntries = aggregateLlmOutputTokenEntries(windowEv);
     if (Object.keys(tokenEntries).length === 0 && metrics?.displayTotal != null && metrics.displayTotal > 0) {
@@ -371,20 +376,33 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 trigger="hover"
                 position="top"
                 content={
-                  <div className="space-y-1.5 p-1 text-xs">
-                    <div className="font-medium text-foreground">{t("threadDrawerTurnExecTime")}</div>
-                    <div className="text-muted-foreground">
-                      {t("threadDrawerTurnExecStart")}: {startedLabel}
-                    </div>
-                    <div className="text-muted-foreground">
-                      {t("threadDrawerTurnExecEnd")}: {endedLabel}
-                    </div>
+                  <div className="max-w-[22rem] space-y-2 p-1 text-xs">
+                    <div className="font-medium text-foreground">{t("threadDrawerTurnE2ETitle")}</div>
+                    {e2eTimeline?.e2eStartedAtMs != null &&
+                    e2eTimeline.e2eStartedAtMs > 0 &&
+                    e2eTimeline?.e2eEndedAtMs != null &&
+                    e2eTimeline.e2eEndedAtMs > 0 ? (
+                      <div className="space-y-1 text-[10px] leading-snug tabular-nums text-foreground">
+                        <p className="m-0">
+                          {t("threadDrawerE2EPopoverStartLine", {
+                            time: formatTraceDateTimeFromMs(e2eTimeline.e2eStartedAtMs),
+                          })}
+                        </p>
+                        <p className="m-0">
+                          {t("threadDrawerE2EPopoverEndLine", {
+                            time: formatTraceDateTimeFromMs(e2eTimeline.e2eEndedAtMs),
+                          })}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[10px] leading-snug text-muted-foreground">{t("threadDrawerTimelineNoTimeRange")}</p>
+                    )}
                   </div>
                 }
               >
                 <span
                   className="inline-flex items-center gap-0.5"
-                  title={t("threadDrawerTurnExecTime")}
+                  title={t("threadDrawerTurnE2ETitle")}
                 >
                   <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
                   {durLabel}

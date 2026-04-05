@@ -130,14 +130,34 @@ function whenOf(e: TraceTimelineEvent): string {
 /** 与抽屉时间轴 `whenLabel` 同源，用于会话列表「最新消息」时间行与抽屉一致。 */
 export function traceEventWhenMs(e: TraceTimelineEvent): number | null {
   const raw = e.client_ts ?? e.created_at;
-  if (raw == null) {
-    return null;
+  if (raw != null) {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw > 0 ? raw : null;
+    }
+    const s = String(raw).trim();
+    if (s.length > 0) {
+      if (/^\d+$/.test(s)) {
+        const n = Number(s);
+        if (Number.isFinite(n) && n > 0) {
+          return n < 1e12 ? n * 1000 : n;
+        }
+      }
+      const parsed = Date.parse(s);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
   }
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw > 0 ? raw : null;
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+    return e.started_at_ms;
   }
-  const ms = Date.parse(String(raw));
-  return Number.isFinite(ms) && ms > 0 ? ms : null;
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+    return e.ended_at_ms;
+  }
+  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms > 0) {
+    return e.updated_at_ms;
+  }
+  return null;
 }
 
 function strOrNull(v: unknown): string | null {
@@ -1003,10 +1023,27 @@ function parseEventTimeMs(e: TraceTimelineEvent): number | null {
   if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
     return e.started_at_ms;
   }
-  const s = e.client_ts ?? e.created_at;
-  if (typeof s === "string" && s.trim()) {
-    const t = Date.parse(s);
-    if (Number.isFinite(t)) {
+  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms > 0) {
+    return e.updated_at_ms;
+  }
+  const raw = e.client_ts ?? e.created_at;
+  if (raw == null) {
+    return null;
+  }
+  /** 与 {@link traceEventWhenMs} 一致：ingest 可能把 client_ts 存成 epoch 毫秒数字 */
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw > 0 ? raw : null;
+  }
+  const rs = typeof raw === "string" ? raw.trim() : "";
+  if (rs.length > 0) {
+    if (/^\d+$/.test(rs)) {
+      const n = Number(rs);
+      if (Number.isFinite(n) && n > 0) {
+        return n < 1e12 ? n * 1000 : n;
+      }
+    }
+    const t = Date.parse(rs);
+    if (Number.isFinite(t) && t > 0) {
       return t;
     }
   }
@@ -1144,6 +1181,294 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
     completionTokens: completionSum,
     cacheReadTokens: cacheSum,
     displayTotal,
+  };
+}
+
+/**
+ * 单条事件上的「消息开始」：与列表 `whenLabel` / {@link traceEventWhenMs} 一致，
+ * 优先用户发送/客户端时间（`client_ts` / `created_at`），再回退到 {@link parseEventTimeMs}。
+ */
+function anchorMessageStartMs(e: TraceTimelineEvent): number | null {
+  const client = traceEventWhenMs(e);
+  if (client != null) {
+    return client;
+  }
+  return parseEventTimeMs(e);
+}
+
+/** 用户消息锚点（接入时间）→ 用于端到端口径。 */
+function inferAnchorMessageMs(turn: UserTurnListItem, sorted: TraceTimelineEvent[]): number | null {
+  for (const e of sorted) {
+    if ((e.type ?? "").toLowerCase() === "message_received" && e.event_id === turn.listKey) {
+      const t = anchorMessageStartMs(e);
+      if (t != null) {
+        return t;
+      }
+    }
+  }
+  if (turn.source === "llm_input") {
+    for (const e of sorted) {
+      if ((e.type ?? "").toLowerCase() === "llm_input" && e.event_id === turn.listKey) {
+        const t = anchorMessageStartMs(e);
+        if (t != null) {
+          return t;
+        }
+      }
+    }
+  }
+  if (typeof turn.whenMs === "number" && turn.whenMs > 0) {
+    return turn.whenMs;
+  }
+  if (sorted.length > 0) {
+    return anchorMessageStartMs(sorted[0]!);
+  }
+  return null;
+}
+
+function segmentBoundaryMs(e: TraceTimelineEvent): number | null {
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+    return e.started_at_ms;
+  }
+  return parseEventTimeMs(e);
+}
+
+function eventEndedAtMs(e: TraceTimelineEvent): number | null {
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+    return e.ended_at_ms;
+  }
+  const s = segmentBoundaryMs(e);
+  if (s != null) {
+    return s;
+  }
+  return parseEventTimeMs(e);
+}
+
+/** 与 Traces `phase*` 对齐：消息进入 OpenClaw 后常见节点类型。 */
+const OPENCLAW_NODE_LABEL_KEYS: Record<string, string> = {
+  message_received: "phaseUserMessage",
+  session_start: "phaseSessionStart",
+  before_model_resolve: "phaseBeforeModelResolve",
+  before_prompt_build: "phaseBeforePromptBuild",
+  before_agent_start: "phaseBeforePromptBuild",
+  hook_contribution: "phaseHookContribution",
+  context_prune_applied: "phaseContextPrune",
+  before_compaction: "phaseCompactionBefore",
+  model_stream_context: "phaseModelStreamContext",
+  llm_input: "phaseLlmInput",
+  llm_output: "phaseLlmOutput",
+  before_tool_call: "phaseToolCall",
+  after_tool_call: "phaseToolResult",
+  agent_end: "phaseAgentEnd",
+  after_compaction: "phaseCompactionAfter",
+  subagent_spawned: "phaseSubagentSpawned",
+  subagent_ended: "phaseSubagentEnded",
+};
+
+const OPENCLAW_PIPELINE_TYPES = new Set(Object.keys(OPENCLAW_NODE_LABEL_KEYS));
+
+/** 抽屉 Popover 时间线：一句话说明该阶段含义（i18n message key） */
+const OPENCLAW_NODE_BLURB_KEYS: Record<string, string> = {
+  message_received: "threadDrawerPipelineBlurbMessageReceived",
+  session_start: "threadDrawerPipelineBlurbSessionStart",
+  before_model_resolve: "threadDrawerPipelineBlurbBeforeModelResolve",
+  before_prompt_build: "threadDrawerPipelineBlurbBeforePromptBuild",
+  before_agent_start: "threadDrawerPipelineBlurbBeforeAgentStart",
+  hook_contribution: "threadDrawerPipelineBlurbHookContribution",
+  context_prune_applied: "threadDrawerPipelineBlurbContextPrune",
+  before_compaction: "threadDrawerPipelineBlurbBeforeCompaction",
+  model_stream_context: "threadDrawerPipelineBlurbModelStreamContext",
+  llm_input: "threadDrawerPipelineBlurbLlmInput",
+  llm_output: "threadDrawerPipelineBlurbLlmOutput",
+  before_tool_call: "threadDrawerPipelineBlurbBeforeToolCall",
+  after_tool_call: "threadDrawerPipelineBlurbAfterToolCall",
+  agent_end: "threadDrawerPipelineBlurbAgentEnd",
+  after_compaction: "threadDrawerPipelineBlurbAfterCompaction",
+  subagent_spawned: "threadDrawerPipelineBlurbSubagentSpawned",
+  subagent_ended: "threadDrawerPipelineBlurbSubagentEnded",
+};
+
+function dashStr(v: unknown): string {
+  if (typeof v === "string" && v.trim()) {
+    return v.trim();
+  }
+  return "—";
+}
+
+function toolNameFromOpenclawPayload(p: Record<string, unknown>): string {
+  const a = p.toolName;
+  if (typeof a === "string" && a.trim()) {
+    return a.trim();
+  }
+  const b = p.name;
+  if (typeof b === "string" && b.trim()) {
+    return b.trim();
+  }
+  return "";
+}
+
+/** 抽屉时间线副标题：区分多轮 LLM、工具名（与 Trace 详情 pipeline 摘要字段对齐）。 */
+export type OpenclawPipelineSubtitle =
+  | { kind: "llm_in"; round: number; provider: string; model: string }
+  | { kind: "llm_out"; round: number; assistantCount: number }
+  | { kind: "tool"; name: string };
+
+function inferOpenclawPipelineSubtitle(
+  ty: string,
+  p: Record<string, unknown>,
+  rounds: { llmIn: number; llmOut: number },
+): OpenclawPipelineSubtitle | undefined {
+  if (ty === "llm_input") {
+    rounds.llmIn += 1;
+    return {
+      kind: "llm_in",
+      round: rounds.llmIn,
+      provider: dashStr(p.provider),
+      model: dashStr(p.model),
+    };
+  }
+  if (ty === "llm_output") {
+    rounds.llmOut += 1;
+    const texts = p.assistantTexts;
+    const n = Array.isArray(texts) ? texts.length : 0;
+    return { kind: "llm_out", round: rounds.llmOut, assistantCount: n };
+  }
+  if (ty === "before_tool_call" || ty === "after_tool_call") {
+    const name = toolNameFromOpenclawPayload(p);
+    if (!name) {
+      return undefined;
+    }
+    return { kind: "tool", name };
+  }
+  return undefined;
+}
+
+function inferNodeDurationAndKind(
+  e: TraceTimelineEvent,
+  next: TraceTimelineEvent | null,
+): { durationMs: number | null; durationKind: "intrinsic" | "gap_to_next" | "none" } {
+  if (typeof e.duration_ms === "number" && Number.isFinite(e.duration_ms) && e.duration_ms >= 0) {
+    return { durationMs: e.duration_ms, durationKind: "intrinsic" };
+  }
+  const s = segmentBoundaryMs(e);
+  const end = typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0 ? e.ended_at_ms : null;
+  if (s != null && end != null && end >= s) {
+    return { durationMs: end - s, durationKind: "intrinsic" };
+  }
+  if (next) {
+    const ns = segmentBoundaryMs(next);
+    if (s != null && ns != null && ns >= s) {
+      return { durationMs: ns - s, durationKind: "gap_to_next" };
+    }
+  }
+  return { durationMs: null, durationKind: "none" };
+}
+
+
+/**
+ * 本回合窗口内，消息进入 OpenClaw 后的节点时间线（按事件顺序，白名单类型）。
+ */
+export type OpenclawPipelineNode = {
+  key: string;
+  labelKey: string;
+  rawType: string;
+  /** 阶段一句话说明（Traces i18n key） */
+  blurbKey: string;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
+  durationMs: number | null;
+  durationKind: "intrinsic" | "gap_to_next" | "none";
+  /** 轮次、模型、工具名等，避免多段同名 phase 无法区分 */
+  subtitle?: OpenclawPipelineSubtitle;
+};
+
+export function inferOpenclawPipelineNodes(turn: UserTurnListItem, sortedInput: TraceTimelineEvent[]): OpenclawPipelineNode[] {
+  const sorted = [...sortedInput].sort(compareTimelineChrono);
+  if (sorted.length === 0) {
+    return [];
+  }
+
+  let anchorIdx = sorted.findIndex((e) => {
+    if (turn.source === "message_received") {
+      return (e.type ?? "").toLowerCase() === "message_received" && e.event_id === turn.listKey;
+    }
+    return (e.type ?? "").toLowerCase() === "llm_input" && e.event_id === turn.listKey;
+  });
+  if (anchorIdx < 0) {
+    anchorIdx = 0;
+  }
+
+  const slice = sorted.slice(anchorIdx);
+  const filtered = slice.filter((e) => OPENCLAW_PIPELINE_TYPES.has((e.type ?? "").toLowerCase()));
+  if (filtered.length === 0) {
+    return [];
+  }
+
+  const out: OpenclawPipelineNode[] = [];
+  const rounds = { llmIn: 0, llmOut: 0 };
+  for (let i = 0; i < filtered.length; i++) {
+    const e = filtered[i]!;
+    const next = i + 1 < filtered.length ? filtered[i + 1]! : null;
+    const ty = (e.type ?? "").toLowerCase();
+    const labelKey = OPENCLAW_NODE_LABEL_KEYS[ty] ?? "threadDrawerStageUnknownHook";
+    const blurbKey = OPENCLAW_NODE_BLURB_KEYS[ty] ?? "threadDrawerPipelineBlurbUnknown";
+    const { durationMs, durationKind } = inferNodeDurationAndKind(e, next);
+    const startedAtMs = segmentBoundaryMs(e) ?? traceEventWhenMs(e);
+    const endedAtMs = eventEndedAtMs(e) ?? traceEventWhenMs(e);
+    const p = payloadRecord(e);
+    const subtitle = inferOpenclawPipelineSubtitle(ty, p, rounds);
+
+    out.push({
+      key: dedupeKeyForEvent(e),
+      labelKey,
+      blurbKey,
+      rawType: ty,
+      startedAtMs,
+      endedAtMs,
+      durationMs,
+      durationKind,
+      subtitle,
+    });
+  }
+  return out;
+}
+
+/**
+ * 端到端：用户消息接入 → 最后输出；{@link inferOpenclawPipelineNodes} 为 OpenClaw 节点时间线。
+ */
+export type TurnE2ETimeline = {
+  e2eDurationMs: number | null;
+  e2eStartedAtMs: number | null;
+  e2eEndedAtMs: number | null;
+  pipelineNodes: OpenclawPipelineNode[];
+};
+
+export function inferTurnE2ETimeline(
+  turn: UserTurnListItem,
+  windowEvents: TraceTimelineEvent[],
+  execution: { startedAtMs: number | null; endedAtMs: number | null; durationMs: number | null },
+): TurnE2ETimeline {
+  const sorted = windowEvents.length === 0 ? [] : [...windowEvents].sort(compareTimelineChrono);
+  const anchorMs = inferAnchorMessageMs(turn, sorted);
+  const execStart = execution.startedAtMs;
+  const execEnd = execution.endedAtMs;
+
+  const e2eStartedAtMs = anchorMs ?? execStart ?? null;
+  const e2eEndedAtMs = execEnd;
+
+  let e2eDurationMs: number | null = null;
+  if (e2eStartedAtMs != null && e2eEndedAtMs != null && e2eEndedAtMs >= e2eStartedAtMs) {
+    e2eDurationMs = e2eEndedAtMs - e2eStartedAtMs;
+  } else if (execution.durationMs != null && execution.durationMs >= 0) {
+    e2eDurationMs = execution.durationMs;
+  }
+
+  const pipelineNodes = inferOpenclawPipelineNodes(turn, sorted);
+
+  return {
+    e2eDurationMs,
+    e2eStartedAtMs,
+    e2eEndedAtMs,
+    pipelineNodes,
   };
 }
 

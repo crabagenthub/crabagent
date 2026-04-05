@@ -29,10 +29,11 @@ export type TraceTimelineEvent = {
   /** 异步跟进 trace（如钉钉）：会话列表合并到主命令展示。 */
   async_command?: boolean | null;
   channel?: string | null;
-  client_ts?: string | null;
+  /** 服务端可能为 ISO 字符串、epoch 毫秒数字、或数字字符串 */
+  client_ts?: string | number | null;
   type?: string;
   payload?: unknown;
-  created_at?: string;
+  created_at?: string | number | null;
   started_at_ms?: number | null;
   ended_at_ms?: number | null;
   updated_at_ms?: number | null;
