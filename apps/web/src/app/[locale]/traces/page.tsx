@@ -527,7 +527,6 @@ export default function TracesPage() {
       { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "list_status", mandatory: true as const, label: t("spansColStatus") },
       { key: "duration_ms", mandatory: true as const, label: t("spansColDuration") },
-      { key: "span_type", mandatory: true as const, label: t("spansColType") },
       { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
       { key: "output_preview", mandatory: true as const, label: t("spansColOutput") },
       { key: "start_time_ms", label: t("spansColExecStart") },

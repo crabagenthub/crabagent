@@ -30,7 +30,6 @@ import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 import {
-  OBSERVE_TABLE_CLASSNAME,
   OBSERVE_TABLE_FRAME_CLASSNAME,
   OBSERVE_TABLE_SCROLL_X,
 } from "@/lib/observe-table-style";
@@ -296,7 +295,7 @@ export function TracesOpikTable({
         dataIndex: "trace_id",
         key: "trace_id",
         fixed: "left",
-        width: 260,
+        width: 230,
         render: (_, row) => (
           <TraceIdCell traceId={row.trace_id} traceTypeLabel={traceListTraceTypeLabel(row.trace_type, t)} />
         ),

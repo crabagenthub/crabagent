@@ -27,7 +27,6 @@ import { toast } from "@/components/ui/feedback";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import {
-  OBSERVE_TABLE_CLASSNAME,
   OBSERVE_TABLE_FRAME_CLASSNAME,
   OBSERVE_TABLE_SCROLL_X,
 } from "@/lib/observe-table-style";
@@ -46,7 +45,6 @@ const SPANS_COLUMN_MANDATORY = new Set([
   "name",
   "list_status",
   "duration_ms",
-  "span_type",
   "input_preview",
   "output_preview",
 ]);
@@ -172,7 +170,6 @@ export function SpansDataTable({
       { key: "channel_name", mandatory: true as const, label: t("spansColChannel") },
       { key: "name", mandatory: true as const, label: t("spansColName") },
       { key: "duration_ms", mandatory: true as const, label: t("spansColDuration") },
-      { key: "span_type", mandatory: true as const, label: t("spansColType") },
       { key: "input_preview", mandatory: true as const, label: t("spansColInput") },
       { key: "output_preview", mandatory: true as const, label: t("spansColOutput") },
       { key: "start_time_ms", label: t("spansColExecStart") },
@@ -208,7 +205,7 @@ export function SpansDataTable({
         dataIndex: "span_id",
         key: "span_id",
         fixed: "left",
-        width: 260,
+        width: 230,
         render: (_, r) => <SpanIdCell spanId={r.span_id} spanType={r.span_type} />,
       },
       {
@@ -308,12 +305,6 @@ export function SpansDataTable({
             </div>
           );
         },
-      },
-      {
-        title: <ObserveTableHeaderLabel>{t("spansColType")}</ObserveTableHeaderLabel>,
-        dataIndex: "span_type",
-        key: "span_type",
-        render: (_, r) => <span className="text-xs text-neutral-600">{r.span_type}</span>,
       },
       {
         title: <ObserveTableHeaderLabel>{t("spansColInput")}</ObserveTableHeaderLabel>,

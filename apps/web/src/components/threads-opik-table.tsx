@@ -27,7 +27,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Popover } from "@arco-design/web-react";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import {
-  OBSERVE_TABLE_CLASSNAME,
   OBSERVE_TABLE_FRAME_CLASSNAME,
   OBSERVE_TABLE_SCROLL_X,
 } from "@/lib/observe-table-style";
