@@ -2,7 +2,7 @@ import type { SorterInfo } from "@arco-design/web-react/es/Table/interface";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 
 /** `dataIndex` values that map to API `sort` time ordering (default). */
-const TIME_DATA_INDEX = new Set(["start_time", "first_seen_ms", "start_time_ms"]);
+const TIME_DATA_INDEX = new Set(["start_time", "first_seen_ms", "start_time_ms", "trace_id"]);
 
 /** `dataIndex` for token totals sort (`sort=tokens`). */
 const TOKENS_DATA_INDEX = new Set(["total_tokens"]);

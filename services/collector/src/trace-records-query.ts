@@ -29,6 +29,17 @@ export type TraceRecordsListQuery = {
 
 const LIST_PREVIEW_MAX_CHARS = 16_384;
 
+const ALLOWED_TRACE_TYPES = new Set(["external", "subagent", "async_command", "system"]);
+
+/** DB 中若误存 UUID 等非枚举值，列表 API 仍按 external 等合法值返回。 */
+function normalizeTraceTypeForList(raw: unknown): string {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (v && ALLOWED_TRACE_TYPES.has(v)) {
+    return v;
+  }
+  return "external";
+}
+
 const TRACE_RECORDS_SELECT = `
 SELECT t.trace_id,
        NULL AS session_id,
@@ -269,8 +280,7 @@ export function mapTraceRecordRow(r: TraceRecordRawRow): Record<string, unknown>
     durRaw != null && durRaw !== "" && Number.isFinite(Number(durRaw)) ? Number(durRaw) : null;
 
   const traceTypeRaw = r.trace_type;
-  const trace_type =
-    typeof traceTypeRaw === "string" && traceTypeRaw.trim() !== "" ? traceTypeRaw.trim() : "external";
+  const trace_type = normalizeTraceTypeForList(traceTypeRaw);
 
   return {
     trace_id: r.trace_id,

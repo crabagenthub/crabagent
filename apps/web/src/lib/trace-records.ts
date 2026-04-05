@@ -29,6 +29,19 @@ export type TraceRecordRow = {
   duration_ms?: number | null;
 };
 
+const ALLOWED_TRACE_TYPES = new Set(["external", "subagent", "async_command", "system"]);
+
+/**
+ * `opik_traces.trace_type` 应为四枚举之一；若出现 UUID 等异常值（错误写入、旧库无 CHECK），按 external 展示。
+ */
+function normalizeTraceTypeField(raw: unknown): string {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (v && ALLOWED_TRACE_TYPES.has(v)) {
+    return v;
+  }
+  return "external";
+}
+
 export type LoadTraceRecordsParams = {
   limit?: number;
   offset?: number;
@@ -136,6 +149,7 @@ function normalizeTraceRecord(r: TraceRecordRow): TraceRecordRow {
     total_cost: total_cost != null && Number.isFinite(total_cost) ? total_cost : null,
     duration_ms: duration_ms != null ? duration_ms : null,
     output_preview: typeof r.output_preview === "string" ? r.output_preview : null,
+    trace_type: normalizeTraceTypeField(r.trace_type),
   };
 }
 

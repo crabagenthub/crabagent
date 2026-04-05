@@ -54,7 +54,7 @@ import {
 import { cn, formatShortId } from "@/lib/utils";
 
 /** Bump when default column visibility changes so new defaults apply. */
-export const OBSERVE_TRACES_TABLE_ID = "observe-traces-v3";
+export const OBSERVE_TRACES_TABLE_ID = "observe-traces-v4";
 
 const TRACES_COLUMN_MANDATORY = new Set(["trace_id", "channel", "agent", "status", "duration"]);
 
@@ -64,7 +64,6 @@ export const TRACES_OPTIONAL_KEYS: readonly string[] = [
   "openclaw_routing_fast",
   "openclaw_routing_verbose",
   "openclaw_routing_reasoning",
-  "start_time",
   "input",
   "output",
   "errors",
@@ -260,7 +259,6 @@ export function TracesOpikTable({
       { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
       { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
       { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
-      { key: "start_time", label: t("colStartTime") },
       { key: "input", label: t("colInput") },
       { key: "output", label: t("colOutput") },
       { key: "errors", label: t("colErrors") },
@@ -296,6 +294,9 @@ export function TracesOpikTable({
         key: "trace_id",
         fixed: "left",
         width: 230,
+        sorter: (a, b) => (a.start_time ?? 0) - (b.start_time ?? 0),
+        sortOrder: observeColumnSortOrder("start_time", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         render: (_, row) => (
           <TraceIdCell traceId={row.trace_id} traceTypeLabel={traceListTraceTypeLabel(row.trace_type, t)} />
         ),
@@ -481,19 +482,6 @@ export function TracesOpikTable({
         key: "openclaw_routing_reasoning",
         render: (_, row) => (
           <OpenclawRoutingMappedCell raw={traceRecordOpenclawRouting(row)?.reasoning} role="reasoning" t={t} />
-        ),
-      },
-      {
-        title: <ObserveTableHeaderLabel>{t("colStartTime")}</ObserveTableHeaderLabel>,
-        dataIndex: "start_time",
-        key: "start_time",
-        sorter: (a, b) => (a.start_time ?? 0) - (b.start_time ?? 0),
-        sortOrder: observeColumnSortOrder("start_time", sortKey, listOrder),
-        sortDirections: ["descend", "ascend"],
-        render: (_, row) => (
-          <span className="text-xs text-neutral-700">
-            {formatTraceDateTimeLocal(new Date(row.start_time).toISOString())}
-          </span>
         ),
       },
       {

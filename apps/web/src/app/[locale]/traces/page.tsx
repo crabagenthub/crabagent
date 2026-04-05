@@ -497,7 +497,6 @@ export default function TracesPage() {
       { key: "openclaw_routing_fast", label: t("openclawRoutingFieldFast") },
       { key: "openclaw_routing_verbose", label: t("openclawRoutingFieldVerbose") },
       { key: "openclaw_routing_reasoning", label: t("openclawRoutingFieldReasoning") },
-      { key: "start_time", label: t("colStartTime") },
       { key: "input", label: t("colInput") },
       { key: "output", label: t("colOutput") },
       { key: "errors", label: t("colErrors") },
