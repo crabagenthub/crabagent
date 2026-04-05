@@ -109,7 +109,8 @@ export function ObserveDateRangeTrigger({ value, onChange, className }: Props) {
       droplist={
         <div
           className={cn(
-            "w-[20rem] rounded-md bg-popover p-2 text-popover-foreground shadow-sm",
+            "rounded-md bg-popover p-2 text-popover-foreground shadow-sm",
+            customOpen ? "w-[20rem]" : "w-[13rem]",
             OBSERVE_PANEL_BORDER_CLASSNAME
           )}
         >
