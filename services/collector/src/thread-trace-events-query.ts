@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { parseUsageExtended } from "./semantic-spans-query.js";
 import { normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
 import { queryTracesInConversationScope } from "./thread-scope-query.js";
 
@@ -363,6 +364,69 @@ function usageHasTokenSignals(u: unknown): boolean {
   return false;
 }
 
+/**
+ * 当 trace `metadata.usage` 已有 token 字段但数值落后于同 trace 下主 LLM span（例如插件先写了合并后的 total、后到的 span 才是完整 input/output），
+ * 仍应用 span，使时间线 `llm_output` 与语义树 / 端到端汇总一致。
+ */
+function shouldPreferPrimaryLlmSpanUsage(outUsage: unknown, spanUsage: Record<string, unknown>): boolean {
+  let spanJson: string;
+  try {
+    spanJson = JSON.stringify(spanUsage);
+  } catch {
+    return false;
+  }
+  const outJson =
+    outUsage && typeof outUsage === "object" && !Array.isArray(outUsage)
+      ? JSON.stringify(outUsage)
+      : "";
+  const spanP = parseUsageExtended(spanJson);
+  const outP = parseUsageExtended(outJson || null);
+  const st = spanP.total_tokens;
+  const ot = outP.total_tokens;
+  if (st != null && st > 0 && ot != null && ot > 0 && st > ot) {
+    return true;
+  }
+  return false;
+}
+
+/** 同 trace 下多条 `llm` span 的 usage 相加，与语义树多节点之和一致。 */
+function aggregateAllLlmSpanUsages(usageJsonRows: (string | null | undefined)[]): Record<string, unknown> | null {
+  let sumP = 0;
+  let sumC = 0;
+  let sumCache = 0;
+  let sumTotal = 0;
+  let n = 0;
+  for (const raw of usageJsonRows) {
+    const u = parseUsageExtended(raw != null ? String(raw) : null);
+    if (u.prompt_tokens != null && Number.isFinite(u.prompt_tokens)) {
+      sumP += Math.max(0, Math.trunc(u.prompt_tokens));
+    }
+    if (u.completion_tokens != null && Number.isFinite(u.completion_tokens)) {
+      sumC += Math.max(0, Math.trunc(u.completion_tokens));
+    }
+    if (u.cache_read_tokens != null && Number.isFinite(u.cache_read_tokens)) {
+      sumCache += Math.max(0, Math.trunc(u.cache_read_tokens));
+    }
+    if (u.total_tokens != null && Number.isFinite(u.total_tokens)) {
+      sumTotal += Math.max(0, Math.trunc(u.total_tokens));
+    }
+    n += 1;
+  }
+  if (n === 0 || sumP + sumC + sumCache + sumTotal === 0) {
+    return null;
+  }
+  const total = sumTotal > 0 ? sumTotal : sumP + sumC + (sumCache > 0 ? sumCache : 0);
+  const out: Record<string, unknown> = {
+    input: sumP,
+    output: sumC,
+    total,
+  };
+  if (sumCache > 0) {
+    out.cacheRead = sumCache;
+  }
+  return out;
+}
+
 function pickContextWindowTokens(input: Record<string, unknown>, metadata: Record<string, unknown>): number | null {
   const tryNum = (v: unknown): number | null => {
     if (typeof v === "number" && Number.isFinite(v) && v > 0) {
@@ -428,12 +492,21 @@ function llmOutputPayload(
   ) {
     out.usage = { ...(mdUsage as Record<string, unknown>) };
   }
-  if (spanUsage && usageHasTokenSignals(spanUsage) && !usageHasTokenSignals(out.usage)) {
-    const base =
-      out.usage && typeof out.usage === "object" && !Array.isArray(out.usage)
-        ? (out.usage as Record<string, unknown>)
-        : {};
-    out.usage = { ...base, ...spanUsage };
+  if (spanUsage && usageHasTokenSignals(spanUsage)) {
+    const spanBeatsMetadata = shouldPreferPrimaryLlmSpanUsage(out.usage, spanUsage);
+    const takeSpan = !usageHasTokenSignals(out.usage) || spanBeatsMetadata;
+    if (takeSpan) {
+      if (spanBeatsMetadata) {
+        /** 避免 metadata 里滞后的 `total_tokens` 与 span 的 `total`/`input` 并存，前端优先读 canonical 键时算错。 */
+        out.usage = { ...spanUsage };
+      } else {
+        const base =
+          out.usage && typeof out.usage === "object" && !Array.isArray(out.usage)
+            ? (out.usage as Record<string, unknown>)
+            : {};
+        out.usage = { ...base, ...spanUsage };
+      }
+    }
   }
   const mdUsageMetadata = metadata.usageMetadata;
   if (
@@ -508,11 +581,10 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
   const events: Record<string, unknown>[] = [];
   let seq = 0;
 
-  const selectPrimaryLlmSpanRow = db.prepare(
+  const selectAllLlmSpans = db.prepare(
     `SELECT output_json, usage_json, model, provider FROM opik_spans
       WHERE trace_id = ? AND span_type = 'llm'
-      ORDER BY COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC
-      LIMIT 1`,
+      ORDER BY COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC`,
   );
 
   for (const r of rows) {
@@ -530,18 +602,19 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     seq += 1;
 
     const input = safeObject(r.input_json);
-    const spanRow = selectPrimaryLlmSpanRow.get(traceId) as {
+    const spanRows = selectAllLlmSpans.all(traceId) as {
       output_json: string | null;
       usage_json: string | null;
       model: string | null;
       provider: string | null;
-    } | undefined;
-    const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), spanRow?.output_json ?? null);
+    }[];
+    const primarySpanRow = spanRows[0];
+    const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), primarySpanRow?.output_json ?? null);
     const metadata = safeObject(r.metadata_json);
-    const spanUsageRaw = safeObject(spanRow?.usage_json ?? null);
-    const spanUsageForPayload = Object.keys(spanUsageRaw).length > 0 ? spanUsageRaw : null;
-    const spanModel = typeof spanRow?.model === "string" && spanRow.model.trim() ? spanRow.model.trim() : null;
-    const spanProvider = typeof spanRow?.provider === "string" && spanRow.provider.trim() ? spanRow.provider.trim() : null;
+    const aggUsage = aggregateAllLlmSpanUsages(spanRows.map((x) => x.usage_json));
+    const spanUsageForPayload = aggUsage && Object.keys(aggUsage).length > 0 ? aggUsage : null;
+    const spanModel = typeof primarySpanRow?.model === "string" && primarySpanRow.model.trim() ? primarySpanRow.model.trim() : null;
+    const spanProvider = typeof primarySpanRow?.provider === "string" && primarySpanRow.provider.trim() ? primarySpanRow.provider.trim() : null;
     const contextWindowTokens = pickContextWindowTokens(input, metadata);
 
     const agentName = agentNameFromMetadata(metadata);
@@ -565,6 +638,8 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     const threadIdRow =
       typeof r.thread_id === "string" && r.thread_id.trim() ? r.thread_id.trim() : null;
     const runKindRow = runKindFromMetadata(metadata) ?? runKindFromTraceType(r.trace_type);
+    const traceTypeRow =
+      typeof r.trace_type === "string" && r.trace_type.trim() ? r.trace_type.trim() : null;
 
     events.push({
       id: baseId,
@@ -572,6 +647,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "message_received",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      trace_type: traceTypeRow,
       run_kind: runKindRow,
       agent_id: null,
       agent_name: agentName,
@@ -593,6 +669,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "llm_input",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      trace_type: traceTypeRow,
       run_kind: runKindRow,
       run_id: runId,
       agent_name: agentName,
@@ -631,6 +708,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "llm_output",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      trace_type: traceTypeRow,
       run_kind: runKindRow,
       run_id: runId,
       agent_name: agentName,

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { clampFacetFilter, traceRowTimeoutLikeSqlForAlias } from "./observe-list-filters.js";
-import { TRACE_ROW_TOKEN_INTEGER_EXPR } from "./opik-tokens-sql.js";
+import { THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL } from "./opik-tokens-sql.js";
 
 const THREAD_LAST_TRACE_STATUS_SUBQUERY = `(SELECT CASE
   WHEN lt.is_complete = 0 THEN 'running'
@@ -90,11 +90,7 @@ SELECT th.thread_id,
           AND t.project_name = th.project_name
         ORDER BY t.created_at_ms DESC, t.trace_id DESC
         LIMIT 1) AS last_message_created_at_ms,
-       (SELECT COALESCE(SUM(COALESCE(${TRACE_ROW_TOKEN_INTEGER_EXPR}, 0)), 0)
-        FROM opik_traces t
-        WHERE t.thread_id = th.thread_id
-          AND t.workspace_name = th.workspace_name
-          AND t.project_name = th.project_name) AS total_tokens,
+       ${THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL} AS total_tokens,
        (SELECT SUM(COALESCE(t.total_cost, 0))
         FROM opik_traces t
         WHERE t.thread_id = th.thread_id
@@ -118,11 +114,7 @@ SELECT th.thread_id,
 FROM opik_threads th
 `;
 
-const THREAD_TOTAL_TOKENS_ORDER_EXPR = `(SELECT COALESCE(SUM(COALESCE(${TRACE_ROW_TOKEN_INTEGER_EXPR}, 0)), 0)
-        FROM opik_traces t
-        WHERE t.thread_id = th.thread_id
-          AND t.workspace_name = th.workspace_name
-          AND t.project_name = th.project_name)`;
+const THREAD_TOTAL_TOKENS_ORDER_EXPR = THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL;
 
 export function buildThreadRecordsWhere(q: ThreadRecordsListQuery): { whereSql: string; params: unknown[] } {
   const whereParts: string[] = [];

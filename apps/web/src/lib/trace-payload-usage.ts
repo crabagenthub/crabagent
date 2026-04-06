@@ -157,7 +157,7 @@ export type ThreadLlmUsageAggregate = {
   prompt: number;
   completion: number;
   cacheRead: number;
-  /** 与回合窗口一致：有分项合优先；否则累加各条显式 total */
+  /** 与回合窗口一致：分项合为 prompt+completion（不含 cache）；否则累加各条显式 total */
   displayTotal: number | null;
 };
 
@@ -191,9 +191,9 @@ export function aggregateThreadLlmOutputUsage(
     }
   }
 
-  const sumParts = promptSum + completionSum + cacheSum;
+  const sumNoCache = promptSum + completionSum;
   const displayTotal =
-    sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
+    sumNoCache > 0 ? sumNoCache : explicitTotalRows > 0 ? explicitTotalSum : null;
 
   return {
     llmOutputCount,

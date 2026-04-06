@@ -80,6 +80,7 @@ function opikSchemaDdl(): string {
       output_json TEXT,
       setting_json TEXT,
       usage_json TEXT,
+      usage_preview TEXT,
       model TEXT,
       provider TEXT,
       error_info_json TEXT,
@@ -253,6 +254,9 @@ function ensureOpikSpansPlanColumns(db: Database.Database): void {
   }
   if (!n.has("status")) {
     db.exec(`ALTER TABLE opik_spans ADD COLUMN status TEXT`);
+  }
+  if (!n.has("usage_preview")) {
+    db.exec(`ALTER TABLE opik_spans ADD COLUMN usage_preview TEXT`);
   }
 }
 

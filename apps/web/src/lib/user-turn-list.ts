@@ -124,7 +124,11 @@ function previewOf(text: string): string {
 }
 
 function whenOf(e: TraceTimelineEvent): string {
-  return formatTraceDateTimeLocal(e.client_ts ?? e.created_at);
+  const raw = e.client_ts ?? e.created_at;
+  if (raw == null) {
+    return formatTraceDateTimeLocal(undefined);
+  }
+  return formatTraceDateTimeLocal(typeof raw === "number" ? String(raw) : raw);
 }
 
 /** 与抽屉时间轴 `whenLabel` 同源，用于会话列表「最新消息」时间行与抽屉一致。 */
@@ -561,6 +565,11 @@ export function isSubagentOrSystemFollowupMessage(e: TraceTimelineEvent): boolea
   if ((e.type ?? "") !== "message_received") {
     return false;
   }
+  const ttRaw = (e as { trace_type?: unknown }).trace_type;
+  const tt = typeof ttRaw === "string" ? ttRaw.trim().toLowerCase() : "";
+  if (tt === "system" || tt === "subagent" || tt === "async_command") {
+    return true;
+  }
   const rk = eventRunKindLower(e);
   if (rk === "subagent" || rk === "system") {
     return true;
@@ -790,6 +799,123 @@ export function resolveSubagentSessionThreadKey(
   }
 
   return null;
+}
+
+/**
+ * 父会话左侧消息项的 Token 汇总：计入同 thread 内本消息处理链（含合并进来的 async / 同 trace 的 subagent 等），
+ * 排除「subagent 新开会话」——即 `thread_id` 已指向其它会话，或 {@link resolveSubagentSessionThreadKey} 判定为子会话路由键与父不一致的 trace。
+ */
+export function filterEventsForParentThreadTokenRollup(
+  events: TraceTimelineEvent[],
+  parentThreadKey: string,
+): TraceTimelineEvent[] {
+  const p = parentThreadKey.trim();
+  if (!p) {
+    return events;
+  }
+  const rootToChild = new Map<string, string | null>();
+  const resolveChild = (tr: string): string | null => {
+    const hit = rootToChild.get(tr);
+    if (hit !== undefined) {
+      return hit;
+    }
+    const child = resolveSubagentSessionThreadKey(events, tr, p);
+    rootToChild.set(tr, child);
+    return child;
+  };
+
+  return events.filter((e) => {
+    const tid = typeof e.thread_id === "string" ? e.thread_id.trim() : "";
+    if (tid && tid !== p) {
+      return false;
+    }
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (!tr) {
+      return true;
+    }
+    const child = resolveChild(tr);
+    if (child && child.trim() !== p) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function collectTurnTraceRootIdsForTokenRollup(turn: UserTurnListItem, events: TraceTimelineEvent[]): Set<string> {
+  const s = new Set<string>();
+  const eff = resolveEffectiveTraceRootId(turn, events)?.trim();
+  if (eff) {
+    s.add(eff);
+  }
+  const tr = turn.traceRootId?.trim();
+  if (tr) {
+    s.add(tr);
+  }
+  for (const r of turn.mergedTraceRootIds ?? []) {
+    const x = typeof r === "string" ? r.trim() : "";
+    if (x) {
+      s.add(x);
+    }
+  }
+  return s;
+}
+
+/**
+ * 与 {@link buildConversationTurnWindowEvents} 同一切片：本条消息锚点（`message_received` / `llm_input`）→ 下一条消息锚点之前，
+ * 再只保留 `llm_output` 且 {@link filterEventsForParentThreadTokenRollup}（与端到端耗时时间轴一致）。
+ */
+export function collectLlmOutputEventsForTurnE2E(
+  windowEvents: TraceTimelineEvent[],
+  parentThreadKey: string,
+): TraceTimelineEvent[] {
+  const p = parentThreadKey.trim();
+  if (!p) {
+    return [];
+  }
+  const scoped = filterEventsForParentThreadTokenRollup(windowEvents, p);
+  return scoped
+    .filter((e) => (e.type ?? "") === "llm_output")
+    .sort(compareTimelineChrono);
+}
+
+/**
+ * 本回合「主 trace + mergedTraceRootIds」上出现的全部 `llm_output`（同一消息端到端多段 trace 链，如 async / subagent 跟进）。
+ */
+export function collectLlmOutputEventsForTurnTraceRoots(
+  allEvents: TraceTimelineEvent[],
+  turn: UserTurnListItem,
+): TraceTimelineEvent[] {
+  const roots = collectTurnTraceRootIdsForTokenRollup(turn, allEvents);
+  if (roots.size === 0) {
+    return [];
+  }
+  const out: TraceTimelineEvent[] = [];
+  for (const e of allEvents) {
+    if ((e.type ?? "") !== "llm_output") {
+      continue;
+    }
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (tr && roots.has(tr)) {
+      out.push(e);
+    }
+  }
+  return out.sort(compareTimelineChrono);
+}
+
+/**
+ * 会话抽屉左侧 token：锚点窗口内 `llm_output` ∪ 主 trace + {@link UserTurnListItem.mergedTraceRootIds} 上全部 `llm_output`（去重）。
+ * 根因：仅窗口时，若「跟进 trace」的 `message_received` 未被判为 merged child，窗口在第二条锚点处截断会漏掉后续 LLM；合并 roots 可兜底。
+ */
+export function mergeTurnLlmOutputEventsForTurnTokenRollup(
+  allEvents: TraceTimelineEvent[],
+  turn: UserTurnListItem,
+  windowEv: TraceTimelineEvent[],
+  parentThreadKey: string,
+): TraceTimelineEvent[] {
+  const fromWindow = collectLlmOutputEventsForTurnE2E(windowEv, parentThreadKey);
+  const fromRoots = collectLlmOutputEventsForTurnTraceRoots(allEvents, turn);
+  const merged = mergeTraceEventsDedupe(fromWindow, fromRoots);
+  return filterEventsForParentThreadTokenRollup(merged, parentThreadKey);
 }
 
 /** All events sharing the same ingest `trace_root_id` (one internal trace chain). */
@@ -1057,9 +1183,9 @@ export type TurnWindowMetrics = {
   endedAtMs: number | null;
   promptTokens: number;
   completionTokens: number;
-  /** 各 `llm_output` usage 中 cache read 之和，供 `TokenUsageDetailsCard` 与执行步骤一致。 */
+  /** 各 `llm_output` usage 中 cache read 之和（分项展示；不计入 `displayTotal`）。 */
   cacheReadTokens: number;
-  /** 优先 prompt+completion+cacheRead；仅有 API `total_tokens` 时为各轮之和。 */
+  /** 优先 prompt+completion（不含 cache）；仅有各轮显式 `total_tokens` 且无分项时为累加。 */
   displayTotal: number | null;
 };
 
@@ -1067,27 +1193,46 @@ export type TurnWindowMetrics = {
  * 从已切好的回合事件窗口汇总：
  * 执行耗时优先按首条 `llm_input` → 最后一条 `llm_output` / `agent_end` 计算，
  * 避免把 `message_received` 到真正开始执行之间的等待时间算进去。
+ *
+ * @param parentThreadKeyForTokenRollup 传入时，Token 仅汇总 {@link filterEventsForParentThreadTokenRollup} 后的事件（排除 subagent 新开会话），耗时仍用完整窗口。
+ * @param options.tokenEventsOverride 传入时（{@link mergeTurnLlmOutputEventsForTurnTokenRollup}：锚点→下一条锚点窗口内的 `llm_output`）。
  */
-export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): TurnWindowMetrics {
-  if (windowEvents.length === 0) {
-    return {
-      durationMs: null,
-      startedAtMs: null,
-      endedAtMs: null,
-      promptTokens: 0,
-      completionTokens: 0,
-      cacheReadTokens: 0,
-      displayTotal: null,
-    };
+export function inferTurnWindowMetrics(
+  windowEvents: TraceTimelineEvent[],
+  parentThreadKeyForTokenRollup?: string,
+  options?: { tokenEventsOverride?: TraceTimelineEvent[] },
+): TurnWindowMetrics {
+  const emptyMetrics = (): TurnWindowMetrics => ({
+    durationMs: null,
+    startedAtMs: null,
+    endedAtMs: null,
+    promptTokens: 0,
+    completionTokens: 0,
+    cacheReadTokens: 0,
+    displayTotal: null,
+  });
+
+  const hasWindow = windowEvents.length > 0;
+  const tokenOverride = options?.tokenEventsOverride;
+  const hasTokenOverride = tokenOverride != null && tokenOverride.length > 0;
+  if (!hasWindow && !hasTokenOverride) {
+    return emptyMetrics();
   }
-  const sorted = [...windowEvents].sort(compareTimelineChrono);
+
+  const sorted = hasWindow ? [...windowEvents].sort(compareTimelineChrono) : [];
+  const rawTokenEvents = hasTokenOverride ? tokenOverride! : windowEvents;
+  const tokenSource =
+    parentThreadKeyForTokenRollup && parentThreadKeyForTokenRollup.trim().length > 0
+      ? filterEventsForParentThreadTokenRollup(rawTokenEvents, parentThreadKeyForTokenRollup)
+      : rawTokenEvents;
+  const sortedForTokens = [...tokenSource].sort(compareTimelineChrono);
   let promptSum = 0;
   let completionSum = 0;
   let cacheSum = 0;
   let explicitTotalSum = 0;
   let explicitTotalRows = 0;
 
-  for (const e of sorted) {
+  for (const e of sortedForTokens) {
     if ((e.type ?? "") !== "llm_output") {
       continue;
     }
@@ -1105,9 +1250,9 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
     }
   }
 
-  const sumParts = promptSum + completionSum + cacheSum;
+  const sumNoCache = promptSum + completionSum;
   const displayTotal: number | null =
-    sumParts > 0 ? sumParts : explicitTotalRows > 0 ? explicitTotalSum : null;
+    sumNoCache > 0 ? sumNoCache : explicitTotalRows > 0 ? explicitTotalSum : null;
 
   let firstMs: number | null = null;
   for (const e of sorted) {
@@ -1122,7 +1267,7 @@ export function inferTurnWindowMetrics(windowEvents: TraceTimelineEvent[]): Turn
       }
     }
   }
-  if (firstMs == null) {
+  if (firstMs == null && sorted.length > 0) {
     firstMs = parseEventTimeMs(sorted[0]!);
   }
   let endMs: number | null = null;

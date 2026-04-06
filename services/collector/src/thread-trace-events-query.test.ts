@@ -328,6 +328,80 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
+  it("metadata.usage 落后于主 LLM span 时以 span 为准（与语义树端到端一致）", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-usage-span-wins.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-span-wins";
+      const traceId = "tr-span-wins";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId,
+        threadId,
+        inputJson: JSON.stringify({ text: "q" }),
+        outputJson: JSON.stringify({ assistantTexts: ["ok"] }),
+        metadataJson: JSON.stringify({
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 21_929 },
+        }),
+        createdMs: now,
+      });
+      insertLlmSpanOutput(db, traceId, "{}", 1, {
+        usageJson: JSON.stringify({ input: 85_570, output: 397, total: 85_967 }),
+        model: "deepseek-chat",
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { usage?: Record<string, unknown> };
+      assert.equal(Number((p.usage as { total?: number })?.total), 85_967);
+      assert.equal(Number((p.usage as { input?: number })?.input), 85_570);
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
+  it("同 trace 多条 llm span 时合成 llm_output 的 usage 为各 span 之和", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-multi-llm-span.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-multi-llm";
+      const traceId = "tr-multi-llm";
+      const now = Date.now();
+      insertMinimalTrace(db, {
+        traceId,
+        threadId,
+        inputJson: JSON.stringify({ text: "q" }),
+        outputJson: JSON.stringify({ assistantTexts: ["ok"] }),
+        metadataJson: "{}",
+        createdMs: now,
+      });
+      insertLlmSpanOutput(db, traceId, "{}", 1, {
+        usageJson: JSON.stringify({ input: 100, output: 10, total: 110 }),
+      });
+      db.prepare(
+        `INSERT INTO opik_spans (
+          span_id, trace_id, parent_span_id, name, span_type,
+          output_json, usage_json, model, provider, is_complete, sort_index
+        ) VALUES (?, ?, NULL, 'llm', 'llm', ?, ?, NULL, NULL, 1, ?)`,
+      ).run(
+        "span-second-multi",
+        traceId,
+        "{}",
+        JSON.stringify({ input: 50, output: 5, total: 55 }),
+        2,
+      );
+
+      const items = queryThreadTraceEvents(db, threadId);
+      const p = items[2]!.payload as { usage?: { input?: number; output?: number; total?: number } };
+      assert.equal(Number(p.usage?.input), 150);
+      assert.equal(Number(p.usage?.output), 15);
+      assert.equal(Number(p.usage?.total), 165);
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
   it("trace 与 metadata 均无 token 时从 llm span usage_json 兜底", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-usage-span.db`);
     const db = openDatabase(dbPath);

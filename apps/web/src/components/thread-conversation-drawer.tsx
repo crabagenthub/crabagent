@@ -15,6 +15,7 @@ import {
   filterEventsForRun,
   buildUserTurnList,
   inferTurnE2ETimeline,
+  mergeTurnLlmOutputEventsForTurnTokenRollup,
   inferTurnListStatus,
   inferTurnWindowMetrics,
   resolveLinkedRunIdForTurn,
@@ -170,8 +171,9 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       const linkedRunId = resolveLinkedRunIdForTurn(u, merged);
       const runEv = filterEventsForRun(merged, linkedRunId);
       const windowEv = turnWindowEventsByKey.get(u.listKey) ?? buildConversationTurnWindowEvents(merged, u, userTurns);
-      const runMetrics = runEv.length > 0 ? inferTurnWindowMetrics(runEv) : null;
-      const windowMetrics = inferTurnWindowMetrics(windowEv);
+      const mergedLlmForTokens = mergeTurnLlmOutputEventsForTurnTokenRollup(merged, u, windowEv, threadKey);
+      const runMetrics = runEv.length > 0 ? inferTurnWindowMetrics(runEv, threadKey) : null;
+      const windowMetrics = inferTurnWindowMetrics(windowEv, threadKey, { tokenEventsOverride: mergedLlmForTokens });
       const startedAtMs = runMetrics?.startedAtMs ?? windowMetrics.startedAtMs;
       const endedAtMs = windowMetrics.endedAtMs ?? runMetrics?.endedAtMs ?? null;
       const durationMs =
@@ -189,7 +191,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       });
     }
     return m;
-  }, [merged, userTurns, turnWindowEventsByKey]);
+  }, [merged, userTurns, turnWindowEventsByKey, threadKey]);
 
   const [selectedListKey, setSelectedListKey] = useState("");
   /** 主轴相对此 ul 定位，并位于 ul 内部，避免被 ul 的层叠挡住 */
@@ -301,8 +303,11 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
         : metrics?.durationMs != null && metrics.durationMs >= 0
           ? formatDurationMsSemantic(metrics.durationMs)
           : "—";
-    const windowEv = turnWindowEventsByKey.get(u.listKey) ?? [];
-    let tokenEntries = aggregateLlmOutputTokenEntries(windowEv);
+    const windowEv =
+      turnWindowEventsByKey.get(u.listKey) ?? buildConversationTurnWindowEvents(merged, u, userTurns);
+    const mergedLlmForTokens = mergeTurnLlmOutputEventsForTurnTokenRollup(merged, u, windowEv, threadKey);
+    /* 左侧 token：本条锚点 → 下一条锚点之前窗口内全部 llm_output（与端到端耗时同范围）→ usageRecordDisplayTotals.displayTotal。 */
+    let tokenEntries = aggregateLlmOutputTokenEntries(mergedLlmForTokens);
     if (Object.keys(tokenEntries).length === 0 && metrics?.displayTotal != null && metrics.displayTotal > 0) {
       tokenEntries = { total_tokens: metrics.displayTotal };
     }

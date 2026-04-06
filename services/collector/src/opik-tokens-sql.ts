@@ -33,6 +33,7 @@ function uOut(key: string): string {
  * Used by span list ORDER BY and trace-row fallback SUM(span tokens).
  */
 export const SPAN_ROW_TOKEN_COALESCE_INNER = `
+        CAST(${uSpan("total")} AS INTEGER),
         CAST(${uSpan("total_tokens")} AS INTEGER),
         CAST(${uSpan("totalTokens")} AS INTEGER),
         CAST(${uSpan("totalTokenCount")} AS INTEGER),
@@ -202,3 +203,30 @@ export const TRACE_ROW_TOKEN_INTEGER_EXPR = `CAST(COALESCE(
 
 /** Integer token estimate for one span row `s` (for ORDER BY on span lists). */
 export const SPAN_ROW_TOKEN_INTEGER_EXPR = `CAST(COALESCE(${SPAN_ROW_TOKEN_COALESCE_INNER.trim()}, 0) AS INTEGER)`;
+
+/**
+ * 会话列表：对 `usage_json` 按 span **分别**取 input / output（含常见别名），再
+ * `SUM(input) + SUM(output)`，**不使用** `total` / `cacheRead`。
+ */
+export const THREAD_LLM_SPAN_USAGE_JSON_TOKEN_EXPR = `(
+  COALESCE(
+    CAST(json_extract(s.usage_json, '$.input') AS INTEGER),
+    CAST(json_extract(s.usage_json, '$.prompt_tokens') AS INTEGER),
+    CAST(json_extract(s.usage_json, '$.input_tokens') AS INTEGER),
+    0
+  ) +
+  COALESCE(
+    CAST(json_extract(s.usage_json, '$.output') AS INTEGER),
+    CAST(json_extract(s.usage_json, '$.completion_tokens') AS INTEGER),
+    CAST(json_extract(s.usage_json, '$.output_tokens') AS INTEGER),
+    0
+  )
+)`;
+
+export const THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL = `(SELECT COALESCE(SUM(${THREAD_LLM_SPAN_USAGE_JSON_TOKEN_EXPR}), 0)
+FROM opik_spans s
+INNER JOIN opik_traces t ON t.trace_id = s.trace_id
+  AND t.thread_id = th.thread_id
+  AND t.workspace_name = th.workspace_name
+  AND t.project_name = th.project_name
+WHERE s.span_type = 'llm')`;

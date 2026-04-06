@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { resolveSpanUsagePreviewJson } from "./opik-usage-preview.js";
 import { normalizeOpikSpanInputForStorage, normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -631,9 +632,9 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       span_id, trace_id, parent_span_id, name, span_type,
       start_time_ms, end_time_ms, duration_ms,
       metadata_json, input_json, output_json, setting_json,
-      usage_json, model, provider, error_info_json, status, total_cost,
+      usage_json, usage_preview, model, provider, error_info_json, status, total_cost,
       sort_index, is_complete
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(span_id) DO UPDATE SET
       trace_id = excluded.trace_id,
       parent_span_id = COALESCE(excluded.parent_span_id, opik_spans.parent_span_id),
@@ -647,6 +648,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       output_json = COALESCE(excluded.output_json, opik_spans.output_json),
       setting_json = COALESCE(excluded.setting_json, opik_spans.setting_json),
       usage_json = COALESCE(excluded.usage_json, opik_spans.usage_json),
+      usage_preview = COALESCE(excluded.usage_preview, opik_spans.usage_preview),
       model = COALESCE(excluded.model, opik_spans.model),
       provider = COALESCE(excluded.provider, opik_spans.provider),
       error_info_json = COALESCE(excluded.error_info_json, opik_spans.error_info_json),
@@ -656,7 +658,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       is_complete = MAX(excluded.is_complete, opik_spans.is_complete)
   `);
 
-  const selectSpanSetting = db.prepare("SELECT setting_json FROM opik_spans WHERE span_id = ?");
+  const selectSpanSetting = db.prepare("SELECT setting_json, usage_preview FROM opik_spans WHERE span_id = ?");
 
   const traceIdsWithLlmSpan = new Set<string>();
 
@@ -678,13 +680,14 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     if (spanType === "llm") {
       traceIdsWithLlmSpan.add(traceId);
     }
-    const prevSp = selectSpanSetting.get(spanId) as { setting_json: string | null } | undefined;
+    const prevSp = selectSpanSetting.get(spanId) as { setting_json: string | null; usage_preview: string | null } | undefined;
     const meta = isRecord(row.metadata) ? row.metadata : {};
     const routing = isRecord(meta.openclaw_routing) ? meta.openclaw_routing : undefined;
     const spanSetting = mergeOpenClawSettingJson(
       row.setting ?? row.setting_json ?? routing,
       prevSp?.setting_json ?? null,
     );
+    const usagePreviewJson = resolveSpanUsagePreviewJson(row, prevSp?.usage_preview ?? null);
     try {
       upsertSpan.run(
         spanId,
@@ -700,6 +703,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         jsonCol(row.output),
         spanSetting,
         jsonCol(row.usage),
+        usagePreviewJson,
         asStr(row.model),
         asStr(row.provider),
         jsonCol(row.error_info ?? row.errorInfo),

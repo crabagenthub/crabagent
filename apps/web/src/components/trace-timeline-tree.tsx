@@ -26,6 +26,8 @@ export type TraceTimelineEvent = {
   msg_id?: string | null;
   /** Collector 从 trace metadata 拷贝，用于 subagent / 异步等判别（不必依赖 message_received payload）。 */
   run_kind?: string | null;
+  /** `opik_traces.trace_type`（system / external / subagent / async_command 等），与 run_kind 互补。 */
+  trace_type?: string | null;
   /** 异步跟进 trace（如钉钉）：会话列表合并到主命令展示。 */
   async_command?: boolean | null;
   channel?: string | null;
@@ -490,7 +492,11 @@ export function TraceTimelineTree({ events }: { events: TraceTimelineEvent[] }) 
           </summary>
           <div className="space-y-3 border-l-2 border-border/70 py-3 pl-4 ml-5 mr-2 border-t border-border">
             {g.items.map((row) => {
-              const when = formatTraceDateTimeLocal(row.client_ts ?? row.created_at);
+              const rawWhen = row.client_ts ?? row.created_at;
+              const when =
+                rawWhen == null
+                  ? formatTraceDateTimeLocal(undefined)
+                  : formatTraceDateTimeLocal(typeof rawWhen === "number" ? String(rawWhen) : rawWhen);
               const rowRunId = eventRunId(row);
               const key = String(row.event_id ?? row.id ?? `${g.key}-${when}-${row.type}`);
               const crabagent = parseCrabagentPayload(row.payload);

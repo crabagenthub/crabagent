@@ -71,6 +71,7 @@ CREATE TABLE opik_spans (
   output_json TEXT,
   setting_json TEXT,
   usage_json TEXT,
+  usage_preview TEXT,
   model TEXT,
   provider TEXT,
   error_info_json TEXT,

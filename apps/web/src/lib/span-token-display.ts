@@ -182,7 +182,7 @@ export function aggregateLlmOutputTokenEntries(events: readonly TraceTimelineEve
 }
 
 /**
- * 与语义树 LLM 行「合计 ⇌ 输入/输出」一致：从合并后的 usage 记录取展示数字。
+ * 会话左侧主数字：有 input/output（或 prompt/completion）分项时为其和（不含 cache）；否则用显式 total。
  */
 export function usageRecordDisplayTotals(entries: Record<string, number>): {
   displayTotal: number | null;
@@ -214,8 +214,10 @@ export function usageRecordDisplayTotals(entries: Record<string, number>): {
       : typeof entries.total === "number" && entries.total > 0
         ? Math.trunc(entries.total)
         : null;
-  const sumParts = (prompt ?? 0) + (completion ?? 0) + cacheRead;
-  const displayTotal = explicitTotal ?? (sumParts > 0 ? sumParts : null);
+  /** 左侧汇总数字不含 cache；有 prompt+completion 时优先用其和，否则回退到仅有显式 total 的 API。 */
+  const sumNoCache = (prompt ?? 0) + (completion ?? 0);
+  const displayTotal =
+    sumNoCache > 0 ? sumNoCache : explicitTotal != null && explicitTotal > 0 ? explicitTotal : null;
   return { displayTotal, prompt, completion, cacheRead };
 }
 
@@ -235,8 +237,8 @@ export function turnWindowTokenEntries(m: TurnWindowMetrics): Record<string, num
   if (m.cacheReadTokens > 0) {
     out.cache_read_tokens = m.cacheReadTokens;
   }
-  const sumParts = out.prompt_tokens + out.completion_tokens + (out.cache_read_tokens ?? 0);
-  if (m.displayTotal != null && m.displayTotal > 0 && sumParts === 0) {
+  const sumNoCache = out.prompt_tokens + out.completion_tokens;
+  if (m.displayTotal != null && m.displayTotal > 0 && sumNoCache === 0 && (out.cache_read_tokens ?? 0) === 0) {
     out.total_tokens = Math.trunc(m.displayTotal);
   }
   return out;

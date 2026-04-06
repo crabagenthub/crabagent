@@ -69,18 +69,25 @@ describe("aggregateThreadLlmOutputUsage", () => {
     assert.equal(agg.prompt, 4);
     assert.equal(agg.completion, 6);
     assert.equal(agg.displayTotal, 10);
-    assert.equal(agg.breakdownUnknown, false);
-    assert.equal(agg.breakdownMismatch, false);
   });
 
-  it("仅有 API total_tokens、无分项时计入 displayTotal 并标记 breakdownUnknown", () => {
+  it("仅有 API total_tokens、无分项时计入 displayTotal", () => {
     const agg = aggregateThreadLlmOutputUsage([
       { type: "llm_output", payload: { usage: { total_tokens: 42 } } },
     ]);
     assert.equal(agg.prompt, 0);
     assert.equal(agg.completion, 0);
     assert.equal(agg.displayTotal, 42);
-    assert.equal(agg.breakdownUnknown, true);
-    assert.equal(agg.breakdownMismatch, false);
+  });
+
+  it("有分项时 displayTotal 不含 cache_read", () => {
+    const agg = aggregateThreadLlmOutputUsage([
+      {
+        type: "llm_output",
+        payload: { usage: { prompt_tokens: 100, completion_tokens: 50, cache_read_tokens: 999 } },
+      },
+    ]);
+    assert.equal(agg.cacheRead, 999);
+    assert.equal(agg.displayTotal, 150);
   });
 });
