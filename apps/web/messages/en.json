@@ -966,6 +966,7 @@
     "semanticTokenUsageSummary": "Input: {input} | Output: {output} | Total: {total}",
     "spanTokenUsagePopoverAria": "Open token usage details",
     "semanticTreeDurHint": "Duration",
+    "semanticTreeDurationPopoverTitle": "Execution time",
     "semanticTreeTagCountHint": "{n} metadata tag(s)",
     "semanticTreeHint": "Nested by Collector `parent_id`: Agent loop → LLM → tools / IO / memory. Click a node to inspect payloads, tokens, and context diff.",
     "semanticTreeEmpty": "No execution steps in this slice.",

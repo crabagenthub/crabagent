@@ -972,6 +972,7 @@
     "semanticTokenUsageSummary": "Input: {input} | Output: {output} | Total: {total}",
     "spanTokenUsagePopoverAria": "查看 Token 使用明细",
     "semanticTreeDurHint": "耗时",
+    "semanticTreeDurationPopoverTitle": "执行时间",
     "semanticTreeTagCountHint": "元数据标签 {n} 个",
     "semanticTreeHint": "按 Collector `parent_id` 嵌套：Agent 循环 → LLM → 工具 / IO / 记忆。点击节点查看 payload、Token 与上下文对比。",
     "semanticTreeEmpty": "本切片暂无执行步骤。",

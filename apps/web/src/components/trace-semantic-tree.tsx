@@ -1,8 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { Popover } from "@arco-design/web-react";
 import { IconExclamationCircle, IconSwap, IconClockCircle, IconCommon, IconTag } from "@arco-design/web-react/icon";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
+import { formatTraceDateTimeFromMs, formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { formatDurationMsSemantic } from "@/lib/trace-records";
 import type { SpanTreeNode } from "@/lib/build-span-tree";
 import {
@@ -177,6 +178,32 @@ function TreeNodeRow({
   const tagsN = spanTagCount(node);
   const showTokens = hasTokenMetrics(node);
 
+  const durStartMs =
+    typeof node.start_time === "number" && Number.isFinite(node.start_time) && node.start_time > 0
+      ? node.start_time
+      : null;
+  const durEndMs =
+    typeof node.end_time === "number" && Number.isFinite(node.end_time) && node.end_time > 0
+      ? node.end_time
+      : null;
+  const durationTooltipContent = (
+    <div className="max-w-[22rem] space-y-2 px-3 py-2 text-left text-xs text-foreground">
+      <div className="font-medium">{t("semanticTreeDurationPopoverTitle")}</div>
+      {durStartMs != null && durEndMs != null ? (
+        <div className="space-y-1 text-[10px] leading-snug tabular-nums">
+          <p className="m-0">
+            {t("threadDrawerE2EPopoverStartLine", { time: formatTraceDateTimeFromMs(durStartMs) })}
+          </p>
+          <p className="m-0">
+            {t("threadDrawerE2EPopoverEndLine", { time: formatTraceDateTimeFromMs(durEndMs) })}
+          </p>
+        </div>
+      ) : (
+        <p className="m-0 text-[10px] leading-snug opacity-90">{t("threadDrawerTimelineNoTimeRange")}</p>
+      )}
+    </div>
+  );
+
   if (variant === "inspect") {
     return (
       <div className="select-none">
@@ -234,10 +261,15 @@ function TreeNodeRow({
                 ) : null}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums text-neutral-600">
-                <span className="inline-flex items-center gap-0.5" title={t("semanticTreeDurHint")}>
-                   <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
-                   {formatDurationMsSemantic(dur)}
-                 </span>
+                <Popover trigger="hover" position="rt" content={durationTooltipContent}>
+                  <span
+                    className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+                    {formatDurationMsSemantic(dur)}
+                  </span>
+                </Popover>
                 {showTokens && totalTok != null ? (
                   <TokenUsagePopover
                     position="rt"
@@ -330,7 +362,9 @@ function TreeNodeRow({
           </span>
           <span className="text-[10px] text-ca-muted">{when}</span>
           {dur != null ? (
-            <span className="text-[10px] tabular-nums text-neutral-500">{dur}ms</span>
+            <Popover trigger="hover" position="top" content={durationTooltipContent}>
+              <span className="text-[10px] tabular-nums text-neutral-500">{dur}ms</span>
+            </Popover>
           ) : null}
           {node.error ? (
             <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
