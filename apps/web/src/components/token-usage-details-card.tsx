@@ -53,11 +53,40 @@ function partitionKeys(keys: string[]): { primary: string[]; secondary: string[]
   return { primary, secondary };
 }
 
+/** 会话抽屉等场景：不展示「缓存读取」及常见同义键，避免与 prompt/completion 总计混淆。 */
+function omitCacheReadTokenEntryKeys(entries: Record<string, number>): Record<string, number> {
+  const out = { ...entries };
+  const dropKeys = [
+    "cache_read_tokens",
+    "cacheRead",
+    "cached_prompt_tokens",
+    "prompt_cache_hit_tokens",
+    "cached_tokens",
+  ];
+  for (const k of dropKeys) {
+    delete out[k];
+  }
+  for (const k of Object.keys(out)) {
+    const kl = k.toLowerCase();
+    if (
+      kl.includes("cache_read") ||
+      kl.includes("cached_prompt") ||
+      kl.includes("prompt_cache_hit") ||
+      k.startsWith("usageMetadata.cache") ||
+      k.startsWith("usage.cache")
+    ) {
+      delete out[k];
+    }
+  }
+  return out;
+}
+
 export function TokenUsageDetailsCard({
   entries: rawEntries,
   className,
   hideHeader = false,
   variant = "grouped",
+  hideCacheRead = false,
 }: {
   entries: Record<string, number>;
   className?: string;
@@ -68,9 +97,14 @@ export function TokenUsageDetailsCard({
    * `flat`：单行列表。
    */
   variant?: "grouped" | "flat";
+  /** 为 true 时移除缓存读取类分项（仍保留输入/输出/总计）。 */
+  hideCacheRead?: boolean;
 }) {
   const t = useTranslations("Traces");
-  const entries = normalizeTokenUsageEntriesForDisplay(rawEntries);
+  let entries = normalizeTokenUsageEntriesForDisplay(rawEntries);
+  if (hideCacheRead) {
+    entries = omitCacheReadTokenEntryKeys(entries);
+  }
   const keys = Object.keys(entries);
   if (keys.length === 0) {
     return <p className={cn("text-xs text-neutral-500 dark:text-neutral-400", className)}>—</p>;
@@ -190,6 +224,10 @@ export function TokenUsagePopover({
   trigger = "hover",
   position = "top",
   disabled,
+  /** 为 false 时在浮层内展示输入/输出/总计（与行内 ⇌ 可重复）；默认 true 以免与行内分项重复。 */
+  stripCanonicalPromptCompletion = true,
+  hideCacheRead = false,
+  footer,
 }: {
   entries: Record<string, number>;
   children: React.ReactNode;
@@ -197,16 +235,36 @@ export function TokenUsagePopover({
   position?: React.ComponentProps<typeof Popover>["position"];
   /** 为 true 时不包 Popover，仅渲染 children。 */
   disabled?: boolean;
+  stripCanonicalPromptCompletion?: boolean;
+  /** 为 true 时不展示缓存读取类分项（见 TokenUsageDetailsCard）。 */
+  hideCacheRead?: boolean;
+  /** 浮层底部说明（如计算方式、口径备注）。 */
+  footer?: ReactNode;
 }) {
   if (disabled || Object.keys(entries).length === 0) {
     return <>{children}</>;
   }
-  const contentEntries = tokenPopoverStripCanonicalPromptCompletion(entries);
+  const contentEntries = stripCanonicalPromptCompletion
+    ? tokenPopoverStripCanonicalPromptCompletion(entries)
+    : normalizeTokenUsageEntriesForDisplay({ ...entries });
   if (Object.keys(contentEntries).length === 0) {
     return <>{children}</>;
   }
   return (
-    <Popover trigger={trigger} position={position} content={<TokenUsageDetailsCard entries={contentEntries} />}>
+    <Popover
+      trigger={trigger}
+      position={position}
+      content={
+        <div className="max-w-[22rem] space-y-0 p-1">
+          <TokenUsageDetailsCard entries={contentEntries} hideCacheRead={hideCacheRead} />
+          {footer ? (
+            <div className="mt-2 border-t border-neutral-100 px-0.5 pt-2 text-[10px] leading-relaxed text-neutral-500 dark:border-neutral-800 dark:text-neutral-400">
+              {footer}
+            </div>
+          ) : null}
+        </div>
+      }
+    >
       {children}
     </Popover>
   );

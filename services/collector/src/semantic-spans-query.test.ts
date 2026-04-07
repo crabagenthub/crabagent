@@ -35,4 +35,14 @@ describe("parseUsageExtended", () => {
     assert.equal(u.completion_tokens, 34);
     assert.ok(u.total_tokens != null && u.total_tokens >= 46);
   });
+
+  it("reads top-level cacheRead and total (Opik span usage_json shape)", () => {
+    const u = parseUsageExtended(
+      JSON.stringify({ input: 100, output: 20, total: 500, cacheRead: 380 }),
+    );
+    assert.equal(u.prompt_tokens, 100);
+    assert.equal(u.completion_tokens, 20);
+    assert.equal(u.cache_read_tokens, 380);
+    assert.equal(u.total_tokens, 500);
+  });
 });

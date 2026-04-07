@@ -634,6 +634,8 @@
     "threadDrawerTurnTokensIn": "输入 token：{count}",
     "threadDrawerTurnTokensOut": "输出 token：{count}",
     "threadDrawerTurnTokensUnsplit": "未拆分输入/输出，合计约 {count} tokens",
+    "threadDrawerTokenPopoverCalcHint": "计算说明：对本条左侧消息合并范围内的各次模型输出。",
+    "threadDrawerTokenPopoverSubagentNote": "备注：不包含 subagent 新开独立会话中的 Token 消耗；请在子会话抽屉中查看该部分",
     "tableSelectAllThreadsPage": "全选本会话",
     "tableSelectThreadRow": "选择该会话",
     "threadsEmptyTitle": "暂无会话",

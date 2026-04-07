@@ -414,7 +414,21 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 </span>
               </Popover>
               {totalTokNumeric != null ? (
-                <TokenUsagePopover position="rt" trigger="hover" entries={tokenEntries}>
+                <TokenUsagePopover
+                  position="rt"
+                  trigger="hover"
+                  entries={tokenEntries}
+                  stripCanonicalPromptCompletion={false}
+                  hideCacheRead
+                  footer={
+                    <div className="space-y-1.5">
+                      <p className="m-0">{t("threadDrawerTokenPopoverCalcHint")}</p>
+                      {mergedSubagentCount > 0 ? (
+                        <p className="m-0">{t("threadDrawerTokenPopoverSubagentNote")}</p>
+                      ) : null}
+                    </div>
+                  }
+                >
                   <span
                     className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900"
                     onClick={(e) => e.stopPropagation()}

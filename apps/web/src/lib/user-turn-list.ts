@@ -911,15 +911,20 @@ export function resolveSubagentSessionThreadKey(
 /**
  * 父会话左侧消息项的 Token 汇总：计入同 thread 内本消息处理链（含合并进来的 async / 同 trace 的 subagent 等），
  * 排除「subagent 新开会话」——即 `thread_id` 已指向其它会话，或 {@link resolveSubagentSessionThreadKey} 判定为子会话路由键与父不一致的 trace。
+ *
+ * `alwaysIncludeTraceRootIds`：本回合 {@link UserTurnListItem.mergedTraceRootIds} 等显式并入的 trace（如子会话上的 LLM），
+ * 即使 `thread_id` 与父会话不同也保留，以便 Popover / 行内 Token 与 session 合并后的处理链一致（数据仍来自各 trace 下 opik_spans 汇总进时间线的 `llm_output`）。
  */
 export function filterEventsForParentThreadTokenRollup(
   events: TraceTimelineEvent[],
   parentThreadKey: string,
+  options?: { alwaysIncludeTraceRootIds?: ReadonlySet<string> },
 ): TraceTimelineEvent[] {
   const p = parentThreadKey.trim();
   if (!p) {
     return events;
   }
+  const forceRoots = options?.alwaysIncludeTraceRootIds;
   const rootToChild = new Map<string, string | null>();
   const resolveChild = (tr: string): string | null => {
     const hit = rootToChild.get(tr);
@@ -932,11 +937,14 @@ export function filterEventsForParentThreadTokenRollup(
   };
 
   return events.filter((e) => {
+    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (tr && forceRoots?.has(tr)) {
+      return true;
+    }
     const tid = typeof e.thread_id === "string" ? e.thread_id.trim() : "";
     if (tid && tid !== p) {
       return false;
     }
-    const tr = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
     if (!tr) {
       return true;
     }
@@ -974,12 +982,15 @@ function collectTurnTraceRootIdsForTokenRollup(turn: UserTurnListItem, events: T
 export function collectLlmOutputEventsForTurnE2E(
   windowEvents: TraceTimelineEvent[],
   parentThreadKey: string,
+  alwaysIncludeTraceRootIds?: ReadonlySet<string>,
 ): TraceTimelineEvent[] {
   const p = parentThreadKey.trim();
   if (!p) {
     return [];
   }
-  const scoped = filterEventsForParentThreadTokenRollup(windowEvents, p);
+  const scoped = filterEventsForParentThreadTokenRollup(windowEvents, p, {
+    alwaysIncludeTraceRootIds,
+  });
   return scoped
     .filter((e) => (e.type ?? "") === "llm_output")
     .sort(compareTimelineChrono);
@@ -1019,10 +1030,11 @@ export function mergeTurnLlmOutputEventsForTurnTokenRollup(
   windowEv: TraceTimelineEvent[],
   parentThreadKey: string,
 ): TraceTimelineEvent[] {
-  const fromWindow = collectLlmOutputEventsForTurnE2E(windowEv, parentThreadKey);
+  const roots = collectTurnTraceRootIdsForTokenRollup(turn, allEvents);
+  const fromWindow = collectLlmOutputEventsForTurnE2E(windowEv, parentThreadKey, roots);
   const fromRoots = collectLlmOutputEventsForTurnTraceRoots(allEvents, turn);
   const merged = mergeTraceEventsDedupe(fromWindow, fromRoots);
-  return filterEventsForParentThreadTokenRollup(merged, parentThreadKey);
+  return filterEventsForParentThreadTokenRollup(merged, parentThreadKey, { alwaysIncludeTraceRootIds: roots });
 }
 
 /** All events sharing the same ingest `trace_root_id` (one internal trace chain). */
@@ -1328,10 +1340,13 @@ export function inferTurnWindowMetrics(
 
   const sorted = hasWindow ? [...windowEvents].sort(compareTimelineChrono) : [];
   const rawTokenEvents = hasTokenOverride ? tokenOverride! : windowEvents;
+  /** 覆盖列表已由 {@link mergeTurnLlmOutputEventsForTurnTokenRollup} 按回合 trace 根合并，勿再按父 thread 二次过滤以免丢掉子会话上的 `llm_output`。 */
   const tokenSource =
-    parentThreadKeyForTokenRollup && parentThreadKeyForTokenRollup.trim().length > 0
-      ? filterEventsForParentThreadTokenRollup(rawTokenEvents, parentThreadKeyForTokenRollup)
-      : rawTokenEvents;
+    hasTokenOverride
+      ? rawTokenEvents
+      : parentThreadKeyForTokenRollup && parentThreadKeyForTokenRollup.trim().length > 0
+        ? filterEventsForParentThreadTokenRollup(rawTokenEvents, parentThreadKeyForTokenRollup)
+        : rawTokenEvents;
   const sortedForTokens = [...tokenSource].sort(compareTimelineChrono);
   let promptSum = 0;
   let completionSum = 0;

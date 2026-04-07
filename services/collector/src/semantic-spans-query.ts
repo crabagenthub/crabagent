@@ -106,23 +106,27 @@ export function parseUsageExtended(usageJson: string | null | undefined): {
   const cacheRead = pick(
     o.cache_read_tokens,
     o.cacheReadTokens,
+    o.cacheRead,
     um.cachedContentTokenCount,
     o.cached_prompt_tokens,
     um.cacheReadInputTokens,
     usageNested.cache_read_tokens,
     usageNested.cacheReadTokens,
+    usageNested.cacheRead,
     umNested.cachedContentTokenCount,
     umNested.cacheReadInputTokens,
   );
   const totalExplicit = pick(
     o.total_tokens,
     o.totalTokens,
+    o.total,
     um.totalTokenCount,
     um.totalTokens,
     o.totalTokenCount,
     usageNested.total_tokens,
     usageNested.totalTokens,
     usageNested.totalTokenCount,
+    usageNested.total,
     umNested.totalTokenCount,
     umNested.totalTokens,
   );

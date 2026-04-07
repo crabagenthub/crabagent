@@ -634,6 +634,8 @@
     "threadDrawerTurnTokensIn": "Input tokens: {count}",
     "threadDrawerTurnTokensOut": "Output tokens: {count}",
     "threadDrawerTurnTokensUnsplit": "No prompt/completion split from provider; total ≈ {count} tokens",
+    "threadDrawerTokenPopoverCalcHint": "Calculation: based on each model output within the merged scope of this left-hand message item.",
+    "threadDrawerTokenPopoverSubagentNote": "Note: tokens used in a separate subagent session are not included; check that session in the subagent drawer.",
     "tableSelectAllThreadsPage": "Select all sessions on this page",
     "tableSelectThreadRow": "Select session",
     "threadsEmptyTitle": "No sessions yet",

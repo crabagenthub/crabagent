@@ -5,10 +5,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import { aggregateLlmOutputTokenEntries } from "./span-token-display";
 import {
   buildConversationTurnWindowEvents,
   buildTranscriptEventList,
   buildUserTurnList,
+  filterEventsForParentThreadTokenRollup,
+  mergeTurnLlmOutputEventsForTurnTokenRollup,
+  type UserTurnListItem,
 } from "./user-turn-list";
 import { buildConversationTimeline } from "./trace-conversation-timeline";
 
@@ -52,6 +56,78 @@ describe("会话抽屉：turn.listKey 与 llm_output 链路", () => {
       turns[0]!.mergedTraceRootIds?.includes("trace-recovery"),
       "recovery trace_root should merge into primary turn",
     );
+  });
+
+  it("filterEventsForParentThreadTokenRollup：alwaysIncludeTraceRootIds 保留子 thread 上的 llm_output", () => {
+    const parent = "agent:main:feishu:group:oc_x";
+    const child = "agent:child:subagent:uuid";
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 1,
+        event_id: "tr-sub:llm_out",
+        type: "llm_output",
+        thread_id: child,
+        trace_root_id: "tr-sub",
+        payload: { usage: { prompt_tokens: 100, completion_tokens: 50 } },
+      }),
+    ];
+    assert.equal(filterEventsForParentThreadTokenRollup(events, parent).length, 0);
+    const kept = filterEventsForParentThreadTokenRollup(events, parent, {
+      alwaysIncludeTraceRootIds: new Set(["tr-sub"]),
+    });
+    assert.equal(kept.length, 1);
+  });
+
+  it("mergeTurnLlmOutputEventsForTurnTokenRollup 合并子 trace 的 llm_output 到父会话回合 Token", () => {
+    const parent = "agent:main:feishu:group:oc_x";
+    const child = "agent:child:subagent:uuid";
+    const turn: UserTurnListItem = {
+      listKey: "tr-main:recv",
+      numericId: 1,
+      preview: "u",
+      fullText: "u",
+      whenLabel: "",
+      linkedRunId: null,
+      source: "message_received",
+      traceRootId: "tr-main",
+      agentId: null,
+      agentName: null,
+      chatTitle: null,
+      msgId: null,
+      mergedTraceRootIds: ["tr-sub"],
+    };
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 1,
+        event_id: "tr-main:recv",
+        type: "message_received",
+        trace_root_id: "tr-main",
+        thread_id: parent,
+        payload: { text: "hi" },
+      }),
+      ev({
+        id: 2,
+        event_id: "tr-main:llm_out",
+        type: "llm_output",
+        trace_root_id: "tr-main",
+        thread_id: parent,
+        payload: { usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      }),
+      ev({
+        id: 3,
+        event_id: "tr-sub:llm_out",
+        type: "llm_output",
+        trace_root_id: "tr-sub",
+        thread_id: child,
+        payload: { usage: { prompt_tokens: 100, completion_tokens: 50 } },
+      }),
+    ];
+    const turns = [turn];
+    const windowEv = buildConversationTurnWindowEvents(events, turn, turns);
+    const merged = mergeTurnLlmOutputEventsForTurnTokenRollup(events, turn, windowEv, parent);
+    const entries = aggregateLlmOutputTokenEntries(merged);
+    assert.equal(entries.prompt_tokens, 110);
+    assert.equal(entries.completion_tokens, 55);
   });
 
   it("同 sessionId 两条普通用户消息（无续跑特征）仍各占左侧一行", () => {
