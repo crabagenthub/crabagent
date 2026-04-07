@@ -310,7 +310,7 @@ export function ThreadsOpikTable({
         rows,
         sortKey,
         listOrder,
-        (row) => row.first_seen_ms,
+        (row) => row.last_message_created_at_ms ?? row.last_seen_ms ?? row.first_seen_ms,
         (row) => row.total_tokens,
       ),
     [rows, sortKey, listOrder],
@@ -383,6 +383,11 @@ export function ThreadsOpikTable({
         dataIndex: "last_message_preview",
         key: "last_message_preview",
         width: 320,
+        sorter: (a, b) =>
+          (a.last_message_created_at_ms ?? a.last_seen_ms ?? a.first_seen_ms ?? 0) -
+          (b.last_message_created_at_ms ?? b.last_seen_ms ?? b.first_seen_ms ?? 0),
+        sortOrder: observeColumnSortOrder("last_message_preview", sortKey, listOrder),
+        sortDirections: ["descend", "ascend"],
         render: (_, row) => (
           <div className="flex min-w-0 w-[20rem] max-w-full flex-col gap-0.5">
             <ThreadMessageCell

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { openDatabase } from "./db.js";
-import { queryThreadRecords } from "./thread-records-query.js";
+import { buildThreadRecordsSql, queryThreadRecords } from "./thread-records-query.js";
 
 describe("queryThreadRecords total_tokens", () => {
   it("sums llm span usage_json input + output across traces in thread (not total)", () => {
@@ -57,6 +57,51 @@ describe("queryThreadRecords total_tokens", () => {
       const row2 = rows2.find((r) => String(r.thread_id) === tid);
       assert.ok(row2);
       assert.equal(row2.total_tokens, 153, "ignores total field; uses input+output only");
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+});
+
+describe("queryThreadRecords time sort", () => {
+  it("orders by latest trace created_at (last message), not thread last_seen_ms", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-thrlist-sort-${Date.now()}.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const base = Date.UTC(2025, 0, 1, 12, 0, 0);
+      const thStale = "agent:sort:stale-last-seen";
+      const thFresh = "agent:sort:fresh-latest-trace";
+
+      db.prepare(
+        `INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, first_seen_ms, last_seen_ms)
+         VALUES (?, 'default', 'openclaw', 'main', ?, ?)`,
+      ).run(thStale, base, base + 9_999_999);
+      db.prepare(
+        `INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, first_seen_ms, last_seen_ms)
+         VALUES (?, 'default', 'openclaw', 'main', ?, ?)`,
+      ).run(thFresh, base + 1000, base + 2000);
+
+      db.prepare(
+        `INSERT INTO opik_traces (trace_id, thread_id, workspace_name, project_name, trace_type, name,
+          input_json, output_json, metadata_json, created_at_ms, is_complete, created_from)
+         VALUES ('t-old', ?, 'default', 'openclaw', 'external', 'a', '{}', '{}', '{}', ?, 1, 'test')`,
+      ).run(thStale, base + 100);
+      db.prepare(
+        `INSERT INTO opik_traces (trace_id, thread_id, workspace_name, project_name, trace_type, name,
+          input_json, output_json, metadata_json, created_at_ms, is_complete, created_from)
+         VALUES ('t-new', ?, 'default', 'openclaw', 'external', 'b', '{}', '{}', '{}', ?, 1, 'test')`,
+      ).run(thFresh, base + 50_000);
+
+      const rows = queryThreadRecords(db, { limit: 10, offset: 0, order: "desc" });
+      const ids = rows.map((r) => String(r.thread_id));
+      const iFresh = ids.indexOf(thFresh);
+      const iStale = ids.indexOf(thStale);
+      assert.ok(iFresh >= 0 && iStale >= 0);
+      assert.ok(iFresh < iStale, "thread with newer last trace should rank above higher last_seen_ms");
+
+      const { sql } = buildThreadRecordsSql({ limit: 5, offset: 0, order: "desc" });
+      assert.match(sql, /ORDER BY COALESCE\(\(SELECT t\.created_at_ms/);
     } finally {
       db.close();
       fs.unlinkSync(dbPath);

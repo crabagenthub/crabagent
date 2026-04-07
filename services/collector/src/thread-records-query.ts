@@ -2,6 +2,15 @@ import type Database from "better-sqlite3";
 import { clampFacetFilter, traceRowTimeoutLikeSqlForAlias } from "./observe-list-filters.js";
 import { THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL } from "./opik-tokens-sql.js";
 
+/** 与 SELECT 列 `last_message_created_at_ms` 同源：该 thread 下最新一条 trace 的开始时间。 */
+const THREAD_LAST_MESSAGE_CREATED_AT_MS_SQL = `(SELECT t.created_at_ms
+        FROM opik_traces t
+        WHERE t.thread_id = th.thread_id
+          AND t.workspace_name = th.workspace_name
+          AND t.project_name = th.project_name
+        ORDER BY t.created_at_ms DESC, t.trace_id DESC
+        LIMIT 1)`;
+
 const THREAD_LAST_TRACE_STATUS_SUBQUERY = `(SELECT CASE
   WHEN lt.is_complete = 0 THEN 'running'
   WHEN COALESCE(lt.success, 0) = 1 THEN 'success'
@@ -83,13 +92,7 @@ SELECT th.thread_id,
           AND t.project_name = th.project_name
         ORDER BY t.created_at_ms DESC, t.trace_id DESC
         LIMIT 1) AS last_message_preview,
-       (SELECT t.created_at_ms
-        FROM opik_traces t
-        WHERE t.thread_id = th.thread_id
-          AND t.workspace_name = th.workspace_name
-          AND t.project_name = th.project_name
-        ORDER BY t.created_at_ms DESC, t.trace_id DESC
-        LIMIT 1) AS last_message_created_at_ms,
+       ${THREAD_LAST_MESSAGE_CREATED_AT_MS_SQL} AS last_message_created_at_ms,
        ${THREAD_LLM_SPAN_USAGE_TOTAL_SUM_SQL} AS total_tokens,
        (SELECT SUM(COALESCE(t.total_cost, 0))
         FROM opik_traces t
@@ -176,7 +179,7 @@ export function buildThreadRecordsSql(q: ThreadRecordsListQuery): { sql: string;
   const orderBy =
     sort === "tokens"
       ? `COALESCE(${THREAD_TOTAL_TOKENS_ORDER_EXPR}, 0) ${dir}, th.thread_id ${dir}`
-      : `th.last_seen_ms ${dir}, th.thread_id ${dir}`;
+      : `COALESCE(${THREAD_LAST_MESSAGE_CREATED_AT_MS_SQL}, th.last_seen_ms, th.first_seen_ms) ${dir}, th.thread_id ${dir}`;
   const sql = `${THREAD_SELECT} ${whereSql}
 ORDER BY ${orderBy}
 LIMIT ? OFFSET ?`;
