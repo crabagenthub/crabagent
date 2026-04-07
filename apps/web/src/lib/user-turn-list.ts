@@ -185,6 +185,67 @@ export function eventMsgId(e: TraceTimelineEvent): string | null {
   return strOrNull(payload.msg_id);
 }
 
+/** Collector 合成行的 `session_id` 或 `payload.openclaw.sessionId`（与插件 `input.openclaw` 对齐）。 */
+export function eventSessionId(e: TraceTimelineEvent): string | null {
+  const top = strOrNull((e as { session_id?: unknown }).session_id);
+  if (top) {
+    return top;
+  }
+  const payload =
+    e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+      ? (e.payload as Record<string, unknown>)
+      : {};
+  const oc = payload.openclaw;
+  if (oc && typeof oc === "object" && !Array.isArray(oc)) {
+    const o = oc as Record<string, unknown>;
+    const fromOc = strOrNull(o.sessionId) ?? strOrNull(o.session_id);
+    if (fromOc) {
+      return fromOc;
+    }
+  }
+  const ut = payload.user_turn;
+  if (ut && typeof ut === "object" && !Array.isArray(ut)) {
+    const oc2 = (ut as Record<string, unknown>).openclaw;
+    if (oc2 && typeof oc2 === "object" && !Array.isArray(oc2)) {
+      const o = oc2 as Record<string, unknown>;
+      const fromUt = strOrNull(o.sessionId) ?? strOrNull(o.session_id);
+      if (fromUt) {
+        return fromUt;
+      }
+    }
+  }
+  return null;
+}
+
+/** OpenClaw 模型超时 / 失败后注入的续跑提示（与 `isMergedChildFollowupMessage` 互补）。 */
+function looksLikeOpenClawModelRecoveryMessage(e: TraceTimelineEvent): boolean {
+  if ((e.type ?? "") !== "message_received") {
+    return false;
+  }
+  const full = plainTextFromMessagePayload(payloadRecord(e)).toLowerCase();
+  if (!full || full === "—") {
+    return false;
+  }
+  if (full.includes("continue where you left off")) {
+    return true;
+  }
+  if (full.includes("the previous model attempt failed or timed out")) {
+    return true;
+  }
+  if (full.includes("previous model attempt") && (full.includes("failed") || full.includes("timed out"))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 可与「上一条主用户 message_received」并入同组：须与 {@link eventSessionId} 一致才生效（见 buildMergedMessageReceivedTurnList）。
+ * 避免仅凭正文误把无关消息并到上一轮。
+ */
+function isSessionScopedContinuationMergeCandidate(e: TraceTimelineEvent): boolean {
+  return looksLikeOpenClawModelRecoveryMessage(e);
+}
+
 /** Collector / 插件在 synthetic 事件上标记的异步跟进回合。 */
 export function eventAsyncCommand(e: TraceTimelineEvent): boolean {
   if ((e as { async_command?: unknown }).async_command === true) {
@@ -286,6 +347,19 @@ type MessageReceivedPrelim = {
   msgId: string | null;
 };
 
+function primarySessionIdForGroup(group: MessageReceivedPrelim[]): string | null {
+  const g = [...group].sort((a, b) => rowNumericId(a.e) - rowNumericId(b.e));
+  for (const x of g) {
+    if (!isMergedChildFollowupMessage(x.e)) {
+      const s = eventSessionId(x.e);
+      if (s) {
+        return s;
+      }
+    }
+  }
+  return eventSessionId(g[0]!.e);
+}
+
 function turnFromMessageReceived(
   primary: TraceTimelineEvent,
   sorted: TraceTimelineEvent[],
@@ -359,7 +433,8 @@ function mergeMessageReceivedPrelims(
 /**
  * 将多条 message_received 合成一条左侧会话项：
  * - 同一 msg_id 的多次上报合并为一行；
- * - 异步跟进、subagent/system 内流等合并到**上一条**主消息（含上一条为带 msg_id 的 trace），不单独成行。
+ * - 异步跟进、subagent/system 内流等合并到**上一条**主消息（含上一条为带 msg_id 的 trace），不单独成行；
+ * - 同一 OpenClaw `sessionId` 下、模型超时/失败续跑等延续类消息（见 isSessionScopedContinuationMergeCandidate）并入上一条主消息组，即使 msg_id 不同。
  */
 function buildMergedMessageReceivedTurnList(
   received: TraceTimelineEvent[],
@@ -374,6 +449,11 @@ function buildMergedMessageReceivedTurnList(
   const groups: MessageReceivedPrelim[][] = [];
   const msgIdToGroupIdx = new Map<string, number>();
   let current: MessageReceivedPrelim[] = [];
+  let lastMainGroupIdx = -1;
+
+  const noteMainGroupPushed = () => {
+    lastMainGroupIdx = groups.length - 1;
+  };
 
   for (const p of prelims) {
     if (isMergedChildFollowupMessage(p.e)) {
@@ -383,32 +463,59 @@ function buildMergedMessageReceivedTurnList(
         groups[groups.length - 1]!.push(p);
       } else {
         groups.push([p]);
+        noteMainGroupPushed();
       }
+      continue;
+    }
+
+    const sid = eventSessionId(p.e);
+    if (
+      lastMainGroupIdx >= 0 &&
+      sid &&
+      primarySessionIdForGroup(groups[lastMainGroupIdx]!) === sid &&
+      isSessionScopedContinuationMergeCandidate(p.e)
+    ) {
+      groups[lastMainGroupIdx]!.push(p);
       continue;
     }
 
     if (p.msgId) {
       if (current.length > 0) {
         groups.push(current);
+        noteMainGroupPushed();
         current = [];
       }
       const idx = msgIdToGroupIdx.get(p.msgId);
       if (idx !== undefined) {
         groups[idx]!.push(p);
+        lastMainGroupIdx = idx;
       } else {
         msgIdToGroupIdx.set(p.msgId, groups.length);
         groups.push([p]);
+        noteMainGroupPushed();
       }
       continue;
     }
 
     if (current.length > 0) {
       groups.push(current);
+      noteMainGroupPushed();
+      current = [];
+    }
+    if (
+      lastMainGroupIdx >= 0 &&
+      sid &&
+      primarySessionIdForGroup(groups[lastMainGroupIdx]!) === sid &&
+      isSessionScopedContinuationMergeCandidate(p.e)
+    ) {
+      groups[lastMainGroupIdx]!.push(p);
+      continue;
     }
     current = [p];
   }
   if (current.length > 0) {
     groups.push(current);
+    noteMainGroupPushed();
   }
 
   return groups

@@ -22,6 +22,64 @@ function ev(
 }
 
 describe("会话抽屉：turn.listKey 与 llm_output 链路", () => {
+  it("同 sessionId 下模型超时续跑提示（不同 msg_id）并入上一条用户消息左侧项", () => {
+    const sid = "sess-merge-recovery-1";
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 100,
+        event_id: "u1:recv",
+        type: "message_received",
+        trace_root_id: "trace-user",
+        session_id: sid,
+        msg_id: "msg-user-1",
+        payload: { text: "用户提问" },
+      }),
+      ev({
+        id: 110,
+        event_id: "recovery:recv",
+        type: "message_received",
+        trace_root_id: "trace-recovery",
+        session_id: sid,
+        msg_id: "msg-recovery-1",
+        payload: {
+          text: "Continue where you left off. The previous model attempt failed or timed out.",
+        },
+      }),
+    ];
+    const turns = buildUserTurnList(events);
+    assert.equal(turns.length, 1);
+    assert.ok(
+      turns[0]!.mergedTraceRootIds?.includes("trace-recovery"),
+      "recovery trace_root should merge into primary turn",
+    );
+  });
+
+  it("同 sessionId 两条普通用户消息（无续跑特征）仍各占左侧一行", () => {
+    const sid = "sess-two-users";
+    const events: TraceTimelineEvent[] = [
+      ev({
+        id: 200,
+        event_id: "a:recv",
+        type: "message_received",
+        trace_root_id: "ta",
+        session_id: sid,
+        msg_id: "m-a",
+        payload: { text: "first question" },
+      }),
+      ev({
+        id: 210,
+        event_id: "b:recv",
+        type: "message_received",
+        trace_root_id: "tb",
+        session_id: sid,
+        msg_id: "m-b",
+        payload: { text: "second question" },
+      }),
+    ];
+    const turns = buildUserTurnList(events);
+    assert.equal(turns.length, 2);
+  });
+
   it("两轮各含独立 trace 三联体时，每轮窗口含 :llm_out 且时间线有 assistant", () => {
     const events: TraceTimelineEvent[] = [
       ev({

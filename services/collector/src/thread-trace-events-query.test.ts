@@ -134,6 +134,36 @@ describe("queryThreadTraceEvents / 合成时间线", () => {
     }
   });
 
+  it("合成事件携带 input.openclaw.sessionId → 顶层 session_id", () => {
+    const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-sid.db`);
+    const db = openDatabase(dbPath);
+    try {
+      const threadId = "thread-sid";
+      const now = Date.now();
+      const sid = "openclaw-sess-abc-123";
+      insertMinimalTrace(db, {
+        traceId: "tr-sid",
+        threadId,
+        inputJson: JSON.stringify({
+          text: "hi",
+          openclaw: { sessionId: sid, sessionKey: threadId },
+        }),
+        outputJson: "{}",
+        metadataJson: "{}",
+        createdMs: now,
+      });
+
+      const items = queryThreadTraceEvents(db, threadId);
+      assert.equal(items.length, 3);
+      for (const row of items) {
+        assert.equal(row.session_id, sid, String(row.type));
+      }
+    } finally {
+      db.close();
+      fs.unlinkSync(dbPath);
+    }
+  });
+
   it("messages 仅有 role=tool（OpenClaw「Tool」首条回复）时仍能填充 payload.assistantTexts", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ttq-${Date.now()}-tool.db`);
     const db = openDatabase(dbPath);

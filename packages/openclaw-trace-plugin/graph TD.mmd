@@ -1,0 +1,48 @@
+graph TD
+    A["事件发生<br/>message_received | llm_input | llm_output<br/>tool_call | agent_end | 等"] -->|Hook触发| B["事件处理入口"]
+    
+    B --> C["构建TraceRecord<br/>包含spans、threads等"]
+    C --> D["合并会话别名<br/>通过platform bucket ID"]
+    D --> E{"是否为<br/>deferred non-LLM<br/>消息?"}
+    
+    E -->|是| F["设置延迟Flush定时器<br/>deferredUserMessageFlushMs"]
+    E -->|否| G["立即生成Batch"]
+    
+    F -->|等待时间| H{"是否有后续<br/>llm_input或<br/>subagent_spawned?"}
+    H -->|有| I["取消延迟定时器<br/>合并到主流程"]
+    H -->|无| J["定时器触发"]
+    J --> G
+    
+    G --> K["OpikBatchPayload<br/>装配(threads/traces/spans)"]
+    K --> L["推入BatchQueue<br/>内存队列"]
+    
+    L --> M{"触发上报条件?"}
+    M -->|批量大小超限| N["drainBatch"]
+    M -->|主进程退出| N
+    M -->|周期定时| N
+    M -->|agent_end事件端| N
+    
+    N --> O["取出N个batch合并"]
+    O --> P["gzip压缩"]
+    P --> Q["POST /v1/opik/batch<br/>请求collector"]
+    
+    Q --> R{"响应成功?"}
+    R -->|20x| S["✓ 清除内存队列"]
+    R -->|网络错误/超时| T["append到Outbox<br/>磁盘持久化"]
+    R -->|4xx错误| U["日志记录<br/>丢弃batch"]
+    
+    S --> V["插件继续运行"]
+    T --> V
+    U --> V
+    
+    W["Outbox恢复流程<br/>启动时或定期"] -->|drainOutboxFile| X["读取磁盘batch"]
+    X --> Y["重新尝试上报collector"]
+    Y -->|成功| S
+    Y -->|失败| T
+    
+    style A fill:#e1f5ff
+    style M fill:#fff3e0
+    style R fill:#fff3e0
+    style Q fill:#c8e6c9
+    style T fill:#ffccbc
+    style S fill:#c8e6c9

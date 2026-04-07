@@ -65,6 +65,31 @@ function extractMsgIdFromTrace(metadata: Record<string, unknown>, input: Record<
   return null;
 }
 
+/** OpenClaw `input.openclaw.sessionId` 等；与 Web `eventSessionId` 对齐，供按会话实例归并延续类 message_received。 */
+function extractSessionIdFromTrace(metadata: Record<string, unknown>, input: Record<string, unknown>): string | null {
+  const fromMeta = strTrim(metadata.session_id) ?? strTrim(metadata.sessionId);
+  if (fromMeta) {
+    return fromMeta;
+  }
+  const ocCtx = metadata.openclaw_context;
+  if (ocCtx && typeof ocCtx === "object" && !Array.isArray(ocCtx)) {
+    const o = ocCtx as Record<string, unknown>;
+    const nested = strTrim(o.sessionId) ?? strTrim(o.session_id);
+    if (nested) {
+      return nested;
+    }
+  }
+  const oc = input.openclaw;
+  if (oc && typeof oc === "object" && !Array.isArray(oc)) {
+    const o = oc as Record<string, unknown>;
+    const sid = strTrim(o.sessionId) ?? strTrim(o.session_id);
+    if (sid) {
+      return sid;
+    }
+  }
+  return null;
+}
+
 /** 钉钉 / OpenClaw 异步跟进回合：用于会话左侧合并到主命令展示。 */
 function inferAsyncCommandTrace(
   metadata: Record<string, unknown>,
@@ -634,6 +659,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       traceId;
 
     const msgId = extractMsgIdFromTrace(metadata, input);
+    const sessionIdRow = extractSessionIdFromTrace(metadata, input);
     const asyncCommand = inferAsyncCommandTrace(metadata, chatTitle, input);
     const threadIdRow =
       typeof r.thread_id === "string" && r.thread_id.trim() ? r.thread_id.trim() : null;
@@ -647,6 +673,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "message_received",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      session_id: sessionIdRow,
       trace_type: traceTypeRow,
       run_kind: runKindRow,
       agent_id: null,
@@ -669,6 +696,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "llm_input",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      session_id: sessionIdRow,
       trace_type: traceTypeRow,
       run_kind: runKindRow,
       run_id: runId,
@@ -708,6 +736,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
       type: "llm_output",
       trace_root_id: traceId,
       thread_id: threadIdRow,
+      session_id: sessionIdRow,
       trace_type: traceTypeRow,
       run_kind: runKindRow,
       run_id: runId,
