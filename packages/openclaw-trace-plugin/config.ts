@@ -50,6 +50,12 @@ export type CrabagentTracePluginConfig = {
    */
   deferredUserMessageFlushMs: number;
   /**
+   * 为 true（默认）时：延迟 flush 仅在 ctx 或候选键中已存在父级 `agent:…` OpenClaw 路由 sessionKey 时上报，并用 canonical 键作 `thread_id`；
+   * 避免纯 `feishu/oc_…` 等与后续 LLM 的 `agent:…:feishu:group:oc_…` 重复成两条会话。
+   * 设为 false 或环境变量 `CRABAGENT_TRACE_DEFERRED_FLUSH_ALLOW_WITHOUT_ROUTING=1` 可恢复旧行为。
+   */
+  deferredFlushRequiresOpenClawRoutingKey: boolean;
+  /**
    * 读 OpenClaw `agents/main/sessions/sessions.json`，按 `ctx.sessionId` 把 pending 同步 merge 到 store 里的 `sessionKey`（对齐 coze-openclaw-plugin 会话路径）。
    * 缓解 `message_received` / LLM hook 使用不同键时 pending 取不到。环境变量 `CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE=1` 关闭。
    */
@@ -141,6 +147,10 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     typeof c.deferredUserMessageFlushMs === "number" && Number.isFinite(c.deferredUserMessageFlushMs)
       ? Math.max(0, Math.floor(c.deferredUserMessageFlushMs))
       : (deferredFromEnv ?? 3000);
+  const deferredFlushRequiresOpenClawRoutingKey =
+    typeof c.deferredFlushRequiresOpenClawRoutingKey === "boolean"
+      ? c.deferredFlushRequiresOpenClawRoutingKey
+      : !truthyEnv("CRABAGENT_TRACE_DEFERRED_FLUSH_ALLOW_WITHOUT_ROUTING");
   const bridgeOpenClawSessionStore =
     c.bridgeOpenClawSessionStore !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE");
   const sessionStoreRouting =
@@ -159,6 +169,7 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     inboundHookInfoLogs,
     mirrorInboundPendingAgentIds,
     deferredUserMessageFlushMs,
+    deferredFlushRequiresOpenClawRoutingKey,
     bridgeOpenClawSessionStore,
     sessionStoreRouting,
   };

@@ -453,3 +453,56 @@ export function agentScopedTraceKey(ctx: TraceAgentCtx, eventFrom?: string): str
   }
   return `${base}\x1fagent:${aid}`;
 }
+
+/** `agent:<id>:…` 主会话路由键（排除 `agent:…:subagent:…` 子会话）。 */
+export function isOpenClawParentRoutingSessionKey(sk?: string): boolean {
+  const t = sk?.trim() ?? "";
+  if (!/^agent:/i.test(t)) {
+    return false;
+  }
+  const parts = t.split(":");
+  return parts.length >= 4 && parts[2]?.toLowerCase() !== "subagent";
+}
+
+/**
+ * 上报用 canonical `thread_id`：与 `llm_input` 的 `effectiveSk` 对齐，避免 `feishu/oc_…` 等 pending 别名单独成会话。
+ * 优先级：ctx 上已有父路由 sessionKey → 候选里第一条父路由 `agent:…` → ctx 回落键 → 非飞书 oc/ou/og 桶 → 首候选。
+ */
+export function pickCanonicalTraceThreadId(ctx: TraceAgentCtx, aliasKeys: string[]): string {
+  const keys = aliasKeys.map((k) => k.trim()).filter(Boolean);
+  const scoped = agentScopedTraceKey(ctx);
+  const baseSk = ctx.sessionKey?.trim();
+  if (baseSk && isOpenClawParentRoutingSessionKey(baseSk)) {
+    return scoped;
+  }
+  for (const k of keys) {
+    if (isOpenClawParentRoutingSessionKey(k)) {
+      const aid = deriveTraceAgentId(ctx);
+      if (aid && !sessionKeyImpliesAgent(k, aid)) {
+        return `${k}\x1fagent:${aid}`;
+      }
+      return k;
+    }
+  }
+  if (scoped && scoped !== "unknown-session") {
+    return scoped;
+  }
+  const nonFeishuBucket = keys.find((k) => !/^feishu\/(oc|ou|og)_/i.test(k));
+  if (nonFeishuBucket) {
+    return nonFeishuBucket;
+  }
+  return keys[0] ?? "unknown-session";
+}
+
+/** 延迟 non-LLM flush 是否允许上报：ctx 或候选里是否已能识别父级 `agent:…` 路由键（避免纯 `feishu/oc_` 桶落库）。 */
+export function hasOpenClawParentRoutingSessionHint(ctx: TraceAgentCtx, aliasKeys: string[]): boolean {
+  if (isOpenClawParentRoutingSessionKey(ctx.sessionKey)) {
+    return true;
+  }
+  for (const raw of aliasKeys) {
+    if (isOpenClawParentRoutingSessionKey(raw)) {
+      return true;
+    }
+  }
+  return false;
+}

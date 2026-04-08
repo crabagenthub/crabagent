@@ -555,4 +555,48 @@ describe("OpikOpenClawRuntime — 无 LLM 回合上报", () => {
     const batch = rt.onAgentEnd("sk", { success: true, messages: [] }, { agentId: "a", sessionKey: "sk" }, ["sk"]);
     assert.equal(batch, null);
   });
+
+  it("tryDeferredNonLlmFlush：默认无父级 agent:… 路由键时不落库（避免 feishu/oc 成独立会话）", () => {
+    const rt = new OpikOpenClawRuntime("default", "openclaw");
+    rt.mergePendingContext("feishu/oc_defer_skip", {
+      message_received: { from: "feishu/oc_defer_skip", content: "only channel bucket" },
+    });
+    const batch = rt.tryDeferredNonLlmFlush(
+      ["feishu/oc_defer_skip", "feishu/oc_defer_skip\x1fagent:email_automatic"],
+      { agentId: "email_automatic", channelId: "feishu/oc_defer_skip" },
+    );
+    assert.equal(batch, null);
+  });
+
+  it("tryDeferredNonLlmFlush：候选含 agent:… 时落库且 thread_id 为 canonical", () => {
+    const sk = "agent:email_automatic:feishu:group:oc_defer_canon";
+    const rt = new OpikOpenClawRuntime("default", "openclaw");
+    for (const k of traceSessionKeyCandidates({ sessionKey: sk, agentId: "email_automatic" })) {
+      rt.mergePendingContext(k, {
+        message_received: { from: "feishu/oc_defer_canon", content: "defer body" },
+      });
+    }
+    const batch = rt.tryDeferredNonLlmFlush(
+      traceSessionKeyCandidates({ sessionKey: sk, agentId: "email_automatic" }),
+      { agentId: "email_automatic", sessionKey: sk, messageProvider: "feishu" },
+    );
+    assert.ok(batch);
+    const th = batch?.threads?.[0] as Record<string, unknown> | undefined;
+    assert.equal(th?.thread_id, sk);
+  });
+
+  it("tryDeferredNonLlmFlush：deferredFlushRequiresOpenClawRoutingKey=false 时纯渠道桶仍可落库", () => {
+    const rt = new OpikOpenClawRuntime("default", "openclaw", {
+      deferredFlushRequiresOpenClawRoutingKey: false,
+    });
+    rt.mergePendingContext("feishu/oc_legacy_defer", {
+      message_received: { from: "feishu/oc_legacy_defer", content: "legacy defer" },
+    });
+    const batch = rt.tryDeferredNonLlmFlush(["feishu/oc_legacy_defer"], {
+      channelId: "feishu/oc_legacy_defer",
+    });
+    assert.ok(batch);
+    const th = batch?.threads?.[0] as Record<string, unknown> | undefined;
+    assert.ok(th?.thread_id);
+  });
 });

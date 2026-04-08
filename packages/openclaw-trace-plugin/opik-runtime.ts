@@ -21,9 +21,12 @@ import {
   extractAgentIdFromRoutingSessionKey,
   extractRequesterThreadIdFromOpenClawSessionContext,
   extractSubagentSessionKeyFromText,
+  hasOpenClawParentRoutingSessionHint,
   parseRoutingKindFromSessionKey,
+  pickCanonicalTraceThreadId,
   sessionKeyImpliesSubagentSessionKey,
 } from "./trace-session-key.js";
+import type { TraceAgentCtx } from "./trace-session-key.js";
 
 /** 与 `message_received` 正文上限对齐；Gmail/Hook 隔离路径无 inbound hook，依赖本段 prompt 预览入库。 */
 export const TRACE_PROMPT_PREVIEW_MAX_CHARS = 16_384;
@@ -906,6 +909,10 @@ export class OpikOpenClawRuntime {
   /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。 */
   private readonly persistPendingDir?: string;
   private readonly traceBareAgentEnds: boolean;
+  /**
+   * 为 true（默认）时：延迟 non-LLM flush 仅在已能识别父级 `agent:…` 路由键时上报，避免纯 `feishu/oc_…` 等与 LLM 线程重复。
+   */
+  private readonly deferredFlushRequiresOpenClawRoutingKey: boolean;
   private readonly debugTrace?: (phase: string, data: Record<string, unknown>) => void;
 
   constructor(
@@ -914,12 +921,15 @@ export class OpikOpenClawRuntime {
     opts?: {
       persistPendingDir?: string;
       traceBareAgentEnds?: boolean;
+      /** 默认 true；设为 false 时恢复「无路由键也 defer flush」的旧行为。 */
+      deferredFlushRequiresOpenClawRoutingKey?: boolean;
       debugTrace?: (phase: string, data: Record<string, unknown>) => void;
     },
   ) {
     const d = opts?.persistPendingDir?.trim();
     this.persistPendingDir = d || undefined;
     this.traceBareAgentEnds = opts?.traceBareAgentEnds !== false;
+    this.deferredFlushRequiresOpenClawRoutingKey = opts?.deferredFlushRequiresOpenClawRoutingKey !== false;
     this.debugTrace = opts?.debugTrace;
     if (this.persistPendingDir) {
       this.hydratePendingFromDisk();
@@ -1286,7 +1296,15 @@ export class OpikOpenClawRuntime {
       aliasKeys.length > 0
         ? [...new Set(aliasKeys.map((k) => k.trim() || "unknown-session"))]
         : ["unknown-session"];
-    const primary = keys[0] ?? "unknown-session";
+    const tctx = ctx as TraceAgentCtx;
+    if (this.deferredFlushRequiresOpenClawRoutingKey && !hasOpenClawParentRoutingSessionHint(tctx, keys)) {
+      this.debugTrace?.("deferred_non_llm_skip_no_openclaw_routing", {
+        keySample: keys.slice(0, 8),
+        sessionKey: ctx.sessionKey,
+      });
+      return null;
+    }
+    const primary = pickCanonicalTraceThreadId(tctx, keys);
     const expanded = this.expandPendingAliasKeysForUserTurn(keys, primary);
     if (this.activeHasAny(expanded)) {
       return null;

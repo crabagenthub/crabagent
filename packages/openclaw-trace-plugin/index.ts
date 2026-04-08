@@ -205,6 +205,7 @@ export default {
     let persistPendingRoot: string | undefined;
     let cachedPersistKey = "";
     let cachedTraceBare = true;
+    let cachedDeferredRouting = true;
     let warnedNoBaseUrl = false;
 
     const getQueue = (): BatchQueue => {
@@ -220,23 +221,27 @@ export default {
         c.persistPendingToDisk !== false && persistPendingRoot?.trim() ? persistPendingRoot.trim() : undefined;
       const pkey = diskRoot ?? "";
       const traceBare = c.traceBareAgentEnds !== false;
+      const defRouting = c.deferredFlushRequiresOpenClawRoutingKey;
       if (
         !runtime ||
         cachedWs !== c.opikWorkspaceName ||
         cachedProj !== c.opikProjectName ||
         cachedPersistKey !== pkey ||
-        cachedTraceBare !== traceBare
+        cachedTraceBare !== traceBare ||
+        cachedDeferredRouting !== defRouting
       ) {
         cachedWs = c.opikWorkspaceName;
         cachedProj = c.opikProjectName;
         cachedPersistKey = pkey;
         cachedTraceBare = traceBare;
+        cachedDeferredRouting = defRouting;
         runtime = new OpikOpenClawRuntime(
           cachedWs,
           cachedProj,
           {
             ...(diskRoot ? { persistPendingDir: diskRoot } : {}),
             traceBareAgentEnds: traceBare,
+            deferredFlushRequiresOpenClawRoutingKey: defRouting,
           },
         );
       }

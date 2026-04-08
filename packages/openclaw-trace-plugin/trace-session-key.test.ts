@@ -6,7 +6,10 @@ import {
   extractSubagentChildIdFromSessionKey,
   extractRequesterThreadIdFromOpenClawSessionContext,
   extractSubagentSessionKeyFromText,
+  hasOpenClawParentRoutingSessionHint,
+  isOpenClawParentRoutingSessionKey,
   parseRoutingKindFromSessionKey,
+  pickCanonicalTraceThreadId,
   resolvePrimaryTraceKey,
   sessionKeyImpliesSubagentSessionKey,
   traceSessionKeyCandidates,
@@ -138,5 +141,41 @@ session_id: 968144ec-a117-444a-bb9e-b465bea6ee24
     for (const k of traceSessionKeyCandidatesForPending(ctx)) {
       assert.ok(merged.includes(k), `missing ${k}`);
     }
+  });
+
+  it("isOpenClawParentRoutingSessionKey 区分父路由与子代理 session", () => {
+    assert.equal(isOpenClawParentRoutingSessionKey("agent:email_automatic:feishu:group:oc_x"), true);
+    assert.equal(
+      isOpenClawParentRoutingSessionKey("agent:email_automatic:subagent:d05e53b7-989b-43e6-8de2-a69fd889ef56"),
+      false,
+    );
+  });
+
+  it("pickCanonicalTraceThreadId 优先 ctx.sessionKey 父路由，其次候选中的 agent:…", () => {
+    const sk = "agent:email_automatic:feishu:group:oc_ab";
+    assert.equal(
+      pickCanonicalTraceThreadId(
+        { sessionKey: sk, agentId: "email_automatic" },
+        ["feishu/oc_ab", "feishu/oc_ab\x1fagent:email_automatic"],
+      ),
+      sk,
+    );
+    assert.equal(
+      pickCanonicalTraceThreadId(
+        { agentId: "email_automatic", channelId: "feishu/oc_ab" },
+        ["feishu/oc_ab", sk],
+      ),
+      sk,
+    );
+  });
+
+  it("hasOpenClawParentRoutingSessionHint 在仅有 feishu/oc 桶与 \\x1fagent 别名时为 false", () => {
+    assert.equal(
+      hasOpenClawParentRoutingSessionHint(
+        { agentId: "email_automatic", channelId: "feishu/oc_ab" },
+        ["feishu/oc_ab", "feishu/oc_ab\x1fagent:email_automatic"],
+      ),
+      false,
+    );
   });
 });

@@ -70,6 +70,11 @@
         "default": 3000,
         "description": "After inbound message with body: if pending not consumed by llm_input/agent_end within this many ms, emit a non-LLM trace. 0 disables. Env: CRABAGENT_TRACE_DEFERRED_USER_FLUSH_MS."
       },
+      "deferredFlushRequiresOpenClawRoutingKey": {
+        "type": "boolean",
+        "default": true,
+        "description": "When true (default), deferred non-LLM flush only runs if a parent agent:… routing sessionKey is present, and uses canonical thread_id (avoids duplicate feishu/oc_ threads). Set false or env CRABAGENT_TRACE_DEFERRED_FLUSH_ALLOW_WITHOUT_ROUTING=1 for legacy behavior."
+      },
       "persistPendingToDisk": {
         "type": "boolean",
         "default": true,
