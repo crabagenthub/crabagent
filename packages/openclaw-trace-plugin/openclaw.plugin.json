@@ -1,7 +1,7 @@
 {
   "id": "openclaw-trace-plugin",
   "name": "Crabagent Trace",
-  "description": "OpenClaw hooks → opik-openclaw-shaped batches → Collector POST /v1/opik/batch (SQLite opik_* only). Gmail/hook preset agent runs skip message_received; traces rely on before_prompt_build + agent_end. Agents using CLI backends emit no plugin hooks—use an API model for that agent if you need traces without patching OpenClaw.",
+  "description": "OpenClaw hooks → opik-openclaw-shaped batches → Collector POST /v1/opik/batch (SQLite opik_* only). Requires OpenClaw ≥2026.4 (plugin-sdk/plugin-entry; no plugin-sdk/compat). Gmail/hook preset agent runs skip message_received; traces rely on before_prompt_build + agent_end. Agents using CLI backends emit no plugin hooks—use an API model for that agent if you need traces without patching OpenClaw.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

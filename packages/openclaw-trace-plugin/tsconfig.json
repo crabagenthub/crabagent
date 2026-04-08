@@ -10,8 +10,10 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "openclaw/plugin-sdk/core": ["./stub/openclaw-plugin-sdk-core.ts"]
+      "openclaw/plugin-sdk/plugin-entry": ["./stub/openclaw-plugin-entry.ts"]
     }
   },
-  "include": ["./**/*.ts", "./stub/**/*.ts"]
+  "include": ["./**/*.ts", "./stub/**/*.ts"],
+  // Imports collector sources outside rootDir; still run via `pnpm test` / tsx.
+  "exclude": ["./ingest-chain-smoke.test.ts"]
 }

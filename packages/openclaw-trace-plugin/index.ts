@@ -1,6 +1,10 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import type { OpenClawPluginApi, PluginServiceContext } from "openclaw/plugin-sdk/core";
+import {
+  definePluginEntry,
+  type OpenClawPluginApi,
+  type OpenClawPluginServiceContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { resolvePluginConfig } from "./config.js";
 import { BatchQueue } from "./event-queue.js";
 import { mergeOpikBatches, postOpikBatch } from "./flush.js";
@@ -179,7 +183,7 @@ function collectorHostLabel(baseUrl: string): string {
   }
 }
 
-export default {
+export default definePluginEntry({
   id: PLUGIN_ID,
   name: "Crabagent Trace (Opik layout)",
   description: "OpenClaw hooks → opik-openclaw-shaped batches → Collector POST /v1/opik/batch.",
@@ -732,7 +736,7 @@ export default {
 
     api.registerService({
       id: `${PLUGIN_ID}-flush`,
-      start(serviceCtx: PluginServiceContext) {
+      start(serviceCtx: OpenClawPluginServiceContext) {
         serviceStopped = false;
         serviceStartedInThisProcess = true;
         persistPendingRoot = path.join(serviceCtx.stateDir, "crabagent");
@@ -860,4 +864,4 @@ export default {
       },
     });
   },
-};
+});

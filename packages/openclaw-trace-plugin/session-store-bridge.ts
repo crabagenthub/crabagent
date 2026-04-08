@@ -4,6 +4,7 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 
 export type OpenClawSessionEntry = {
   sessionId?: string;
@@ -16,12 +17,14 @@ export type OpenClawSessionStore = Record<string, OpenClawSessionEntry>;
 /**
  * 与 coze `session-recovery` 同序：runtime.resolvePath → OPENCLAW_STATE_DIR → workspace 父目录 → 容器默认。
  * @param agentId 默认 `main`；子 agent（如 `email_automatic`）对应 `agents/<id>/sessions`。
+ * @param api 宿主注入的 `OpenClawPluginApi`（或仅含 `runtime` / `config` 的测试桩）。
  */
 export function resolveOpenClawSessionsBasePathForAgent(api: unknown, agentId?: string): string | null {
   const aid = agentId?.trim() || "main";
   const rel = `agents/${aid}/sessions`;
-  const a = api as Record<string, unknown>;
-  const runtime = a.runtime as { resolvePath?: (rel: string) => string } | undefined;
+  const a =
+    api != null && typeof api === "object" && !Array.isArray(api) ? (api as OpenClawPluginApi) : ({} as OpenClawPluginApi);
+  const runtime = a.runtime;
   if (typeof runtime?.resolvePath === "function") {
     try {
       const p = runtime.resolvePath(rel)?.trim();
@@ -36,7 +39,7 @@ export function resolveOpenClawSessionsBasePathForAgent(api: unknown, agentId?: 
   if (stateDir) {
     return path.join(stateDir, rel);
   }
-  const cfg = a.config as { agents?: { defaults?: { workspace?: string } } } | undefined;
+  const cfg = a.config;
   const ws = cfg?.agents?.defaults?.workspace?.trim();
   if (ws) {
     return path.join(path.dirname(ws), rel);
