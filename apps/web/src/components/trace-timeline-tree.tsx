@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
+import { JsonHighlightedBlock } from "@/components/json-highlighted-block";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
 import { MessageHint } from "@/components/message-hint";
 import { TraceCrabagentLayersPanel } from "@/components/trace-crabagent-layers-panel";
@@ -411,6 +412,22 @@ function TraceEventPayloadFoldout({
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(defaultExpanded);
+  const jsonStr = useMemo(() => {
+    if (payload == null) return "{}";
+    if (typeof payload === "string") {
+      const s = payload.trim();
+      if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+        try {
+          return JSON.stringify(JSON.parse(s), null, 2);
+        } catch {
+          // ignore
+        }
+      }
+      return payload;
+    }
+    return JSON.stringify(payload, null, 2);
+  }, [payload]);
+
   return (
     <details
       className="rounded-b-xl border-t border-border/70 bg-neutral-50/30"
@@ -420,9 +437,11 @@ function TraceEventPayloadFoldout({
       <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-ca-muted hover:bg-neutral-100/80">
         {t("layersFullPayloadSummary")}
       </summary>
-      <pre className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto border-0 px-3 pb-3 text-[11px] leading-relaxed">
-        {JSON.stringify(payload ?? {}, null, 2)}
-      </pre>
+      <JsonHighlightedBlock
+        text={jsonStr}
+        query=""
+        className="ca-code-block m-0 max-h-[min(20rem,45vh)] overflow-auto border-0 px-3 pb-3 text-[11px] leading-relaxed"
+      />
     </details>
   );
 }

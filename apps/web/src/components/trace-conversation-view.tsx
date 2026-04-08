@@ -532,7 +532,19 @@ function AssistantBubble({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/80">
             {t("convThinkingTitle")}
           </p>
-          <p className="mt-1 font-mono text-[11px]">{thinking}</p>
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px]">
+            {(() => {
+              const s = thinking.trim();
+              if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+                try {
+                  return JSON.stringify(JSON.parse(s), null, 2);
+                } catch {
+                  /* fallback */
+                }
+              }
+              return thinking;
+            })()}
+          </pre>
         </div>
       ) : null}
       {memoryRefs.length > 0 ? (

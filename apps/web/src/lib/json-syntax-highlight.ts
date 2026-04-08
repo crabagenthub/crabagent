@@ -98,7 +98,16 @@ export function tokenizeJsonDisplay(source: string): JsonToken[] {
 
     if (c === '"') {
       const { text, end } = readString(source, i);
-      tokens.push({ kind: "string", text });
+      // Unescape standard JSON escape sequences for better readability in the UI
+      const displayText = text
+        .replace(/\\n/g, "\n")
+        .replace(/\\\\/g, "\\")
+        .replace(/\\"/g, '"')
+        .replace(/\\t/g, "\t")
+        .replace(/\\r/g, "\r")
+        .replace(/\\b/g, "\b")
+        .replace(/\\f/g, "\f");
+      tokens.push({ kind: "string", text: displayText });
       i = end;
       continue;
     }

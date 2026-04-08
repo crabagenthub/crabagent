@@ -23,8 +23,23 @@ import { HighlightedBlockWithOptionalJson } from "@/components/json-highlighted-
 type MainTab = "run" | "metadata" | "feedback";
 
 function formatJson(obj: unknown): string {
+  if (obj == null) {
+    return "";
+  }
+  if (typeof obj === "string") {
+    const s = obj.trim();
+    if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(s);
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        /* fallback to raw */
+      }
+    }
+    return s;
+  }
   try {
-    return JSON.stringify(obj ?? {}, null, 2);
+    return JSON.stringify(obj, null, 2);
   } catch {
     return String(obj);
   }
