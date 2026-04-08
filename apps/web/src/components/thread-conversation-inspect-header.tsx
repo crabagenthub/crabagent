@@ -124,7 +124,6 @@ export function ThreadConversationInspectHeader({
       >
         {variant === "sidebar" ? (
           <>
-            {sessionCell}
             {agentCell}
             {channelCell}
             {statusCell}

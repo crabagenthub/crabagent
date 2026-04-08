@@ -25,7 +25,8 @@ import {
 import { ConversationTraceFlow } from "@/components/conversation-trace-flow";
 import { ThreadConversationInspectHeader } from "@/components/thread-conversation-inspect-header";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
-import { IconCommon, IconMessage, IconClose, IconClockCircle, IconSwap } from "@arco-design/web-react/icon";
+import { IconCommon, IconClose, IconClockCircle, IconSwap } from "@arco-design/web-react/icon";
+import { InspectTitleLeadingIcon } from "@/components/inspect-title-leading-icon";
 import { Popover } from "@arco-design/web-react";
 import { TokenUsagePopover } from "@/components/token-usage-details-card";
 import { aggregateLlmOutputTokenEntries, usageRecordDisplayTotals } from "@/lib/span-token-display";
@@ -331,7 +332,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     return (
       <li
         key={u.listKey}
-        className={cn("relative flex min-h-0 min-w-0 items-stretch gap-3", !isLast && "pb-7")}
+        className={cn("relative flex min-h-0 min-w-0 items-stretch", !isLast && "pb-7")}
       >
         <div className="relative z-[2] h-full min-h-0 w-9 shrink-0 overflow-visible sm:w-10">
           <div className="relative mx-auto mt-[calc(1rem-5.5px)] flex justify-center">
@@ -474,23 +475,46 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {drillRow ? (
               <button
                 type="button"
-                className="shrink-0 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                className="shrink-0 self-center rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
                 onClick={() => setDrillRow(null)}
               >
                 {t("threadDrawerBackParentSession")}
               </button>
             ) : null}
-            <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
-              <IconMessage className="size-4 shrink-0" strokeWidth={2} aria-hidden />
-            </span>
-            <h2 className="truncate text-lg font-semibold leading-tight text-foreground">
-              {t("threadDrawerTitle")}
-            </h2>
+            <div className="flex min-w-0 flex-1 items-stretch gap-2">
+              <InspectTitleLeadingIcon kind="session" />
+              <div className="flex min-w-0 flex-col justify-center gap-0 leading-none">
+                <h2 className="truncate text-[15px] font-semibold leading-none tracking-tight text-foreground">
+                  {t("threadDrawerTitle")}
+                </h2>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 leading-none">
+                  <span className="shrink-0 text-[10px] leading-none text-muted-foreground">
+                    {t("threadDrawerHeaderSessionIdLabel")}
+                  </span>
+                  <span
+                    className="min-w-0 truncate font-mono text-[10px] leading-none tabular-nums text-muted-foreground"
+                    title={threadKey || undefined}
+                  >
+                    {threadKey ? threadShort : "—"}
+                  </span>
+                  {threadKey ? (
+                    <TraceCopyIconButton
+                      text={threadKey}
+                      ariaLabel={t("threadDrawerCopyThreadId")}
+                      successLabel={t("threadDrawerCopyThreadIdSuccess")}
+                      tooltipLabel={t("copy")}
+                      className="-mr-0.5 p-0.5 hover:bg-muted/80"
+                      iconClassName="size-3.5"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
             <button
@@ -562,7 +586,7 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                   </p>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
-                  <div className="relative px-3 pt-3 pb-8">
+                  <div className="relative pr-3 pt-3 pb-8">
                     <ul ref={timelineUlRef} className="relative list-none p-0">
                       {turnSpine != null && turnSpine.height > 0 ? (
                         <li

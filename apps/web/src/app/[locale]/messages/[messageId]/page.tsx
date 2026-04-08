@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { AppPageShell } from "@/components/app-page-shell";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
+import { InspectTitleLeadingIcon } from "@/components/inspect-title-leading-icon";
 import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
 import { Button } from "@/components/ui/button";
@@ -158,12 +159,15 @@ function MessageDetailContent() {
         </nav>
 
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <IdLabeledCopy
-              kind="trace_id"
-              value={messageId}
-              valueClassName="text-lg font-semibold tracking-tight md:text-xl"
-            />
+          <div className="flex min-w-0 flex-1 items-stretch gap-2">
+            <InspectTitleLeadingIcon kind="message" />
+            <div className="min-w-0 flex-1">
+              <IdLabeledCopy
+                kind="trace_id"
+                value={messageId}
+                valueClassName="text-lg font-semibold tracking-tight md:text-xl"
+              />
+            </div>
           </div>
           <Button type="button" variant="secondary" className="shrink-0" onClick={() => router.push("/settings")}>
             {t("openSettings")}

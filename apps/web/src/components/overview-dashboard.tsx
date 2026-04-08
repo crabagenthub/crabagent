@@ -83,7 +83,7 @@ type KpiCardProps = {
 function KpiCard({ title, hint, value, suffix, mom, momLabel }: KpiCardProps) {
   const momM = momTagMeta(mom ?? null);
   return (
-    <Card bordered className="border-border/80 shadow-sm" bodyStyle={{ padding: "16px" }}>
+    <Card bordered className="overflow-hidden rounded-lg border-border/80 shadow-sm" bodyStyle={{ padding: "16px" }}>
       <div className="mb-2 flex flex-row items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>
@@ -131,7 +131,7 @@ type ChartCardProps = {
 function ChartCard({ title, hint, children, className, rightSlot }: ChartCardProps) {
   const showHeader = Boolean(title) || Boolean(hint) || Boolean(rightSlot);
   return (
-    <Card bordered className={cn("border-border/80 shadow-sm", className)} bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}>
+    <Card bordered className={cn("overflow-hidden rounded-lg border-border/80 shadow-sm", className)} bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}>
       {showHeader ? (
         <div className="mb-2 flex flex-row items-center justify-between gap-2 px-1">
           <div className="flex min-w-0 items-center gap-1">

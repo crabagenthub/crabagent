@@ -2,7 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { IconInfoCircle, IconMessage, IconSearch, IconClose } from "@arco-design/web-react/icon";
+import { IconInfoCircle, IconSearch, IconClose } from "@arco-design/web-react/icon";
+import { InspectTitleLeadingIcon } from "@/components/inspect-title-leading-icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageHint } from "@/components/message-hint";
 import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
@@ -179,12 +180,37 @@ export function TraceRecordInspectDialog({
     >
       {row ? (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="inline-flex size-7 items-center justify-center rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-400">
-              <IconMessage className="size-4 shrink-0" strokeWidth={2} aria-hidden />
-            </span>
-            <h2 className="text-lg font-semibold leading-tight text-foreground">{t("traceInspectTitle")}</h2>
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div className="flex min-w-0 flex-1 items-stretch gap-2">
+              <InspectTitleLeadingIcon kind="message" />
+              <div className="flex min-w-0 flex-col justify-center gap-0 leading-none">
+                <h2 className="truncate text-[15px] font-semibold leading-none tracking-tight text-foreground">
+                  {t("traceInspectTitle")}
+                </h2>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 leading-none">
+                  <span className="shrink-0 text-[10px] leading-none text-muted-foreground">
+                    {t("messageInspectHeaderMessageIdLabel")}
+                  </span>
+                  <span
+                    className="min-w-0 truncate font-mono text-[10px] leading-none tabular-nums text-muted-foreground"
+                    title={traceId || undefined}
+                  >
+                    {traceId ? traceShort : "—"}
+                  </span>
+                  {traceId ? (
+                    <TraceCopyIconButton
+                      text={traceId}
+                      ariaLabel={t("messageInspectCopyMessageIdAria")}
+                      successLabel={t("threadDrawerCopyThreadIdSuccess")}
+                      tooltipLabel={t("copy")}
+                      className="-mr-0.5 p-0.5 hover:bg-muted/80"
+                      iconClassName="size-3.5"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5">
             <button
@@ -213,7 +239,7 @@ export function TraceRecordInspectDialog({
             </button>
           </div>
           <DrawerClose
-            className="mt-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("threadDrawerCloseAria")}
           >
             <IconClose className="size-5" aria-hidden />
@@ -351,22 +377,6 @@ export function TraceRecordInspectDialog({
               >
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-3">
-                    <div className="col-span-2 min-w-0">
-                      <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaTraceIdLabel")}</div>
-                      <div className="mt-1 flex min-w-0 items-center gap-1">
-                        <span className="truncate text-sm text-neutral-900 dark:text-neutral-100" title={traceId || undefined}>
-                          {traceId ? traceShort : "—"}
-                        </span>
-                        {traceId ? (
-                          <TraceCopyIconButton
-                            text={traceId}
-                            ariaLabel={t("inspectCopyTraceIdAria")}
-                            tooltipLabel={t("copy")}
-                            successLabel={t("copySuccessToast")}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
                     <div className="min-w-0">
                       <div className="text-xs text-neutral-500 dark:text-neutral-400">{t("drawerMetaAgentLabel")}</div>
                       <div className="mt-1 truncate text-sm font-normal text-neutral-900 dark:text-neutral-100" title={traceAgent ?? undefined}>

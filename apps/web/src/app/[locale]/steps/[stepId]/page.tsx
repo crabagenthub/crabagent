@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { AppPageShell } from "@/components/app-page-shell";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
+import { InspectTitleLeadingIcon } from "@/components/inspect-title-leading-icon";
 import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
 import { Button } from "@/components/ui/button";
@@ -148,38 +149,41 @@ function StepDetailContent() {
         </nav>
 
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <IdLabeledCopy
-              kind="trace_id"
-              value={stepId}
-              valueClassName="text-lg font-semibold tracking-tight md:text-xl"
-            />
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              {stepQuery.data?.name && (
-                <span className="ca-pill-muted">
-                  <span className="font-medium">{t("name")}:</span> {stepQuery.data.name}
-                </span>
-              )}
-              {stepQuery.data?.type && (
-                <span className="ca-pill-muted">
-                  <span className="font-medium">{t("type")}:</span> {stepQuery.data.type}
-                </span>
-              )}
-              {stepQuery.data?.status === "success" && (
-                <span className="ca-pill-success">
-                  <span className="font-medium">{t("status")}:</span> {t("success")}
-                </span>
-              )}
-              {stepQuery.data?.duration && (
-                <span className="ca-pill-muted text-xs">
-                  {t("duration", { ms: stepQuery.data.duration })}
-                </span>
-              )}
-              {stepQuery.data?.tokens?.total && (
-                <span className="ca-pill-muted text-xs">
-                  {t("tokens", { count: stepQuery.data.tokens.total.toLocaleString() })}
-                </span>
-              )}
+          <div className="flex min-w-0 flex-1 items-stretch gap-2">
+            <InspectTitleLeadingIcon kind="step" />
+            <div className="min-w-0 flex-1">
+              <IdLabeledCopy
+                kind="trace_id"
+                value={stepId}
+                valueClassName="text-lg font-semibold tracking-tight md:text-xl"
+              />
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {stepQuery.data?.name && (
+                  <span className="ca-pill-muted">
+                    <span className="font-medium">{t("name")}:</span> {stepQuery.data.name}
+                  </span>
+                )}
+                {stepQuery.data?.type && (
+                  <span className="ca-pill-muted">
+                    <span className="font-medium">{t("type")}:</span> {stepQuery.data.type}
+                  </span>
+                )}
+                {stepQuery.data?.status === "success" && (
+                  <span className="ca-pill-success">
+                    <span className="font-medium">{t("status")}:</span> {t("success")}
+                  </span>
+                )}
+                {stepQuery.data?.duration && (
+                  <span className="ca-pill-muted text-xs">
+                    {t("duration", { ms: stepQuery.data.duration })}
+                  </span>
+                )}
+                {stepQuery.data?.tokens?.total && (
+                  <span className="ca-pill-muted text-xs">
+                    {t("tokens", { count: stepQuery.data.tokens.total.toLocaleString() })}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <Button type="button" variant="secondary" className="shrink-0" onClick={() => router.push("/settings")}>
