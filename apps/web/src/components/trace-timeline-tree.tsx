@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { JsonHighlightedBlock } from "@/components/json-highlighted-block";
 import { IdLabeledCopy } from "@/components/id-labeled-copy";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { MessageHint } from "@/components/message-hint";
 import { TraceCrabagentLayersPanel } from "@/components/trace-crabagent-layers-panel";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
@@ -403,6 +404,10 @@ function TraceEventPipelineSummary({
   return null;
 }
 
+function unescapeForCopy(text: string): string {
+  return text.replace(/\\n/g, "\n").replace(/\\\\/g, "\\").replace(/\\"/g, '"').replace(/\\t/g, "\t");
+}
+
 function TraceEventPayloadFoldout({
   defaultExpanded,
   payload,
@@ -434,8 +439,17 @@ function TraceEventPayloadFoldout({
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-ca-muted hover:bg-neutral-100/80">
-        {t("layersFullPayloadSummary")}
+      <summary className="flex cursor-pointer select-none items-center justify-between px-3 py-2 text-[11px] font-medium text-ca-muted hover:bg-neutral-100/80">
+        <span>{t("layersFullPayloadSummary")}</span>
+        <TraceCopyIconButton
+          text={unescapeForCopy(jsonStr)}
+          ariaLabel={t("detailCopy")}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="size-6 items-center justify-center p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          iconClassName="size-3.5"
+          stopPropagation
+        />
       </summary>
       <JsonHighlightedBlock
         text={jsonStr}

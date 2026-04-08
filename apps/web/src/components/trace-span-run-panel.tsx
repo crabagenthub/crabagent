@@ -26,20 +26,49 @@ function formatJson(obj: unknown): string {
   if (obj == null) {
     return "";
   }
+
+  // Helper to recursively beautify JSON strings inside an object
+  const beautifyNested = (input: any): any => {
+    if (typeof input === "string") {
+      const s = input.trim();
+      if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
+        try {
+          const parsed = JSON.parse(s);
+          return beautifyNested(parsed); // Recursive for nested structures
+        } catch {
+          return s;
+        }
+      }
+      return s;
+    }
+    if (Array.isArray(input)) {
+      return input.map(beautifyNested);
+    }
+    if (typeof input === "object" && input !== null) {
+      const res: any = {};
+      for (const key in input) {
+        res[key] = beautifyNested(input[key]);
+      }
+      return res;
+    }
+    return input;
+  };
+
   if (typeof obj === "string") {
     const s = obj.trim();
     if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
       try {
         const parsed = JSON.parse(s);
-        return JSON.stringify(parsed, null, 2);
+        return JSON.stringify(beautifyNested(parsed), null, 2);
       } catch {
-        /* fallback to raw */
+        return s;
       }
     }
     return s;
   }
+
   try {
-    return JSON.stringify(obj, null, 2);
+    return JSON.stringify(beautifyNested(obj), null, 2);
   } catch {
     return String(obj);
   }
@@ -75,6 +104,10 @@ function roleLabel(t: ReturnType<typeof useTranslations>, role: ChatRole): strin
   }
 }
 
+function unescapeForCopy(text: string): string {
+  return text.replace(/\\n/g, "\n").replace(/\\\\/g, "\\").replace(/\\"/g, '"').replace(/\\t/g, "\t");
+}
+
 function SpanInspectSection(props: {
   title: string;
   isOpen: boolean;
@@ -99,6 +132,8 @@ function SpanInspectSection(props: {
     t,
     children,
   } = props;
+  const unescapedCopyPayload = useMemo(() => unescapeForCopy(copyPayload), [copyPayload]);
+
   return (
     <div className="border-b border-border">
       <div className="flex flex-col gap-2 border-b border-border/60 bg-muted/15 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
@@ -126,7 +161,7 @@ function SpanInspectSection(props: {
             onClick={(e) => e.stopPropagation()}
           />
           <TraceCopyIconButton
-            text={copyPayload}
+            text={unescapedCopyPayload}
             ariaLabel={t("spanInspectCopyAria")}
             tooltipLabel={t("copy")}
             successLabel={t("copySuccessToast")}
@@ -249,13 +284,18 @@ export function TraceSpanRunPanel({
       }) ??
       // Fallback: if we only have 1 stage, it's very likely the llm input stage.
       (promptStages.length === 1 ? promptStages[0]! : null);
-    return picked?.text?.trim().length ? picked.text : null;
+    const raw = picked?.text?.trim().length ? picked.text : null;
+    return raw ? formatJson(raw) : null;
   }, [promptStages]);
 
-  const { input: rawInputBlocks, output: outputBlocks } = useMemo(
-    () => (span ? extractRunChatBlocks(span) : { input: [], output: [] }),
-    [span],
-  );
+  const { input: rawInputBlocks, output: rawOutputBlocks } = useMemo(() => {
+    if (!span) return { input: [], output: [] };
+    const res = extractRunChatBlocks(span);
+    return {
+      input: res.input.map((b) => ({ ...b, content: formatJson(b.content) })),
+      output: res.output.map((b) => ({ ...b, content: formatJson(b.content) })),
+    };
+  }, [span]);
 
   const inputBlocks = useMemo(() => {
     if (llmInputStageText) {
@@ -264,12 +304,14 @@ export function TraceSpanRunPanel({
     return rawInputBlocks;
   }, [llmInputStageText, rawInputBlocks]);
 
+  const outputBlocks = rawOutputBlocks;
+
   const traceSystemPromptText = useMemo(() => {
     if (!span || span.type !== "LLM") {
       return "";
     }
     const sysRaw = traceInput?.systemPrompt;
-    return typeof sysRaw === "string" && sysRaw.trim().length > 0 ? sysRaw.trim() : "";
+    return typeof sysRaw === "string" && sysRaw.trim().length > 0 ? formatJson(sysRaw.trim()) : "";
   }, [span, traceInput]);
 
   const displayInputStr = useMemo(() => {

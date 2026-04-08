@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { JsonHighlightedBlock } from "@/components/json-highlighted-block";
 import { MessageHint } from "@/components/message-hint";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import type { ParsedCrabagentPayload } from "@/lib/trace-crabagent-layers";
 
 function dash(v: unknown): string {
@@ -39,7 +40,12 @@ function DlRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function unescapeForCopy(text: string): string {
+  return text.replace(/\\n/g, "\n").replace(/\\\\/g, "\\").replace(/\\"/g, '"').replace(/\\t/g, "\t");
+}
+
 function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?: string }) {
+  const t = useTranslations("Traces");
   const s = value.trim();
   if (!s) {
     return <span className="text-[11px] text-ca-muted">—</span>;
@@ -57,11 +63,23 @@ function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?
   }, [s]);
 
   return (
-    <JsonHighlightedBlock
-      text={displayValue}
-      query=""
-      className={`ca-code-block overflow-auto rounded-md border border-border/60 bg-white/80 p-2 text-[10px] leading-relaxed dark:bg-neutral-950/40 ${maxHeightClass ?? "max-h-40"}`}
-    />
+    <div className="relative group">
+      <JsonHighlightedBlock
+        text={displayValue}
+        query=""
+        className={`ca-code-block overflow-auto rounded-md border border-border/60 bg-white/80 p-2 text-[10px] leading-relaxed dark:bg-neutral-950/40 ${maxHeightClass ?? "max-h-40"}`}
+      />
+      <div className="absolute right-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <TraceCopyIconButton
+          text={unescapeForCopy(displayValue)}
+          ariaLabel={t("detailCopy")}
+          tooltipLabel={t("copy")}
+          successLabel={t("copySuccessToast")}
+          className="size-6 items-center justify-center rounded bg-white/90 p-0.5 text-muted-foreground shadow-sm ring-1 ring-black/5 hover:bg-white hover:text-foreground"
+          iconClassName="size-3.5"
+        />
+      </div>
+    </div>
   );
 }
 
