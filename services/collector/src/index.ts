@@ -6,7 +6,11 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { openDatabase } from "./db.js";
 import { sseSubscribe } from "./sse-hub.js";
-import { querySemanticSpansByTraceId, queryTraceInputByTraceId } from "./semantic-spans-query.js";
+import {
+  querySemanticSpansByTraceId,
+  queryTraceInputByTraceId,
+  resolveCanonicalTraceIdForSpanQuery,
+} from "./semantic-spans-query.js";
 import { queryTraceMessages } from "./trace-messages-query.js";
 import { parseObserveListStatus } from "./observe-list-filters.js";
 import {
@@ -25,6 +29,7 @@ import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
 import { queryObserveFacets } from "./observe-facets-query.js";
 import { applyOpikBatch } from "./opik-batch-ingest.js";
+import { queryAllPolicies, upsertPolicy, deletePolicy } from "./policy-query.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
@@ -84,6 +89,31 @@ function checkApiKey(c: KeyCtx): boolean {
 }
 
 app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
+
+/** Interception policies CRUD */
+app.get("/v1/policies", (c) => {
+  if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
+  return c.json(queryAllPolicies(db));
+});
+
+app.post("/v1/policies", async (c) => {
+  if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const body = await c.req.json();
+    const res = upsertPolicy(db, body);
+    return c.json(res);
+  } catch (err) {
+    console.error(`[collector] POST /v1/policies failed:`, err);
+    return c.json({ error: String(err) }, 500);
+  }
+});
+
+app.delete("/v1/policies/:id", (c) => {
+  if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
+  const id = c.req.param("id");
+  deletePolicy(db, id);
+  return c.json({ ok: true });
+});
 
 /** opik-openclaw 插件落库（与 `opik-batch-ingest` 一致）。 */
 app.post("/v1/opik/batch", async (c) => {
@@ -168,9 +198,10 @@ const handleTraceSpans = (c: Context) => {
   if (!tid) {
     return c.json({ error: "missing trace_id" }, 400);
   }
-  const items = querySemanticSpansByTraceId(db, tid);
-  const trace_input = queryTraceInputByTraceId(db, tid);
-  return c.json({ trace_id: tid, items, trace_input });
+  const resolvedTraceId = resolveCanonicalTraceIdForSpanQuery(db, tid);
+  const items = querySemanticSpansByTraceId(db, resolvedTraceId);
+  const trace_input = queryTraceInputByTraceId(db, resolvedTraceId);
+  return c.json({ trace_id: resolvedTraceId, items, trace_input });
 };
 
 app.get("/v1/trace/spans", handleTraceSpans);

@@ -315,18 +315,45 @@ export type SemanticSpanRow = {
   usage_breakdown: Record<string, number>;
 };
 
-/** Parsed `opik_traces.input_json` for the trace (`systemPrompt`, `prompt`, `user_turn`, …). */
-export function queryTraceInputByTraceId(db: Database.Database, traceId: string): Record<string, unknown> {
+/**
+ * Maps a client `trace_id` query param to the canonical `opik_traces.trace_id`.
+ * Accepts the real trace UUID, or the same **thread_key** as trace list / cards:
+ * `COALESCE(NULLIF(TRIM(thread_id), ''), trace_id)` (session routing key vs bare UUID).
+ * When multiple traces share one thread_key, prefers a row that has spans, then newest `created_at_ms`.
+ */
+export function resolveCanonicalTraceIdForSpanQuery(db: Database.Database, tidRaw: string): string {
+  const tid = tidRaw.trim();
+  if (!tid) {
+    return "";
+  }
+  const row = db
+    .prepare(
+      `SELECT t.trace_id
+       FROM opik_traces t
+       WHERE t.trace_id = ?
+          OR COALESCE(NULLIF(TRIM(t.thread_id), ''), t.trace_id) = ?
+       ORDER BY (EXISTS (SELECT 1 FROM opik_spans s WHERE s.trace_id = t.trace_id)) DESC,
+                COALESCE(t.created_at_ms, 0) DESC
+       LIMIT 1`,
+    )
+    .get(tid, tid) as { trace_id: string } | undefined;
+  const resolved = row?.trace_id?.trim();
+  return resolved && resolved.length > 0 ? resolved : tid;
+}
+
+/** Parsed `opik_traces.input_json` for the trace (`systemPrompt`, `prompt`, `user_turn`, …). Pass canonical trace_id (see {@link resolveCanonicalTraceIdForSpanQuery}). */
+export function queryTraceInputByTraceId(db: Database.Database, canonicalTraceId: string): Record<string, unknown> {
   const r = db
     .prepare(`SELECT input_json FROM opik_traces WHERE trace_id = ? LIMIT 1`)
-    .get(traceId.trim()) as { input_json: string | null } | undefined;
+    .get(canonicalTraceId.trim()) as { input_json: string | null } | undefined;
   if (!r) {
     return {};
   }
   return parseJsonObject(r.input_json != null ? String(r.input_json) : null);
 }
 
-export function querySemanticSpansByTraceId(db: Database.Database, traceId: string): SemanticSpanRow[] {
+/** Pass canonical `trace_id` (see {@link resolveCanonicalTraceIdForSpanQuery}). */
+export function querySemanticSpansByTraceId(db: Database.Database, canonicalTraceId: string): SemanticSpanRow[] {
   const rows = db
     .prepare(
       `SELECT s.span_id,
@@ -346,7 +373,7 @@ export function querySemanticSpansByTraceId(db: Database.Database, traceId: stri
        WHERE s.trace_id = ?
        ORDER BY COALESCE(s.sort_index, 0) ASC, s.start_time_ms ASC, s.span_id ASC`,
     )
-    .all(traceId.trim()) as Record<string, unknown>[];
+    .all(canonicalTraceId.trim()) as Record<string, unknown>[];
 
   return rows.map((r) => {
     const meta = parseJsonObject(r.metadata_json != null ? String(r.metadata_json) : "{}");

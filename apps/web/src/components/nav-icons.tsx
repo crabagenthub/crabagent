@@ -47,6 +47,11 @@ export function NavIconAlerts(props: IconProps) {
   return <IconNotification {...rest} aria-label={title} />;
 }
 
+export function NavIconDataSecurity(props: IconProps) {
+  const { title, ...rest } = props;
+  return <IconSafe {...rest} aria-label={title} />;
+}
+
 export function NavIconSettings(props: IconProps) {
   const { title, ...rest } = props;
   return <IconSettings {...rest} aria-label={title} />;

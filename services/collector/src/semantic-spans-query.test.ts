@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
-import { mapSpanTypeToApi, parseUsageExtended } from "./semantic-spans-query.js";
+import { openDatabase } from "./db.js";
+import {
+  mapSpanTypeToApi,
+  parseUsageExtended,
+  querySemanticSpansByTraceId,
+  resolveCanonicalTraceIdForSpanQuery,
+} from "./semantic-spans-query.js";
 
 describe("mapSpanTypeToApi", () => {
   it("tool + explicit semantic_kind memory", () => {
@@ -44,5 +53,44 @@ describe("parseUsageExtended", () => {
     assert.equal(u.completion_tokens, 20);
     assert.equal(u.cache_read_tokens, 380);
     assert.equal(u.total_tokens, 500);
+  });
+});
+
+describe("resolveCanonicalTraceIdForSpanQuery", () => {
+  it("resolves thread_key to trace_id when spans exist under UUID", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ca-span-resolve-"));
+    const dbPath = path.join(dir, "t.db");
+    const db = openDatabase(dbPath);
+    try {
+      const threadKey = "agent:main:feishu:group:oc_demo123";
+      const traceUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      db.prepare(
+        `INSERT INTO opik_threads (thread_id, workspace_name, project_name, thread_type, first_seen_ms, last_seen_ms)
+         VALUES (?, 'default', 'openclaw', 'main', 1, 1)`,
+      ).run(threadKey);
+      db.prepare(
+        `INSERT INTO opik_traces (
+          trace_id, thread_id, workspace_name, project_name, trace_type,
+          created_at_ms, is_complete, created_from
+        ) VALUES (?, ?, 'default', 'openclaw', 'external', 1000, 1, 'test')`,
+      ).run(traceUuid, threadKey);
+      db.prepare(
+        `INSERT INTO opik_spans (span_id, trace_id, name, span_type, is_complete, start_time_ms)
+         VALUES ('span-1', ?, 'm', 'llm', 1, 1000)`,
+      ).run(traceUuid);
+
+      assert.equal(resolveCanonicalTraceIdForSpanQuery(db, traceUuid), traceUuid);
+      assert.equal(resolveCanonicalTraceIdForSpanQuery(db, threadKey), traceUuid);
+
+      const byUuid = querySemanticSpansByTraceId(db, traceUuid);
+      const canonicalFromThread = resolveCanonicalTraceIdForSpanQuery(db, threadKey);
+      const spansAfterResolve = querySemanticSpansByTraceId(db, canonicalFromThread);
+      assert.equal(byUuid.length, 1);
+      assert.equal(spansAfterResolve.length, 1);
+      assert.equal(spansAfterResolve[0]!.span_id, "span-1");
+    } finally {
+      db.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

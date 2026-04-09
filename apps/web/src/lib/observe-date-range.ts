@@ -32,7 +32,7 @@ export function resolveObserveSinceUntil(
 
 /** Default time window when no saved preference exists (or after reset). */
 export function defaultObserveDateRange(): ObserveDateRange {
-  return { kind: "preset", preset: "24h" };
+  return { kind: "preset", preset: "7d" };
 }
 
 const DATE_RANGE_STORAGE_KEY = "crabagent-observe-date-range";

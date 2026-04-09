@@ -11,6 +11,7 @@ export type AppPageShellVariant =
   | "analytics"
   | "machines"
   | "alerts"
+  | "data-security"
   | "settings";
 
 export function AppPageShell({

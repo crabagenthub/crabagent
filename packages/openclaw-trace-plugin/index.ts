@@ -211,6 +211,37 @@ export default definePluginEntry({
     let cachedTraceBare = true;
     let cachedDeferredRouting = true;
     let warnedNoBaseUrl = false;
+    let policySyncTimer: ReturnType<typeof setInterval> | null = null;
+
+    const syncPolicies = async () => {
+      const c = getCfg();
+      if (!c.collectorBaseUrl) return;
+      try {
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies`;
+        const headers: Record<string, string> = {
+          "Accept": "application/json",
+        };
+        if (c.collectorApiKey) {
+          headers["X-API-Key"] = c.collectorApiKey;
+          headers["Authorization"] = `Bearer ${c.collectorApiKey}`;
+        }
+        const resp = await fetch(url, { headers });
+        if (resp.ok) {
+          const policies = await resp.json() as any[];
+          const rules = policies.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            pattern: p.pattern,
+            redactType: p.redact_type,
+            targets: JSON.parse(p.targets_json || "[]"),
+            enabled: p.enabled === 1,
+          }));
+          getRuntime().updateRedactionRules(rules);
+        }
+      } catch (err) {
+        /* silent fail; Collector may be down or unauth */
+      }
+    };
 
     const getQueue = (): BatchQueue => {
       if (!queue) {
@@ -329,19 +360,20 @@ export default definePluginEntry({
 
     const pushIfAny = (b: OpikBatchPayload | null | undefined, source: string) => {
       if (b && batchNonEmpty(b)) {
+        const redacted = getRuntime().redactBatch(b);
         if (serviceStartedInThisProcess) {
-          getQueue().push(b);
+          getQueue().push(redacted);
         } else {
           const cfg = getCfg();
           if (cfg.collectorBaseUrl) {
             // hook 与 flush 分进程时，内存队列不可见；当前进程直接上报 collector。
-            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, b).catch(() => {});
+            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, redacted).catch(() => {});
           }
         }
         traceDbg("queue_push", {
           node: "memory_queue",
           source,
-          ...summarizeOpikBatch(b),
+          ...summarizeOpikBatch(redacted),
         });
       }
     };
@@ -852,6 +884,11 @@ export default definePluginEntry({
           void tick();
         }, cfg.flushIntervalMs);
         void tick();
+
+        void syncPolicies();
+        policySyncTimer = setInterval(() => {
+          void syncPolicies();
+        }, 300_000); // 5 mins
       },
       stop() {
         serviceStopped = true;
@@ -860,6 +897,10 @@ export default definePluginEntry({
         if (flushTimer) {
           clearInterval(flushTimer);
           flushTimer = undefined;
+        }
+        if (policySyncTimer) {
+          clearInterval(policySyncTimer);
+          policySyncTimer = null;
         }
       },
     });

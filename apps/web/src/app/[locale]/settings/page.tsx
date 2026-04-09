@@ -10,7 +10,7 @@ export default function SettingsPage() {
 
   return (
     <AppPageShell variant="settings">
-      <main className="ca-page relative z-[1] max-w-2xl">
+      <main className="ca-page relative z-[1] max-w-2xl space-y-12">
         <header className="mb-6">
           <h1 className="ca-page-title">{t("title")}</h1>
           <MessageHint
@@ -20,7 +20,10 @@ export default function SettingsPage() {
             clampClass="line-clamp-3"
           />
         </header>
-        <CollectorSettingsForm />
+
+        <section>
+          <CollectorSettingsForm />
+        </section>
       </main>
     </AppPageShell>
   );

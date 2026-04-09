@@ -38,6 +38,7 @@ import type { ThemePreference } from "@/lib/theme-storage";
 import {
   NavIconAlerts,
   NavIconAnalytics,
+  NavIconDataSecurity,
   NavIconLogs,
   NavIconMachines,
   NavIconOverview,
@@ -392,23 +393,27 @@ export function SiteNav() {
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/traces", label: t("traces"), Icon: NavIconTraces },
-      { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
-      { href: "/logs", label: t("logs"), Icon: NavIconLogs },
       { href: "/analytics", label: t("analytics"), Icon: NavIconAnalytics },
     ],
     [t],
   );
 
-  const opsItems: NavDef[] = useMemo(
-    () => [
-      { href: "/machines", label: t("machines"), Icon: NavIconMachines },
-      { href: "/alerts", label: t("alerts"), Icon: NavIconAlerts },
-    ],
+  const auditItems: NavDef[] = useMemo(
+    () => [{ href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit }],
+    [t],
+  );
+
+  const securityItems: NavDef[] = useMemo(
+    () => [{ href: "/data-security", label: t("dataSecurity"), Icon: NavIconDataSecurity }],
     [t],
   );
 
   const settingsItems: NavDef[] = useMemo(
-    () => [{ href: "/settings", label: t("settings"), Icon: NavIconSettings }],
+    () => [
+      { href: "/settings", label: t("settings"), Icon: NavIconSettings },
+      { href: "/alerts", label: t("alerts"), Icon: NavIconAlerts },
+      { href: "/machines", label: t("machines"), Icon: NavIconMachines },
+    ],
     [t],
   );
 
@@ -458,9 +463,11 @@ export function SiteNav() {
     () => [
       { title: t("groupMain"), items: workspaceItems },
       { title: t("groupObserve"), items: observeItems },
-      { title: t("groupOps"), items: opsItems },
+      { title: t("groupAudit"), items: auditItems },
+      { title: t("groupSecurity"), items: securityItems },
+      { title: t("groupSettings"), items: settingsItems },
     ],
-    [t, workspaceItems, observeItems, opsItems],
+    [t, workspaceItems, observeItems, auditItems, settingsItems, securityItems],
   );
 
   return (
@@ -531,9 +538,6 @@ export function SiteNav() {
             {g.items.map((it) => navLinkRow(it))}
           </Fragment>
         ))}
-
-        {!collapsed ? <NavSectionLabel>{t("groupSettings")}</NavSectionLabel> : null}
-        {settingsItems.map((it) => navLinkRow(it))}
       </nav>
 
       <div className="relative z-20 isolate shrink-0 border-0 bg-sidebar">

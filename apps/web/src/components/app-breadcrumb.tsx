@@ -54,7 +54,7 @@ export function AppBreadcrumb() {
     }
 
     if (p === "/resource-audit") {
-      return [{ label: tNav("groupObserve") }, { label: tNav("resourceAudit") }];
+      return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
     }
 
     if (p === "/logs") {
@@ -66,11 +66,15 @@ export function AppBreadcrumb() {
     }
 
     if (p === "/machines") {
-      return [{ label: tNav("groupOps") }, { label: tNav("machines") }];
+      return [{ label: tNav("groupSettings") }, { label: tNav("machines") }];
     }
 
     if (p === "/alerts") {
-      return [{ label: tNav("groupOps") }, { label: tNav("alerts") }];
+      return [{ label: tNav("groupSettings") }, { label: tNav("alerts") }];
+    }
+
+    if (p === "/data-security") {
+      return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
     }
 
     if (p === "/settings") {

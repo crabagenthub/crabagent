@@ -17,6 +17,7 @@ import {
   mergeOpenclawRoutingLayers,
 } from "./llm-input-routing-meta.js";
 import { enrichToolSpanResourceAudit } from "./resource-audit-span.js";
+import { Redactor, type RedactionRule } from "./redactor.js";
 import {
   extractAgentIdFromRoutingSessionKey,
   extractRequesterThreadIdFromOpenClawSessionContext,
@@ -914,6 +915,7 @@ export class OpikOpenClawRuntime {
    */
   private readonly deferredFlushRequiresOpenClawRoutingKey: boolean;
   private readonly debugTrace?: (phase: string, data: Record<string, unknown>) => void;
+  private readonly redactor: Redactor;
 
   constructor(
     private readonly workspace: string,
@@ -924,6 +926,7 @@ export class OpikOpenClawRuntime {
       /** 默认 true；设为 false 时恢复「无路由键也 defer flush」的旧行为。 */
       deferredFlushRequiresOpenClawRoutingKey?: boolean;
       debugTrace?: (phase: string, data: Record<string, unknown>) => void;
+      redactionRules?: RedactionRule[];
     },
   ) {
     const d = opts?.persistPendingDir?.trim();
@@ -931,10 +934,25 @@ export class OpikOpenClawRuntime {
     this.traceBareAgentEnds = opts?.traceBareAgentEnds !== false;
     this.deferredFlushRequiresOpenClawRoutingKey = opts?.deferredFlushRequiresOpenClawRoutingKey !== false;
     this.debugTrace = opts?.debugTrace;
+    this.redactor = new Redactor(opts?.redactionRules || []);
     if (this.persistPendingDir) {
       this.hydratePendingFromDisk();
       this.hydrateSubagentAnchorsFromDisk();
     }
+  }
+
+  redactBatch(batch: OpikBatchPayload): OpikBatchPayload {
+    if (!batch) return batch;
+    return {
+      ...batch,
+      threads: batch.threads?.map((t) => this.redactor.redactObject(t)),
+      traces: batch.traces?.map((t) => this.redactor.redactObject(t)),
+      spans: batch.spans?.map((s) => this.redactor.redactObject(s)),
+    };
+  }
+
+  updateRedactionRules(rules: RedactionRule[]): void {
+    this.redactor.updateRules(rules);
   }
 
   private hydrateSubagentAnchorsFromDisk(): void {

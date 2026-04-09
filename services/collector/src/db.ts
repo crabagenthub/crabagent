@@ -128,6 +128,17 @@ function opikSchemaDdl(): string {
     );
     CREATE INDEX idx_opik_raw_trace ON opik_raw_ingest(trace_id);
     CREATE INDEX idx_opik_raw_received ON opik_raw_ingest(received_at_ms DESC);
+
+    CREATE TABLE interception_policies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      pattern TEXT NOT NULL,
+      redact_type TEXT NOT NULL CHECK (redact_type IN ('mask', 'hash', 'block')),
+      targets_json TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      updated_at_ms INTEGER NOT NULL
+    );
   `;
 }
 
@@ -353,8 +364,24 @@ function ensureOpikAuxTables(db: Database.Database): void {
   }
 }
 
+function ensureInterceptionPoliciesTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS interception_policies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      pattern TEXT NOT NULL,
+      redact_type TEXT NOT NULL CHECK (redact_type IN ('mask', 'hash', 'block')),
+      targets_json TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      updated_at_ms INTEGER NOT NULL
+    );
+  `);
+}
+
 function ensureOpikIncrementalMigrations(db: Database.Database): void {
   ensureOpikAuxTables(db);
+  ensureInterceptionPoliciesTable(db);
   ensureOpikThreadsAgentChannelColumns(db);
   ensureOpikThreadsPlanColumns(db);
   ensureOpikTracesPlanColumns(db);

@@ -268,6 +268,10 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
     --ca-page-grad-from: #f5e8ff;
     --ca-page-grad-mid: #8d4eda;
   }
+  .ca-page-bg--data-security {
+    --ca-page-grad-from: #fce7e7;
+    --ca-page-grad-mid: #f0a8a8;
+  }
   .ca-page-bg--settings {
     --ca-page-grad-from: #f5e8ff;
     --ca-page-grad-mid: #ddbef6;
