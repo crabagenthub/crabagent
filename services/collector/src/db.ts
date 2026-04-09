@@ -137,6 +137,11 @@ function opikSchemaDdl(): string {
       redact_type TEXT NOT NULL CHECK (redact_type IN ('mask', 'hash', 'block')),
       targets_json TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      severity TEXT DEFAULT 'high',
+      policy_action TEXT DEFAULT 'mask',
+      intercept_mode TEXT DEFAULT 'enforce',
+      created_at_ms INTEGER,
+      pulled_at_ms INTEGER,
       updated_at_ms INTEGER NOT NULL
     );
   `;
@@ -374,14 +379,53 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
       redact_type TEXT NOT NULL CHECK (redact_type IN ('mask', 'hash', 'block')),
       targets_json TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      severity TEXT DEFAULT 'high',
+      policy_action TEXT DEFAULT 'mask',
+      intercept_mode TEXT DEFAULT 'enforce',
+      created_at_ms INTEGER,
+      pulled_at_ms INTEGER,
       updated_at_ms INTEGER NOT NULL
     );
   `);
 }
 
+/** 旧库补齐 `created_at_ms` / `pulled_at_ms`（插件定时拉取成功后会写 `pulled_at_ms`）。 */
+function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void {
+  if (!tableExists(db, "interception_policies")) {
+    return;
+  }
+  const names = tableColumnNames(db, "interception_policies");
+  if (!names.has("created_at_ms")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN created_at_ms INTEGER`);
+    db.exec(
+      `UPDATE interception_policies SET created_at_ms = updated_at_ms WHERE created_at_ms IS NULL`,
+    );
+  }
+  if (!names.has("pulled_at_ms")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN pulled_at_ms INTEGER`);
+  }
+  if (!names.has("severity")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN severity TEXT DEFAULT 'high'`);
+  }
+  if (!names.has("policy_action")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN policy_action TEXT DEFAULT 'mask'`);
+  }
+  if (!names.has("intercept_mode")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN intercept_mode TEXT DEFAULT 'enforce'`);
+  }
+}
+
+function tableExists(db: Database.Database, name: string): boolean {
+  const row = db
+    .prepare(`SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(name) as { ok: number } | undefined;
+  return row != null;
+}
+
 function ensureOpikIncrementalMigrations(db: Database.Database): void {
   ensureOpikAuxTables(db);
   ensureInterceptionPoliciesTable(db);
+  ensureInterceptionPoliciesTimestampColumns(db);
   ensureOpikThreadsAgentChannelColumns(db);
   ensureOpikThreadsPlanColumns(db);
   ensureOpikTracesPlanColumns(db);

@@ -3,15 +3,12 @@ export type RedactionType = "mask" | "hash" | "block";
 export interface RedactionRule {
   id: string;
   name: string;
-  pattern: string; // RegExp string
+  pattern: string;
   redactType: RedactionType;
-  targets: string[]; // e.g. ["input_json", "output_json", "prompt", "assistantTexts"]
+  targets: string[];
   enabled: boolean;
-  /** Collector 扩展字段：严重等级 */
   severity?: string;
-  /** 策略动作（与 redactType 并存时优先语义以本字段为准，见 vault-pipeline） */
   policyAction?: string;
-  /** enforce：改写；observe：仅影子计数 */
   interceptMode?: string;
 }
 
@@ -35,27 +32,19 @@ export class Redactor {
     }
   }
 
-  /**
-   * 递归遍历并脱敏对象中的指定字段。
-   * 如果字段名在 targets 中，或者字段值是字符串且包含敏感信息（可选策略）。
-   */
-  redactObject(obj: any): any {
-    if (!obj || typeof obj !== "object") return obj;
-
+  redactObject(obj: unknown): unknown {
+    if (!obj || typeof obj !== "object") {
+      return obj;
+    }
     if (Array.isArray(obj)) {
       return obj.map((item) => this.redactObject(item));
     }
-
-    const newObj: any = { ...obj };
+    const newObj: Record<string, unknown> = { ...(obj as Record<string, unknown>) };
     for (const key in newObj) {
       const value = newObj[key];
-
-      // 1. 如果值是字符串，尝试对所有规则进行全局脱敏（不限于特定 key）
       if (typeof value === "string") {
         newObj[key] = this.redactString(value);
-      } 
-      // 2. 如果值是对象/数组，递归处理
-      else if (typeof value === "object") {
+      } else if (typeof value === "object") {
         newObj[key] = this.redactObject(value);
       }
     }
@@ -65,9 +54,13 @@ export class Redactor {
   redactString(text: string): string {
     let result = text;
     for (const rule of this.rules) {
+      if (rule.interceptMode === "observe") {
+        continue;
+      }
       const regex = this.regexCache.get(rule.id);
-      if (!regex) continue;
-
+      if (!regex) {
+        continue;
+      }
       result = result.replace(regex, (match) => {
         switch (rule.redactType) {
           case "mask":
@@ -85,24 +78,20 @@ export class Redactor {
   }
 
   private applyMask(match: string): string {
-    if (match.length <= 4) return "****";
-    // 保留前后部分，中间遮蔽
+    if (match.length <= 4) {
+      return "****";
+    }
     const prefixLen = Math.floor(match.length / 4);
     const suffixLen = Math.floor(match.length / 4);
     const maskLen = match.length - prefixLen - suffixLen;
-    return (
-      match.slice(0, prefixLen) +
-      "*".repeat(maskLen) +
-      match.slice(match.length - suffixLen)
-    );
+    return match.slice(0, prefixLen) + "*".repeat(maskLen) + match.slice(match.length - suffixLen);
   }
 
   private simpleHash(str: string): string {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash |= 0; // Convert to 32bit integer
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
     }
     return Math.abs(hash).toString(16);
   }

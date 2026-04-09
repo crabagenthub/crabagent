@@ -29,7 +29,7 @@ import { queryThreadTurnsTree } from "./thread-turns-query.js";
 import { countTraceRecords, queryTraceRecords } from "./trace-records-query.js";
 import { queryObserveFacets } from "./observe-facets-query.js";
 import { applyOpikBatch } from "./opik-batch-ingest.js";
-import { queryAllPolicies, upsertPolicy, deletePolicy } from "./policy-query.js";
+import { queryAllPolicies, reportPoliciesPulled, upsertPolicy, deletePolicy } from "./policy-query.js";
 
 const PORT = Number(process.env.CRABAGENT_PORT ?? "8787");
 const API_KEY = process.env.CRABAGENT_API_KEY?.trim() ?? "";
@@ -113,6 +113,29 @@ app.delete("/v1/policies/:id", (c) => {
   const id = c.req.param("id");
   deletePolicy(db, id);
   return c.json({ ok: true });
+});
+
+/**
+ * OpenClaw 插件在定时 `GET /v1/policies` 拉取成功后上报，用于列表「拉取时间」列（非 Web 刷新时间）。
+ * Body: `{ "pulled_at_ms"?: number }`，缺省为服务端当前时间。
+ */
+app.post("/v1/policies/pull-report", async (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let pulledRaw: unknown;
+  try {
+    const body = (await c.req.json()) as { pulled_at_ms?: unknown };
+    pulledRaw = body?.pulled_at_ms;
+  } catch {
+    pulledRaw = undefined;
+  }
+  const pulledAtMs =
+    typeof pulledRaw === "number" && Number.isFinite(pulledRaw) && pulledRaw > 0
+      ? Math.floor(pulledRaw)
+      : Date.now();
+  const { updated } = reportPoliciesPulled(db, pulledAtMs);
+  return c.json({ ok: true, updated, pulled_at_ms: pulledAtMs });
 });
 
 /** opik-openclaw 插件落库（与 `opik-batch-ingest` 一致）。 */

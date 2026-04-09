@@ -43,6 +43,11 @@
         "default": "openclaw",
         "description": "Opik project name stored in opik_threads / opik_traces."
       },
+      "productTier": {
+        "type": "string",
+        "enum": ["basic", "pro"],
+        "description": "Policy/Vault tier: basic caps policies at 10, pro at 100; Vault token action needs pro + CRABAGENT_VAULT_KEY. Overridable via env CRABAGENT_PRODUCT_TIER."
+      },
       "debugLogHooks": {
         "type": "boolean",
         "default": true,

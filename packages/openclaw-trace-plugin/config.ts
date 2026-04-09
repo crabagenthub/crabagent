@@ -65,6 +65,11 @@ export type CrabagentTracePluginConfig = {
    * 环境变量 `CRABAGENT_TRACE_NO_SESSION_STORE_ROUTING=1` 关闭。
    */
   sessionStoreRouting: boolean;
+  /**
+   * 产品档位：`basic` 无 Vault 可逆；`pro` 需配合环境变量 `CRABAGENT_VAULT_KEY` 启用 Vault。
+   * 环境变量 `CRABAGENT_PRODUCT_TIER=pro|basic` 可覆盖。
+   */
+  productTier: "basic" | "pro";
 };
 
 export function resolvePluginConfig(raw: Record<string, unknown> | undefined): CrabagentTracePluginConfig {
@@ -155,6 +160,11 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     c.bridgeOpenClawSessionStore !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_BRIDGE");
   const sessionStoreRouting =
     c.sessionStoreRouting !== false && !truthyEnv("CRABAGENT_TRACE_NO_SESSION_STORE_ROUTING");
+  const tierEnv = process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase();
+  const productTier: "basic" | "pro" =
+    tierEnv === "pro" || c.productTier === "pro"
+      ? "pro"
+      : "basic";
   return {
     collectorBaseUrl: base,
     collectorApiKey: key,
@@ -172,5 +182,6 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     deferredFlushRequiresOpenClawRoutingKey,
     bridgeOpenClawSessionStore,
     sessionStoreRouting,
+    productTier,
   };
 }

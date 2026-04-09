@@ -17,6 +17,7 @@ import {
   mergeOpenclawRoutingLayers,
 } from "./llm-input-routing-meta.js";
 import { enrichToolSpanResourceAudit } from "./resource-audit-span.js";
+import { looksLikeSqlDump } from "./sql-heuristic.js";
 import { Redactor, type RedactionRule } from "./redactor.js";
 import {
   extractAgentIdFromRoutingSessionKey,
@@ -282,6 +283,31 @@ function readUsageTokenParts(u: Record<string, unknown> | undefined): {
 
 function isPlainObj(v: unknown): v is Record<string, unknown> {
   return Boolean(v && typeof v === "object" && !Array.isArray(v));
+}
+
+/** 工具结果疑似大量 SQL dump 时在 span.metadata 打标，供审计与 UI 提示（不重算、不阻塞）。 */
+function tagToolSpanSqlDumpHeuristic(span: Record<string, unknown>): void {
+  const outRaw = span.output;
+  if (!isPlainObj(outRaw)) {
+    return;
+  }
+  const res = outRaw.result;
+  let blob: string | null = null;
+  if (typeof res === "string") {
+    blob = res;
+  } else if (res != null) {
+    try {
+      blob = JSON.stringify(res);
+    } catch {
+      blob = null;
+    }
+  }
+  if (!blob || !looksLikeSqlDump(blob)) {
+    return;
+  }
+  const prev = isPlainObj(span.metadata) ? { ...span.metadata } : {};
+  prev.crabagent_sql_dump_heuristic = true;
+  span.metadata = prev;
 }
 
 function normalizeAssistantTextList(v: unknown): string[] {
@@ -916,6 +942,8 @@ export class OpikOpenClawRuntime {
   private readonly deferredFlushRequiresOpenClawRoutingKey: boolean;
   private readonly debugTrace?: (phase: string, data: Record<string, unknown>) => void;
   private readonly redactor: Redactor;
+  /** 影子模式：observe 规则在 `before_message_write` 中累计，随下一条 LLM trace 的 metadata 上报后清空。 */
+  private readonly shadowWouldLeakBySession = new Map<string, number>();
 
   constructor(
     private readonly workspace: string,
@@ -948,11 +976,34 @@ export class OpikOpenClawRuntime {
       threads: batch.threads?.map((t) => this.redactor.redactObject(t)),
       traces: batch.traces?.map((t) => this.redactor.redactObject(t)),
       spans: batch.spans?.map((s) => this.redactor.redactObject(s)),
+      attachments: batch.attachments?.map((a) => this.redactor.redactObject(a)),
+      feedback: batch.feedback?.map((f) => this.redactor.redactObject(f)),
+      envelope_json:
+        batch.envelope_json !== undefined ? this.redactor.redactObject(batch.envelope_json) : undefined,
     };
   }
 
   updateRedactionRules(rules: RedactionRule[]): void {
     this.redactor.updateRules(rules);
+  }
+
+  /** 影子审计：本会话若未拦截时将泄露的敏感处数量（按 sessionKey 累加）。 */
+  recordShadowWouldLeak(sessionKey: string, n: number): void {
+    const sk = sessionKey.trim();
+    if (!sk || n <= 0) {
+      return;
+    }
+    this.shadowWouldLeakBySession.set(sk, (this.shadowWouldLeakBySession.get(sk) ?? 0) + n);
+  }
+
+  private takeShadowWouldLeak(sessionKey: string): number | undefined {
+    const sk = sessionKey.trim();
+    const v = this.shadowWouldLeakBySession.get(sk);
+    if (v == null || v <= 0) {
+      return undefined;
+    }
+    this.shadowWouldLeakBySession.delete(sk);
+    return v;
   }
 
   private hydrateSubagentAnchorsFromDisk(): void {
@@ -1544,6 +1595,7 @@ export class OpikOpenClawRuntime {
       typeof ev.systemPrompt === "string" ? ev.systemPrompt : undefined,
     );
     this.applyTurnMetaToThreadRow(threadRow, turnMeta);
+    const shadowLeak = this.takeShadowWouldLeak(sk);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,
@@ -1559,6 +1611,7 @@ export class OpikOpenClawRuntime {
         ...(runIdTrim.length > 0 ? { run_id: runIdTrim, runId: runIdTrim } : {}),
         agent_name: agLabel,
         ...this.turnMetadataFields(turnMeta),
+        ...(shadowLeak !== undefined ? { crabagent_shadow_would_leak: shadowLeak } : {}),
         openclaw_context: {
           messageProvider: ctx.messageProvider,
           conversationId: ctx.conversationId,
@@ -2097,6 +2150,7 @@ export class OpikOpenClawRuntime {
       };
     }
     enrichToolSpanResourceAudit(span);
+    tagToolSpanSqlDumpHeuristic(span);
   }
 
   onAgentEnd(

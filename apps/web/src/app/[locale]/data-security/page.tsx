@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import Input from "@arco-design/web-react/es/Input";
 import Select from "@arco-design/web-react/es/Select";
-import { IconSearch, IconList, IconApps, IconPlus, IconFile, IconInfoCircle, IconTag } from "@arco-design/web-react/icon";
+import { IconSearch, IconList, IconApps, IconPlus, IconFile, IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { AppPageShell } from "@/components/app-page-shell";
 import { InterceptorPoliciesManager } from "@/components/interceptor-policies-manager";
@@ -132,6 +132,16 @@ const POLICY_TEMPLATES: PolicyTemplate[] = [
   },
 ];
 
+/** 模板卡片标题前图标的浅色底（循环使用） */
+const TEMPLATE_CARD_ICON_BG = [
+  "bg-violet-500/15 text-violet-700 dark:bg-violet-400/20 dark:text-violet-200",
+  "bg-sky-500/15 text-sky-800 dark:bg-sky-400/20 dark:text-sky-200",
+  "bg-emerald-500/15 text-emerald-800 dark:bg-emerald-400/20 dark:text-emerald-200",
+  "bg-amber-500/15 text-amber-900 dark:bg-amber-400/20 dark:text-amber-100",
+  "bg-rose-500/15 text-rose-800 dark:bg-rose-400/20 dark:text-rose-200",
+  "bg-indigo-500/15 text-indigo-800 dark:bg-indigo-400/20 dark:text-indigo-200",
+] as const;
+
 type DataSecurityTemplatePolicy = {
   name: string;
   description: string;
@@ -139,7 +149,10 @@ type DataSecurityTemplatePolicy = {
   redact_type: "mask" | "hash" | "block";
   targets: string[];
   enabled: number;
-} | null;
+  severity?: "low" | "high" | "critical";
+  policy_action?: string;
+  intercept_mode?: "enforce" | "observe";
+};
 
 export default function DataSecurityPage() {
   const t = useTranslations("DataSecurity");
@@ -163,8 +176,29 @@ export default function DataSecurityPage() {
       redact_type: "mask",
       targets: ["prompt", "assistantTexts"],
       enabled: 1,
+      severity: "high",
+      policy_action: "mask",
+      intercept_mode: "observe",
     });
   }, []);
+
+  const handleUseTemplate = useCallback(
+    (template: PolicyTemplate) => {
+      setTemplatePolicy({
+        name: t(template.nameKey),
+        description: t(template.summaryKey),
+        pattern: template.pattern,
+        redact_type: template.redactType,
+        targets: template.targets,
+        enabled: 1,
+        severity: "high",
+        policy_action: "mask",
+        intercept_mode: "observe",
+      });
+      setActiveTab("policies");
+    },
+    [t],
+  );
 
   return (
     <AppPageShell variant="data-security">
@@ -265,7 +299,8 @@ export default function DataSecurityPage() {
                     <Button variant="outline" size="sm" onClick={handleClearFilters} disabled={!searchQuery && enabledFilter === "all" && redactTypeFilter === ""}>
                       {t("clearFilters")}
                     </Button>
-                    <Button type="primary" size="sm" icon={<IconPlus />} onClick={handleAddPolicy} className="shrink-0">
+                    <Button variant="default" size="sm" onClick={handleAddPolicy} className="inline-flex shrink-0 gap-1">
+                      <IconPlus className="size-3.5" aria-hidden />
                       {t("addPolicy")}
                     </Button>
                   </div>
@@ -284,21 +319,31 @@ export default function DataSecurityPage() {
             </>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {POLICY_TEMPLATES.map((template) => (
+              {POLICY_TEMPLATES.map((template, templateIndex) => (
                 <Card
                   key={template.id}
                   className="group overflow-hidden rounded-3xl border border-border bg-background transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/10 dark:border-zinc-700/80"
                 >
                   <CardHeader>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <IconApps className="size-4 text-neutral-500 dark:text-zinc-400" aria-hidden />
-                        <CardTitle>{t(template.nameKey)}</CardTitle>
+                      <div className="flex items-start gap-3">
+                        <span
+                          className={cn(
+                            "flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5",
+                            TEMPLATE_CARD_ICON_BG[templateIndex % TEMPLATE_CARD_ICON_BG.length],
+                          )}
+                          aria-hidden
+                        >
+                          <IconApps />
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <CardTitle className="text-lg leading-snug sm:text-xl">{t(template.nameKey)}</CardTitle>
+                          <CardDescription>{t(template.summaryKey)}</CardDescription>
+                        </div>
                       </div>
-                      <CardDescription>{t(template.summaryKey)}</CardDescription>
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="pb-6">
                     <div className="space-y-4 text-sm">
                       <div className="rounded-2xl border border-neutral-200/90 bg-neutral-50 p-3 text-left shadow-sm dark:border-zinc-700/80 dark:bg-zinc-950/40">
                         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
@@ -309,29 +354,14 @@ export default function DataSecurityPage() {
                           {template.pattern}
                         </pre>
                       </div>
-                      <div className="grid gap-3 text-sm sm:grid-cols-2">
-                        <div>
-                          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                            <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-                            <span>{t("templateExample")}</span>
-                          </div>
-                          <p className="mt-2 rounded-2xl bg-muted/20 px-3 py-2 text-sm text-foreground dark:bg-zinc-950/60">
-                            {template.example}
-                          </p>
+                      <div>
+                        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                          <IconInfoCircle className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
+                          <span>{t("templateExample")}</span>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                            <IconTag className="size-3.5 shrink-0 text-neutral-400" aria-hidden />
-                            <span>{t("policyTargets")}</span>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {template.targets.map((target) => (
-                              <span key={target} className="rounded-full border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-foreground dark:border-zinc-700/80 dark:bg-zinc-950/50">
-                                {target}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
+                        <p className="mt-2 rounded-2xl bg-muted/20 px-3 py-2 text-sm text-foreground dark:bg-zinc-950/60">
+                          {template.example}
+                        </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-1 font-semibold uppercase text-foreground dark:bg-accent/15">
@@ -339,6 +369,17 @@ export default function DataSecurityPage() {
                           {t(`filterRedactType${template.redactType.charAt(0).toUpperCase() + template.redactType.slice(1)}`)}
                         </span>
                         <span className="text-xs text-muted-foreground">{t("templateCardHint")}</span>
+                      </div>
+                      <div className="pt-1">
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          className="w-full sm:w-auto"
+                          onClick={() => handleUseTemplate(template)}
+                        >
+                          {t("templateUse")}
+                        </Button>
                       </div>
                     </div>
                   </CardContent>

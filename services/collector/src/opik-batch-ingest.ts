@@ -1,4 +1,6 @@
 import type Database from "better-sqlite3";
+import type { CrabagentDb } from "./db.js";
+import { buildRedactorFromPolicies } from "./policy-redaction.js";
 import { resolveSpanUsagePreviewJson } from "./opik-usage-preview.js";
 import { normalizeOpikSpanInputForStorage, normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
 
@@ -424,6 +426,32 @@ export type OpikBatchResult = {
 const DEFAULT_WORKSPACE = "default";
 const DEFAULT_PROJECT = "openclaw";
 
+/** 入库前按 interception_policies 对 batch 做轻量正则兜底脱敏（与插件热路径互补）。 */
+function applyIngestPolicyRedaction(db: CrabagentDb, envelope: OpikBatchBody): void {
+  if (process.env.CRABAGENT_INGEST_NO_REDACT?.trim() === "1") {
+    return;
+  }
+  const redactor = buildRedactorFromPolicies(db);
+  if (envelope.threads?.length) {
+    envelope.threads = redactor.redactObject(envelope.threads) as unknown[];
+  }
+  if (envelope.traces?.length) {
+    envelope.traces = redactor.redactObject(envelope.traces) as unknown[];
+  }
+  if (envelope.spans?.length) {
+    envelope.spans = redactor.redactObject(envelope.spans) as unknown[];
+  }
+  if (envelope.attachments?.length) {
+    envelope.attachments = redactor.redactObject(envelope.attachments) as unknown[];
+  }
+  if (envelope.feedback?.length) {
+    envelope.feedback = redactor.redactObject(envelope.feedback) as unknown[];
+  }
+  if (envelope.envelope_json !== undefined) {
+    envelope.envelope_json = redactor.redactObject(envelope.envelope_json);
+  }
+}
+
 export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchResult {
   const skipped: OpikBatchResult["skipped"] = [];
   const acc = { threads: 0, traces: 0, spans: 0, attachments: 0, feedback: 0, raw: 0 };
@@ -434,6 +462,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
   }
 
   const envelope = body as OpikBatchBody;
+  applyIngestPolicyRedaction(db as CrabagentDb, envelope);
   const now = Date.now();
 
   if (envelope.envelope_json !== undefined) {

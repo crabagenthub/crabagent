@@ -16,6 +16,7 @@ import {
   traceRecordChannel,
   traceRecordDurationMs,
   traceRecordOpenclawRouting,
+  traceRecordShadowWouldLeak,
   traceRecordStatusBand,
   traceRecordTaskSummary,
   type TraceRecordRow,
@@ -36,6 +37,7 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
   const rawStatus = String(row.status);
   const routing = traceRecordOpenclawRouting(row);
   const kindShown = routing?.kind ? displayOpenclawKind(routing.kind, t) : null;
+  const shadowLeak = traceRecordShadowWouldLeak(row);
 
   return (
     <li className="list-none">
@@ -62,6 +64,16 @@ export function TraceRecordCard({ row, tokenWarnAt }: { row: TraceRecordRow; tok
                   </span>
                 ) : null}
                 {routing.label ? <span className="text-neutral-600 dark:text-neutral-400">{routing.label}</span> : null}
+              </p>
+            ) : null}
+            {shadowLeak != null ? (
+              <p className="text-[11px] text-amber-800 dark:text-amber-200/90">
+                <span
+                  className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 font-medium ring-1 ring-amber-200/80 dark:bg-amber-950/50 dark:ring-amber-800/60"
+                  title={t("shadowAuditHint")}
+                >
+                  {t("shadowAuditBadge", { count: shadowLeak })}
+                </span>
               </p>
             ) : null}
           </div>

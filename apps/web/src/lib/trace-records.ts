@@ -225,6 +225,15 @@ function strMeta(m: Record<string, unknown>, key: string): string | null {
   return t.length > 0 ? t : null;
 }
 
+/** 影子审计：observe 模式下本会话将泄露的敏感处计数（来自插件写入 trace metadata）。 */
+export function traceRecordShadowWouldLeak(row: TraceRecordRow): number | null {
+  const v = row.metadata?.crabagent_shadow_would_leak;
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    return Math.floor(v);
+  }
+  return null;
+}
+
 /** Short line for session / thread identity in list cards (avoids over-wide monospace in tables). */
 export function formatTraceRecordSessionLine(row: TraceRecordRow): string {
   const sid = row.session_id?.trim();

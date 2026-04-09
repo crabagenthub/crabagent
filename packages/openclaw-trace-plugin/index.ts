@@ -27,6 +27,9 @@ import {
 } from "./llm-input-routing-meta.js";
 import { pickLlmOutputUsage } from "./llm-output-usage.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
+import type { RedactionRule } from "./redactor.js";
+import { deepSanitizeStrings } from "./vault-pipeline.js";
+import { EncryptedVaultStore } from "./vault-store.js";
 import {
   resolveOpenClawSessionsBasePathForAgent,
   sessionStoreKeysForSessionId,
@@ -213,6 +216,64 @@ export default definePluginEntry({
     let warnedNoBaseUrl = false;
     let policySyncTimer: ReturnType<typeof setInterval> | null = null;
 
+    /**
+     * 上次从 Collector 拉取成功的脱敏规则；`OpikOpenClawRuntime` 重建时必须传入，否则 `Redactor` 会清空，
+     * 在下一轮 `syncPolicies`（最多 5 分钟）之前脱敏一直不生效。
+     */
+    let cachedRedactionRules: RedactionRule[] = [];
+    const vaultStoresByRoot = new Map<string, EncryptedVaultStore>();
+
+    const resolveVaultRootDir = (): string => {
+      if (persistPendingRoot?.trim()) {
+        return path.join(persistPendingRoot.trim(), "vault");
+      }
+      const e = process.env.CRABAGENT_VAULT_STATE_DIR?.trim();
+      if (e) {
+        return path.join(e, "vault");
+      }
+      return path.join(process.cwd(), "crabagent", "vault");
+    };
+
+    const getVaultStore = (): EncryptedVaultStore | null => {
+      const cfg = getCfg();
+      const pro = cfg.productTier === "pro" || process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase() === "pro";
+      if (!pro || !process.env.CRABAGENT_VAULT_KEY?.trim()) {
+        return null;
+      }
+      const root = resolveVaultRootDir();
+      let s = vaultStoresByRoot.get(root);
+      if (!s) {
+        s = new EncryptedVaultStore(root);
+        vaultStoresByRoot.set(root, s);
+      }
+      return s;
+    };
+
+    const reportPolicyPullToCollector = async (pulledAtMs: number) => {
+      const c = getCfg();
+      if (!c.collectorBaseUrl) {
+        return;
+      }
+      try {
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies/pull-report`;
+        const headers: Record<string, string> = {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        };
+        if (c.collectorApiKey) {
+          headers["X-API-Key"] = c.collectorApiKey;
+          headers["Authorization"] = `Bearer ${c.collectorApiKey}`;
+        }
+        await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ pulled_at_ms: pulledAtMs }),
+        });
+      } catch {
+        /* 与拉取列表一致：Collector 不可达时不阻塞插件 */
+      }
+    };
+
     const syncPolicies = async () => {
       const c = getCfg();
       if (!c.collectorBaseUrl) return;
@@ -227,16 +288,45 @@ export default definePluginEntry({
         }
         const resp = await fetch(url, { headers });
         if (resp.ok) {
-          const policies = await resp.json() as any[];
-          const rules = policies.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            pattern: p.pattern,
-            redactType: p.redact_type,
-            targets: JSON.parse(p.targets_json || "[]"),
-            enabled: p.enabled === 1,
-          }));
+          const pulledAtMs = Date.now();
+          const policies = (await resp.json()) as Record<string, unknown>[];
+          const rules: RedactionRule[] = [];
+          for (const p of policies) {
+            let targets: string[] = [];
+            try {
+              const raw = p.targets_json;
+              targets =
+                typeof raw === "string" && raw.trim()
+                  ? (JSON.parse(raw) as string[])
+                  : Array.isArray(raw)
+                    ? (raw as string[])
+                    : [];
+            } catch {
+              targets = [];
+            }
+            const id = String(p.id ?? "");
+            const pattern = String(p.pattern ?? "");
+            if (!id || !pattern) {
+              continue;
+            }
+            const rt = p.redact_type;
+            const redactType =
+              rt === "mask" || rt === "hash" || rt === "block" ? rt : "mask";
+            rules.push({
+              id,
+              name: String(p.name ?? id),
+              pattern,
+              redactType,
+              targets,
+              enabled: p.enabled === 1 || p.enabled === true,
+              severity: typeof p.severity === "string" ? p.severity : undefined,
+              policyAction: typeof p.policy_action === "string" ? p.policy_action : undefined,
+              interceptMode: typeof p.intercept_mode === "string" ? p.intercept_mode : undefined,
+            });
+          }
+          cachedRedactionRules = rules;
           getRuntime().updateRedactionRules(rules);
+          void reportPolicyPullToCollector(pulledAtMs);
         }
       } catch (err) {
         /* silent fail; Collector may be down or unauth */
@@ -277,6 +367,7 @@ export default definePluginEntry({
             ...(diskRoot ? { persistPendingDir: diskRoot } : {}),
             traceBareAgentEnds: traceBare,
             deferredFlushRequiresOpenClawRoutingKey: defRouting,
+            redactionRules: cachedRedactionRules,
           },
         );
       }
@@ -501,6 +592,37 @@ export default definePluginEntry({
         toolCallId: event.toolCallId,
       });
     });
+
+    // OpenClaw 实际类型为同步返回 `{ message?, block? }`；stub 的 `on` 仅标注 void。
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on(
+      "before_message_write",
+      (ev: unknown, c: unknown) => {
+      const rules = cachedRedactionRules;
+      if (!rules.length) {
+        return undefined;
+      }
+      const event = ev as { message?: unknown; sessionKey?: string; agentId?: string };
+      const ctx = c as AgentCtx & { sessionKey?: string };
+      const sk = String(event.sessionKey ?? ctx.sessionKey ?? ctx.sessionId ?? "").trim();
+      const vault = getVaultStore();
+      const pro = getCfg().productTier === "pro" || process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase() === "pro";
+      const vaultEnabled = Boolean(pro && vault && process.env.CRABAGENT_VAULT_KEY?.trim());
+      const out = deepSanitizeStrings(event.message, rules as import("./vault-pipeline.js").ExtendedRedactionRule[], {
+        vault,
+        vaultEnabled,
+      });
+      if (out.block) {
+        return { block: true };
+      }
+      if (out.shadowHits > 0) {
+        getRuntime().recordShadowWouldLeak(sk || effectiveSk(ctx), out.shadowHits);
+      }
+      if (out.replacements > 0) {
+        return { message: out.value };
+      }
+      return undefined;
+    },
+    );
 
     api.on("llm_input", (ev: unknown, c: unknown) => {
       const event = ev as LlmInputEvent;
@@ -803,7 +925,8 @@ export default definePluginEntry({
             const room = Math.max(0, 50 - fromOutbox.length);
             const fromQueue = getQueue().drainBatch(room);
             const merged = mergeOpikBatches([...fromOutbox, ...fromQueue]);
-            if (!batchNonEmpty(merged)) {
+            const toSend = getRuntime().redactBatch(merged);
+            if (!batchNonEmpty(toSend)) {
               return;
             }
             traceDbg("flush_merge", {
@@ -811,22 +934,22 @@ export default definePluginEntry({
               collectorHost: collectorHostLabel(cfg.collectorBaseUrl),
               outboxBatches: fromOutbox.length,
               memQueueBatches: fromQueue.length,
-              ...summarizeOpikBatch(merged),
+              ...summarizeOpikBatch(toSend),
             });
             let result: { ok: boolean; status: number; body: string };
             try {
-              result = await postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, merged);
+              result = await postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, toSend);
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               serviceCtx.logger.error(
                 `${PLUGIN_ID}: POST /v1/opik/batch failed (network): ${msg} — writing merged batch to outbox`,
               );
-              appendOutboxFile(outboxPath, [merged]);
+              appendOutboxFile(outboxPath, [toSend]);
               traceDbg("outbox_append", {
                 node: "disk_outbox_network_error",
                 path: outboxPath,
                 error: msg,
-                ...summarizeOpikBatch(merged),
+                ...summarizeOpikBatch(toSend),
               });
               return;
             }
@@ -834,19 +957,19 @@ export default definePluginEntry({
               node: result.ok ? "collector_ingest_ok" : "collector_ingest_fail",
               httpStatus: result.status,
               collectorHost: collectorHostLabel(cfg.collectorBaseUrl),
-              ...summarizeOpikBatch(merged),
+              ...summarizeOpikBatch(toSend),
               responsePreview: result.body.slice(0, 500),
             });
             appendDiag({
               event: "flush_post",
               ok: result.ok,
               httpStatus: result.status,
-              traceRows: merged.traces?.length ?? 0,
-              spanRows: merged.spans?.length ?? 0,
+              traceRows: toSend.traces?.length ?? 0,
+              spanRows: toSend.spans?.length ?? 0,
             });
             if (result.ok && process.env.CRABAGENT_TRACE_FLUSH_SUMMARY?.trim() === "1") {
               serviceCtx.logger.info(
-                `${PLUGIN_ID}: opik/batch ok traces=${merged.traces?.length ?? 0} spans=${merged.spans?.length ?? 0}`,
+                `${PLUGIN_ID}: opik/batch ok traces=${toSend.traces?.length ?? 0} spans=${toSend.spans?.length ?? 0}`,
               );
             }
             if (!result.ok) {
@@ -858,11 +981,11 @@ export default definePluginEntry({
               serviceCtx.logger.warn(
                 `${PLUGIN_ID}: opik/batch failed status=${result.status} body=${result.body.slice(0, 200)}`,
               );
-              appendOutboxFile(outboxPath, [merged]);
+              appendOutboxFile(outboxPath, [toSend]);
               traceDbg("outbox_append", {
                 node: "disk_outbox_retry",
                 path: outboxPath,
-                ...summarizeOpikBatch(merged),
+                ...summarizeOpikBatch(toSend),
               });
             }
           } catch (err) {
@@ -883,9 +1006,11 @@ export default definePluginEntry({
         flushTimer = setInterval(() => {
           void tick();
         }, cfg.flushIntervalMs);
-        void tick();
+        void (async () => {
+          await syncPolicies();
+          await tick();
+        })();
 
-        void syncPolicies();
         policySyncTimer = setInterval(() => {
           void syncPolicies();
         }, 300_000); // 5 mins
