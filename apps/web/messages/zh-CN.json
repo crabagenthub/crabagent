@@ -310,6 +310,7 @@
     "policyPulledAt": "拉取时间",
     "tableActions": "操作",
     "copyPolicyIdAria": "复制策略 ID",
+    "copyPolicyPatternAria": "复制正则表达式",
     "copyTooltip": "复制",
     "copySuccess": "已复制到剪贴板",
     "saveOk": "已保存。",

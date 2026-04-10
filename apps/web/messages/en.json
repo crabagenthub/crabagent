@@ -310,6 +310,7 @@
     "policyPulledAt": "Pulled at",
     "tableActions": "Actions",
     "copyPolicyIdAria": "Copy policy ID",
+    "copyPolicyPatternAria": "Copy regex pattern",
     "copyTooltip": "Copy",
     "copySuccess": "Copied to clipboard",
     "saveOk": "Saved.",

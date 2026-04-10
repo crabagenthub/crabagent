@@ -18,6 +18,7 @@ import {
   Popconfirm,
   Radio,
   Tooltip,
+  Popover,
 } from "@arco-design/web-react";
 import { IconEdit, IconDelete } from "@arco-design/web-react/icon";
 import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
@@ -34,9 +35,6 @@ const Option = Select.Option;
 /** 策略弹框「处置方式」选项与举例文案 key（对应 DataSecurity.*） */
 const DISPOSITION_RADIO_OPTIONS = [
   { value: "mask", labelKey: "policyActionMask", exampleKey: "policyActionExampleMask" },
-  { value: "hash", labelKey: "policyActionHash", exampleKey: "policyActionExampleHash" },
-  { value: "vault_token", labelKey: "policyActionVaultToken", exampleKey: "policyActionExampleVaultToken" },
-  { value: "pseudonymize", labelKey: "policyActionPseudonymize", exampleKey: "policyActionExamplePseudonymize" },
   { value: "block_message", labelKey: "policyActionBlockMessage", exampleKey: "policyActionExampleBlockMessage" },
   { value: "abort_run", labelKey: "policyActionAbortRun", exampleKey: "policyActionExampleAbortRun" },
   { value: "alert_only", labelKey: "policyActionAlertOnly", exampleKey: "policyActionExampleAlertOnly" },
@@ -366,7 +364,23 @@ export function InterceptorPoliciesManager({
         render: (name: string, record: InterceptionPolicy) => (
           <Space direction="vertical" size={0}>
             <span className="text-xs text-neutral-800 dark:text-neutral-100">{name}</span>
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">{record.description || "—"}</span>
+            {record.description ? (
+              <Popover
+                trigger="hover"
+                position="top"
+                content={
+                  <div className="max-w-[28rem] whitespace-pre-wrap break-words text-xs leading-relaxed text-neutral-700 dark:text-neutral-200">
+                    {record.description}
+                  </div>
+                }
+              >
+                <span className="block max-w-[14rem] truncate text-xs text-neutral-500 dark:text-neutral-400">
+                  {record.description}
+                </span>
+              </Popover>
+            ) : (
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">—</span>
+            )}
           </Space>
         ),
       },
@@ -386,9 +400,24 @@ export function InterceptorPoliciesManager({
           }
           const pat = record.pattern || "";
           return (
-            <span className="break-all text-xs text-neutral-800 dark:text-neutral-100" title={pat}>
-              {pat || "—"}
-            </span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <code
+                className="block max-w-[13.5rem] min-w-0 max-h-[2.8rem] overflow-y-auto whitespace-pre-wrap break-all rounded-[var(--radius)] border border-border bg-muted/40 px-2 py-1 font-mono text-xs leading-[1.3] text-neutral-800 dark:text-neutral-100"
+                title={pat || "—"}
+              >
+                {pat || "—"}
+              </code>
+              {pat ? (
+                <TraceCopyIconButton
+                  text={pat}
+                  ariaLabel={t("copyPolicyPatternAria")}
+                  tooltipLabel={t("copyTooltip")}
+                  successLabel={t("copySuccess")}
+                  className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
+                  stopPropagation
+                />
+              ) : null}
+            </div>
           );
         },
       },
@@ -479,16 +508,40 @@ export function InterceptorPoliciesManager({
         ),
       },
       {
-        title: <ObserveTableHeaderLabel>{t("policyRedactDerivedColumn")}</ObserveTableHeaderLabel>,
-        dataIndex: "redact_type",
-        key: "redact_type",
-        width: 88,
-        render: (type: string | undefined) => {
-          const v = (type ?? "mask").toUpperCase();
+        title: <ObserveTableHeaderLabel>{t("policyTargets")}</ObserveTableHeaderLabel>,
+        dataIndex: "targets_json",
+        key: "targets_json",
+        width: 180,
+        render: (targetsJson: string) => {
+          let targets: string[] = [];
+          try {
+            const parsed = JSON.parse(targetsJson || "[]");
+            if (Array.isArray(parsed)) {
+              targets = parsed
+                .map((x) => String(x ?? "").trim())
+                .filter(Boolean);
+            }
+          } catch {
+            targets = [];
+          }
+          if (targets.length === 0) {
+            return <span className="text-xs text-neutral-500 dark:text-neutral-400">—</span>;
+          }
+          const preview = targets.join(", ");
           return (
-            <span className="font-mono text-xs tabular-nums text-neutral-800 dark:text-neutral-200" title={v}>
-              {v}
-            </span>
+            <Popover
+              trigger="hover"
+              position="top"
+              content={
+                <div className="max-w-[24rem] whitespace-pre-wrap break-words text-xs leading-relaxed text-neutral-700 dark:text-neutral-200">
+                  {preview}
+                </div>
+              }
+            >
+              <span className="block max-w-[10rem] truncate text-xs text-neutral-800 dark:text-neutral-200" title={preview}>
+                {preview}
+              </span>
+            </Popover>
           );
         },
       },
@@ -558,6 +611,7 @@ export function InterceptorPoliciesManager({
         confirmLoading={upsertMutation.isPending}
         onCancel={handleCloseModal}
         className="policy-edit-modal"
+        style={{ width: 760, maxWidth: "calc(100vw - 2rem)" }}
         maskClosable={false}
       >
         <div className="policy-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-1 [-webkit-overflow-scrolling:touch]">
@@ -580,10 +634,10 @@ export function InterceptorPoliciesManager({
               }
             }}
           >
-            <Form.Item label={t("policyName")} field="name" rules={[{ required: true }]}>
+            <Form.Item label={t("policyName")} field="name" rules={[{ required: true }]} className="policy-modal-field-full">
               <Input placeholder="例如：拦截手机号" />
             </Form.Item>
-            <Form.Item label={t("policyDescription")} field="description">
+            <Form.Item label={t("policyDescription")} field="description" className="policy-modal-field-full">
               <Input.TextArea placeholder="可选描述" autoSize={{ minRows: 2, maxRows: 6 }} />
             </Form.Item>
 
@@ -602,13 +656,6 @@ export function InterceptorPoliciesManager({
                 </Radio.Group>
               </Form.Item>
             </div>
-            <Form.Item label={t("policySeverity")} field="severity" initialValue="high" className="!mb-0">
-              <Select>
-                <Option value="low">{t("policySeverityLow")}</Option>
-                <Option value="high">{t("policySeverityHigh")}</Option>
-                <Option value="critical">{t("policySeverityCritical")}</Option>
-              </Select>
-            </Form.Item>
 
             {detectionKind === "regex" ? (
               <Form.Item
@@ -616,6 +663,7 @@ export function InterceptorPoliciesManager({
                 field="pattern"
                 rules={[{ required: true, message: t("policyPatternRequired") }]}
                 extra={t("policyPatternExtra")}
+                className="policy-modal-field-full policy-modal-pattern-field"
               >
                 <Input placeholder="RegExp pattern" />
               </Form.Item>
@@ -636,7 +684,7 @@ export function InterceptorPoliciesManager({
                 <Radio.Group className="custom-radio-card-group custom-radio-card-group--grid">
                   {DISPOSITION_RADIO_OPTIONS.map((opt) => (
                     <Radio key={opt.value} value={opt.value}>
-                      <span className="block w-full min-w-0">
+                      <span className="w-full min-w-0">
                         <span className="font-medium text-neutral-800 dark:text-neutral-100">{t(opt.labelKey)}</span>
                         <span className="mt-0.5 block text-xs font-normal leading-snug text-neutral-500 dark:text-neutral-400">
                           {t(opt.exampleKey)}
@@ -648,7 +696,14 @@ export function InterceptorPoliciesManager({
               </Form.Item>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
+              <Form.Item label={t("policySeverity")} field="severity" initialValue="high" className="!mb-0">
+                <Select>
+                  <Option value="low">{t("policySeverityLow")}</Option>
+                  <Option value="high">{t("policySeverityHigh")}</Option>
+                  <Option value="critical">{t("policySeverityCritical")}</Option>
+                </Select>
+              </Form.Item>
               <Form.Item shouldUpdate noStyle>
                 {() => {
                   const lockObserve = actionForcesEnforce(form.getFieldValue("policy_action"));
