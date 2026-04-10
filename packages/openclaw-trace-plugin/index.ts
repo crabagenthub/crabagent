@@ -1064,6 +1064,34 @@ export default definePluginEntry({
         policyIds: matched.policyIds,
         policyNames: matched.policyNames,
       });
+      const blockedSk = effectiveSk(ctx);
+      mergePendingWithInboundMirror(ctx, {
+        security_intercept_blocked: {
+          source: "before_agent_reply",
+          policy_ids: matched.policyIds,
+          policy_names: matched.policyNames,
+          handled: true,
+          reply: cfg.hardBlockReplyText,
+        },
+      });
+      getRuntime().addGeneralSpan(blockedSk, "security_intercept_blocked", {
+        source: "before_agent_reply",
+        policyIds: matched.policyIds,
+        policyNames: matched.policyNames,
+        handled: true,
+      });
+      const blockedBatch = getRuntime().onAgentEnd(
+        blockedSk,
+        {
+          success: false,
+          error: { code: "blocked_by_policy", policy_ids: matched.policyIds },
+          durationMs: 0,
+          messages: [{ role: "assistant", content: cfg.hardBlockReplyText }],
+        },
+        hookCtx(ctx),
+        traceSessionKeyCandidatesForPending(ctx),
+      );
+      pushIfAny(blockedBatch, "before_agent_reply_blocked");
       return {
         handled: true,
         reply: { text: cfg.hardBlockReplyText },
