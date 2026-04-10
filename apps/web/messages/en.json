@@ -417,6 +417,8 @@
     "relevance": "Relevance",
     "snippet": "Snippet",
     "pageTotal": "{total} events",
+    "showingOfTotal": "Showing {from}–{to} of {total}",
+    "paginationTotalPages": "{count} page(s)",
     "flagSensitivePath": "Sensitive path",
     "flagPiiHint": "Secret keyword",
     "flagLargeRead": "Large read",
@@ -449,7 +451,9 @@
     "colIntercepted": "Mode",
     "colPolicies": "Policies",
     "tagEnforced": "Enforced",
-    "tagObserve": "Observe / alert"
+    "tagObserve": "Observe / alert",
+    "showingOfTotal": "Showing {from}–{to} of {total}",
+    "paginationTotalPages": "{count} page(s)"
   },
   "Traces": {
     "loading": "Loading…",

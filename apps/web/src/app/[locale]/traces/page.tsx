@@ -63,26 +63,7 @@ import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadTraceRecords, type TraceRecordRow } from "@/lib/trace-records";
 import { readObserveAutoPull, writeObserveAutoPull } from "@/lib/observe-auto-pull";
 import { cn } from "@/lib/utils";
-
-const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 60, 80, 100] as const;
-
-const PAGE_SIZE_STORAGE_KEY = "crabagent-observe-list-page-size";
-
-function readStoredPageSize(): number {
-  if (typeof window === "undefined") {
-    return 10;
-  }
-  try {
-    const raw = window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
-    const n = raw != null ? Number(raw) : Number.NaN;
-    if (PAGE_SIZE_OPTIONS.includes(n as (typeof PAGE_SIZE_OPTIONS)[number])) {
-      return n;
-    }
-  } catch {
-    /* ignore */
-  }
-  return 10;
-}
+import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 
 type ListKind = "threads" | "traces" | "spans";
 
@@ -197,18 +178,14 @@ export default function TracesPage() {
   }, []);
 
   useEffect(() => {
-    const stored = readStoredPageSize();
+    const stored = readStoredPageSize(10);
     setTracesUi((prev) => ({ ...prev, pageSize: stored }));
     setThreadsUi((prev) => ({ ...prev, pageSize: stored }));
     setSpansUi((prev) => ({ ...prev, pageSize: stored }));
   }, []);
 
   const setPageSize = useCallback((n: number) => {
-    try {
-      window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(n));
-    } catch {
-      /* ignore */
-    }
+    writeStoredPageSize(n);
   }, []);
 
   useEffect(() => {

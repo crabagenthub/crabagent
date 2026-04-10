@@ -13,6 +13,7 @@ import {
   Tag,
   Typography,
 } from "@arco-design/web-react";
+import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import { IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
@@ -107,6 +108,7 @@ export function ResourceAuditDashboard() {
   const [searchDraft, setSearchDraft] = useState("");
   const [semanticClass, setSemanticClass] = useState<ResourceAuditSemanticClassParam>("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -116,6 +118,11 @@ export function ResourceAuditDashboard() {
     if (stored) {
       setDateRange(stored);
     }
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredPageSize(50);
+    setPageSize(stored);
   }, []);
 
   useEffect(() => {
@@ -138,8 +145,8 @@ export function ResourceAuditDashboard() {
 
   const listParams = useMemo(
     () => ({
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       order: "desc" as const,
       search: search.trim() || undefined,
       sinceMs: sinceMs ?? undefined,
@@ -474,16 +481,38 @@ export function ResourceAuditDashboard() {
               />
               <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
-                  {t("pageTotal", { total: eventsQ.data?.total ?? 0 })}
+                  {t("showingOfTotal", {
+                    from: String(eventsQ.data?.items.length ? (page - 1) * pageSize + 1 : 0),
+                    to: String(eventsQ.data?.items.length ? (page - 1) * pageSize + eventsQ.data!.items.length : 0),
+                    total: String(eventsQ.data?.total ?? 0),
+                  })}
                 </Typography.Text>
-                <Pagination
-                  size="small"
-                  current={page}
-                  pageSize={PAGE_SIZE}
-                  total={eventsQ.data?.total ?? 0}
-                  onChange={setPage}
-                  showTotal
-                />
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                    {t("paginationTotalPages", {
+                      count: String(Math.max(1, Math.ceil((eventsQ.data?.total ?? 0) / pageSize) || 1)),
+                    })}
+                  </span>
+                  <Pagination
+                    size="small"
+                    current={page}
+                    pageSize={pageSize}
+                    total={eventsQ.data?.total ?? 0}
+                    onChange={(nextPage, nextPageSize) => {
+                      if (nextPageSize && nextPageSize !== pageSize) {
+                        setPageSize(nextPageSize);
+                        writeStoredPageSize(nextPageSize);
+                      }
+                      setPage(nextPage);
+                    }}
+                    showTotal
+                    bufferSize={1}
+                    sizeCanChange
+                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                    showJumper
+                    disabled={eventsQ.isFetching}
+                  />
+                </div>
               </div>
             </>
           )}

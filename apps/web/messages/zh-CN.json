@@ -417,6 +417,7 @@
     "relevance": "相关性",
     "snippet": "采样",
     "pageTotal": "共 {total} 条",
+    "showingOfTotal": "显示第 {from}–{to} 条，共 {total} 条",
     "flagSensitivePath": "敏感路径",
     "flagPiiHint": "疑似密钥词",
     "flagLargeRead": "大读取",
@@ -449,7 +450,9 @@
     "colIntercepted": "模式",
     "colPolicies": "策略",
     "tagEnforced": "强制执行",
-    "tagObserve": "观察 / 仅告警"
+    "tagObserve": "观察 / 仅告警",
+    "showingOfTotal": "显示第 {from}–{to} 条，共 {total} 条",
+    "paginationTotalPages": "共 {count} 页"
   },
   "Traces": {
     "loading": "正在加载…",
@@ -739,7 +742,6 @@
     "messageViewGraph": "关系图",
     "messageViewExecution": "调用图",
     "threadDrawerLoadingMoreTurns": "正在加载更多轮次…",
-    "paginationTotalPages": "共 {count} 页",
     "paginationJumpLabel": "跳转至",
     "paginationJumpGo": "GO",
     "threadDrawerTurnExecTime": "本回合执行耗时",

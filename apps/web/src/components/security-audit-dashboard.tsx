@@ -27,6 +27,7 @@ import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger
 import { useRouter } from "@/i18n/navigation";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
+import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import {
   defaultObserveDateRange,
   readStoredObserveDateRange,
@@ -79,6 +80,7 @@ export function SecurityAuditDashboard() {
   const [apiKey, setApiKey] = useState("");
   const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -88,6 +90,11 @@ export function SecurityAuditDashboard() {
     if (stored) {
       setDateRange(stored);
     }
+  }, []);
+
+  useEffect(() => {
+    const stored = readStoredPageSize(50);
+    setPageSize(stored);
   }, []);
 
   useEffect(() => {
@@ -109,13 +116,13 @@ export function SecurityAuditDashboard() {
 
   const listParams = useMemo(
     () => ({
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       order: "desc" as const,
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
     }),
-    [page, sinceMs, untilMs],
+    [page, pageSize, sinceMs, untilMs],
   );
 
   const analyticsParams = useMemo(
@@ -396,15 +403,39 @@ export function SecurityAuditDashboard() {
                 style: { cursor: "pointer" },
               })}
             />
-            {total > PAGE_SIZE ? (
-              <div className="mt-3 flex justify-end">
-                <Pagination
-                  size="small"
-                  current={page}
-                  pageSize={PAGE_SIZE}
-                  total={total}
-                  onChange={(p) => setPage(p)}
-                />
+            {total > pageSize ? (
+              <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+                <Typography.Text type="secondary" className="text-xs">
+                  {t("showingOfTotal", {
+                    from: String(items.length ? (page - 1) * pageSize + 1 : 0),
+                    to: String(items.length ? (page - 1) * pageSize + items.length : 0),
+                    total: String(total),
+                  })}
+                </Typography.Text>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                    {t("paginationTotalPages", { count: String(Math.max(1, Math.ceil(total / pageSize) || 1)) })}
+                  </span>
+                  <Pagination
+                    size="small"
+                    current={page}
+                    pageSize={pageSize}
+                    total={total}
+                    onChange={(nextPage, nextPageSize) => {
+                      if (nextPageSize && nextPageSize !== pageSize) {
+                        setPageSize(nextPageSize);
+                        writeStoredPageSize(nextPageSize);
+                      }
+                      setPage(nextPage);
+                    }}
+                    showTotal
+                    bufferSize={1}
+                    sizeCanChange
+                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                    showJumper
+                    disabled={eventsQ.isFetching}
+                  />
+                </div>
               </div>
             ) : null}
           </div>
