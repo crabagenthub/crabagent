@@ -23,7 +23,7 @@
       "policySyncIntervalMs": {
         "type": "number",
         "minimum": 5000,
-        "default": 30000,
+        "default": 120000,
         "description": "Polling interval for pulling /v1/policies. Lower values reduce policy rollout lag (env override: CRABAGENT_POLICY_SYNC_INTERVAL_MS)."
       },
       "memoryQueueMax": {

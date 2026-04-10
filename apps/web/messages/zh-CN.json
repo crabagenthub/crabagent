@@ -56,7 +56,7 @@
     "subtitle": "工作台摘要与关键指标将在此展示。",
     "listEmptyTitle": "暂无数据",
     "statsTitle": "统计",
-    "statsSubtitle": "基于 Collector 中的 Trace / Span 采样聚合；时间窗与消息列表一致。",
+    "statsSubtitle": "时间窗与消息列表一致。",
     "refresh": "刷新",
     "loading": "正在加载统计数据…",
     "needCollector": "请先在设置中配置 Collector URL。",

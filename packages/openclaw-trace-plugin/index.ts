@@ -28,7 +28,7 @@ import {
 import { pickLlmOutputUsage } from "./llm-output-usage.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
 import type { RedactionRule } from "./redactor.js";
-import { deepSanitizeStrings } from "./vault-pipeline.js";
+import { compileRules, deepSanitizeStrings } from "./vault-pipeline.js";
 import { EncryptedVaultStore } from "./vault-store.js";
 import {
   resolveOpenClawSessionsBasePathForAgent,
@@ -228,16 +228,17 @@ export default definePluginEntry({
     >();
     const vaultStoresByRoot = new Map<string, EncryptedVaultStore>();
 
-    const scanInboundForHardBlock = (
-      text: string,
-      rules: readonly RedactionRule[],
-    ): { policyIds: string[]; policyNames: string[] } | null => {
-      const t = text.trim();
-      if (!t) {
-        return null;
-      }
-      const ids: string[] = [];
-      const names: string[] = [];
+    let compiledRegexByRuleId = new Map<string, RegExp>();
+    let compiledInboundHardBlockRules: Array<{
+      id: string;
+      name: string;
+      regex: RegExp;
+    }> = [];
+
+    const rebuildCompiledPolicyCaches = (rules: readonly RedactionRule[]) => {
+      const sanitizeRules = rules as import("./vault-pipeline.js").ExtendedRedactionRule[];
+      compiledRegexByRuleId = compileRules(sanitizeRules);
+      const hard: Array<{ id: string; name: string; regex: RegExp }> = [];
       for (const r of rules) {
         if (!r.enabled) {
           continue;
@@ -251,19 +252,35 @@ export default definePluginEntry({
         if ((action !== "abort_run" && action !== "block_message") || mode === "observe") {
           continue;
         }
-        const pat = String(r.pattern ?? "").trim();
-        if (!pat) {
+        const re = compiledRegexByRuleId.get(r.id);
+        if (!re) {
           continue;
         }
-        try {
-          const re = new RegExp(pat, "g");
-          re.lastIndex = 0;
-          if (re.test(t)) {
-            ids.push(r.id);
-            names.push(r.name || r.id);
-          }
-        } catch {
-          /* ignore invalid pattern */
+        hard.push({ id: r.id, name: r.name || r.id, regex: re });
+      }
+      compiledInboundHardBlockRules = hard;
+    };
+
+    const scanInboundForHardBlock = (
+      text: string,
+      rules: readonly {
+        id: string;
+        name: string;
+        regex: RegExp;
+      }[],
+    ): { policyIds: string[]; policyNames: string[] } | null => {
+      const t = text.trim();
+      if (!t) {
+        return null;
+      }
+      const ids: string[] = [];
+      const names: string[] = [];
+      for (const r of rules) {
+        const re = r.regex;
+        re.lastIndex = 0;
+        if (re.test(t)) {
+          ids.push(r.id);
+          names.push(r.name);
         }
       }
       if (ids.length <= 0) {
@@ -408,6 +425,7 @@ export default definePluginEntry({
             });
           }
           cachedRedactionRules = rules;
+          rebuildCompiledPolicyCaches(rules);
           getRuntime().updateRedactionRules(rules);
           void reportPolicyPullToCollector(pulledAtMs);
         }
@@ -641,7 +659,7 @@ export default definePluginEntry({
         await ensurePoliciesWarm();
       }
       if (cfgNow.hardBlockOnInboundMatch) {
-        const checked = scanInboundForHardBlock(String(event.content ?? ""), cachedRedactionRules);
+        const checked = scanInboundForHardBlock(String(event.content ?? ""), compiledInboundHardBlockRules);
         if (checked) {
           const blockKeys = traceSessionKeyCandidatesForInbound(ctx, event.from);
           setInboundHardBlock(blockKeys, {
@@ -768,7 +786,7 @@ export default definePluginEntry({
       const out = deepSanitizeStrings(event.message, rules as import("./vault-pipeline.js").ExtendedRedactionRule[], {
         vault,
         vaultEnabled,
-      });
+      }, compiledRegexByRuleId);
       if (out.block) {
         return { block: true };
       }
@@ -1054,7 +1072,7 @@ export default definePluginEntry({
         await ensurePoliciesWarm();
       }
       const body = typeof event.cleanedBody === "string" ? event.cleanedBody : "";
-      const matched = cfg.hardBlockOnInboundMatch ? scanInboundForHardBlock(body, cachedRedactionRules) : null;
+      const matched = cfg.hardBlockOnInboundMatch ? scanInboundForHardBlock(body, compiledInboundHardBlockRules) : null;
       if (!matched) {
         return undefined;
       }

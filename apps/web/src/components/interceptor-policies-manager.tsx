@@ -558,7 +558,6 @@ export function InterceptorPoliciesManager({
         confirmLoading={upsertMutation.isPending}
         onCancel={handleCloseModal}
         className="policy-edit-modal"
-        style={{ width: 640, maxWidth: "calc(100vw - 2rem)" }}
         maskClosable={false}
       >
         <div className="policy-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-1 [-webkit-overflow-scrolling:touch]">

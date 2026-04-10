@@ -55,6 +55,18 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
 }
 
 @layer base {
+  /* 全站原生输入控件统一圆角 */
+  input,
+  textarea {
+    border-radius: var(--radius);
+  }
+
+  /* Arco 内部真实输入节点（除 wrapper 外再兜底一层） */
+  .arco-input,
+  .arco-textarea {
+    border-radius: var(--radius) !important;
+  }
+
   body {
     @apply antialiased bg-background text-foreground;
   }
@@ -169,6 +181,14 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
   .arco-trigger-popup {
     animation-duration: 200ms !important;
     animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  }
+
+  /* 全站 Tooltip 气泡统一圆角（含 Arco 原生与 ui/tooltip 封装） */
+  .arco-tooltip .arco-tooltip-content,
+  .arco-tooltip .arco-tooltip-title,
+  .arco-trigger-popup .arco-tooltip-content,
+  .arco-trigger-popup .arco-tooltip-title {
+    border-radius: var(--radius) !important;
   }
 
   /* SiteNav 用户菜单：与原先自绘面板一致，去掉 Arco Popover 默认内容区 padding */
@@ -436,6 +456,12 @@ body {
 }
 .policy-edit-modal .arco-modal-body {
   padding: 0 24px 12px;
+}
+.policy-edit-modal .arco-input-inner-wrapper,
+.policy-edit-modal .arco-input-search .arco-input-inner-wrapper,
+.policy-edit-modal .arco-textarea-wrapper .arco-textarea,
+.policy-edit-modal .arco-input-number .arco-input-inner-wrapper {
+  border-radius: var(--radius) !important;
 }
 .policy-edit-modal .arco-modal-footer {
   padding: 12px 24px 20px;

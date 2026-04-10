@@ -75,7 +75,7 @@ function simpleHash(str: string): string {
   return Math.abs(hash).toString(16);
 }
 
-function compileRules(rules: ExtendedRedactionRule[]): Map<string, RegExp> {
+export function compileRules(rules: ExtendedRedactionRule[]): Map<string, RegExp> {
   const m = new Map<string, RegExp>();
   for (const r of rules) {
     if (!r.enabled) {
@@ -155,8 +155,9 @@ export function deepSanitizeStrings(
   input: unknown,
   rules: ExtendedRedactionRule[],
   opts: { vault: EncryptedVaultStore | null; vaultEnabled: boolean },
+  precompiledRegexById?: Map<string, RegExp>,
 ): SanitizeOutcome {
-  const regexById = compileRules(rules);
+  const regexById = precompiledRegexById ?? compileRules(rules);
   let shadowHits = 0;
   let replacements = 0;
   let block = false;

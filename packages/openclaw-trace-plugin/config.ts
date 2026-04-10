@@ -13,7 +13,7 @@ export type CrabagentTracePluginConfig = {
   collectorBaseUrl: string;
   collectorApiKey: string;
   flushIntervalMs: number;
-  /** 策略拉取轮询间隔（毫秒）。默认 30000；环境变量 `CRABAGENT_POLICY_SYNC_INTERVAL_MS` 可覆盖。 */
+  /** 策略拉取轮询间隔（毫秒）。默认 120000；环境变量 `CRABAGENT_POLICY_SYNC_INTERVAL_MS` 可覆盖。 */
   policySyncIntervalMs: number;
   memoryQueueMax: number;
   sampleRateBps: number;
@@ -111,7 +111,7 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
           if (raw && Number.isFinite(Number(raw))) {
             return Math.max(5000, Math.floor(Number(raw)));
           }
-          return 30_000;
+          return 120_000;
         })();
   const memoryQueueMax =
     typeof c.memoryQueueMax === "number" && Number.isFinite(c.memoryQueueMax)

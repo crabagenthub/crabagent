@@ -56,7 +56,7 @@
     "subtitle": "Workspace summary and key metrics will appear here.",
     "listEmptyTitle": "No data yet",
     "statsTitle": "Statistics",
-    "statsSubtitle": "Aggregated from Collector Trace / Span samples; date range matches the messages list.",
+    "statsSubtitle": "date range matches the messages list.",
     "refresh": "Refresh",
     "loading": "Loading statistics…",
     "needCollector": "Configure the Collector URL in Settings first.",
