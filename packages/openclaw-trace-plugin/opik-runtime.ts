@@ -66,6 +66,13 @@ function threadKeyLooksOpenclawSession(threadId: string, ctx: AgentCtx): boolean
   );
 }
 
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    return null;
+  }
+  return v as Record<string, unknown>;
+}
+
 /**
  * Hook 若经 IPC 丢失 `openclawSession`，仍可从 sessionKey 解析出 kind，但四档会空。
  * OpenClaw 控制面未单独设置时等价于 inherit — 在此补齐，避免列表仅「类型」有值。
@@ -942,7 +949,7 @@ export class OpikOpenClawRuntime {
   private readonly deferredFlushRequiresOpenClawRoutingKey: boolean;
   private readonly debugTrace?: (phase: string, data: Record<string, unknown>) => void;
   private readonly redactor: Redactor;
-  /** 影子模式：observe 规则在 `before_message_write` 中累计，随下一条 LLM trace 的 metadata 上报后清空。 */
+  /** 影子模式：observe 在 `before_message_write` 按 session 键累计；`llm_input` 用 {@link takeShadowWouldLeakForSession} 合并别名字段后写入 trace metadata 并清空。 */
   private readonly shadowWouldLeakBySession = new Map<string, number>();
 
   constructor(
@@ -971,11 +978,29 @@ export class OpikOpenClawRuntime {
 
   redactBatch(batch: OpikBatchPayload): OpikBatchPayload {
     if (!batch) return batch;
+    const redactWithAudit = <T extends Record<string, unknown>>(row: T): T => {
+      const audit = this.redactor.scanObject(row);
+      const redacted = this.redactor.redactObject(row);
+      if (!audit.interception || audit.hit_count <= 0) {
+        return redacted as T;
+      }
+      const rec = asRecord(redacted);
+      if (!rec) {
+        return redacted as T;
+      }
+      const metaPrev = asRecord(rec.metadata);
+      rec.metadata = {
+        ...(metaPrev ?? {}),
+        crabagent_interception: audit.interception,
+        crabagent_interception_findings: audit.findings,
+      };
+      return rec as T;
+    };
     return {
       ...batch,
       threads: batch.threads?.map((t) => this.redactor.redactObject(t)),
-      traces: batch.traces?.map((t) => this.redactor.redactObject(t)),
-      spans: batch.spans?.map((s) => this.redactor.redactObject(s)),
+      traces: batch.traces?.map((t) => redactWithAudit(t)),
+      spans: batch.spans?.map((s) => redactWithAudit(s)),
       attachments: batch.attachments?.map((a) => this.redactor.redactObject(a)),
       feedback: batch.feedback?.map((f) => this.redactor.redactObject(f)),
       envelope_json:
@@ -996,14 +1021,31 @@ export class OpikOpenClawRuntime {
     this.shadowWouldLeakBySession.set(sk, (this.shadowWouldLeakBySession.get(sk) ?? 0) + n);
   }
 
-  private takeShadowWouldLeak(sessionKey: string): number | undefined {
-    const sk = sessionKey.trim();
-    const v = this.shadowWouldLeakBySession.get(sk);
-    if (v == null || v <= 0) {
-      return undefined;
+  /**
+   * 与 `before_message_write` 的 {@link recordShadowWouldLeak} 对齐：影子可能记在 canonical `agentScopedTraceKey`、
+   * 或仅含 `ctx.sessionKey`/channel 等别名字段上；在 `llm_input` 合并取出，避免键不一致导致 metadata 永远无 `crabagent_shadow_would_leak`。
+   */
+  private takeShadowWouldLeakForSession(primarySk: string, aliasKeys?: readonly string[]): number | undefined {
+    const keys = new Set<string>();
+    const add = (k: string | undefined) => {
+      const t = k?.trim();
+      if (t) {
+        keys.add(t);
+      }
+    };
+    add(primarySk);
+    for (const a of aliasKeys ?? []) {
+      add(a);
     }
-    this.shadowWouldLeakBySession.delete(sk);
-    return v;
+    let sum = 0;
+    for (const k of keys) {
+      const v = this.shadowWouldLeakBySession.get(k);
+      if (v != null && v > 0) {
+        sum += v;
+        this.shadowWouldLeakBySession.delete(k);
+      }
+    }
+    return sum > 0 ? sum : undefined;
   }
 
   private hydrateSubagentAnchorsFromDisk(): void {
@@ -1595,7 +1637,7 @@ export class OpikOpenClawRuntime {
       typeof ev.systemPrompt === "string" ? ev.systemPrompt : undefined,
     );
     this.applyTurnMetaToThreadRow(threadRow, turnMeta);
-    const shadowLeak = this.takeShadowWouldLeak(sk);
+    const shadowLeak = this.takeShadowWouldLeakForSession(sk, pendingKeys);
     const traceRow: Record<string, unknown> = {
       trace_id: traceId,
       thread_id: threadId,

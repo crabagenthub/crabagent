@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CrabagentDb } from "./db.js";
+import type { RedactionType } from "./redactor.js";
 
 export interface InterceptionPolicy {
   id: string;
@@ -12,11 +13,50 @@ export interface InterceptionPolicy {
   severity?: string | null;
   policy_action?: string | null;
   intercept_mode?: string | null;
+  /** v1 仅 `regex` 生效；`model` 为预留。 */
+  detection_kind?: string | null;
   /** 首次写入策略的时间（Web 或 API 创建/更新时由服务端写入）。 */
   created_at_ms?: number | null;
   /** OpenClaw 插件定时从 Collector `GET /v1/policies` 拉取成功后的时间（见 `POST /v1/policies/pull-report`）。 */
   pulled_at_ms?: number | null;
   updated_at_ms: number;
+}
+
+/** 由 `policy_action` 派生 Collector `Redactor` 使用的 `redact_type`（单一真源为处置方式）。 */
+export function deriveRedactTypeFromPolicyAction(action: string | null | undefined): RedactionType {
+  const a = String(action ?? "mask")
+    .trim()
+    .toLowerCase();
+  if (a === "hash") {
+    return "hash";
+  }
+  if (a === "block_message" || a === "abort_run") {
+    return "block";
+  }
+  return "mask";
+}
+
+function deriveInterceptModeFromPolicyAction(
+  action: string | null | undefined,
+  mode: string | null | undefined,
+): "enforce" | "observe" {
+  const a = String(action ?? "mask")
+    .trim()
+    .toLowerCase();
+  if (a === "block_message" || a === "abort_run") {
+    return "enforce";
+  }
+  const m = String(mode ?? "enforce")
+    .trim()
+    .toLowerCase();
+  return m === "observe" ? "observe" : "enforce";
+}
+
+function normalizeDetectionKind(raw: string | null | undefined): "regex" | "model" {
+  const s = String(raw ?? "regex")
+    .trim()
+    .toLowerCase();
+  return s === "model" ? "model" : "regex";
 }
 
 export function countPolicies(db: CrabagentDb): number {
@@ -54,14 +94,19 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     );
   }
 
+  const policyAction = policy.policy_action ?? "mask";
+  const redactType = deriveRedactTypeFromPolicyAction(policyAction);
+  const interceptMode = deriveInterceptModeFromPolicyAction(policyAction, policy.intercept_mode);
+  const detectionKind = normalizeDetectionKind(policy.detection_kind ?? undefined);
+
   db.prepare(
     `
     INSERT INTO interception_policies (
       id, name, description, pattern, redact_type, targets_json, enabled,
-      severity, policy_action, intercept_mode,
+      severity, policy_action, intercept_mode, detection_kind,
       created_at_ms, updated_at_ms
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
@@ -72,6 +117,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
       severity = COALESCE(excluded.severity, interception_policies.severity),
       policy_action = COALESCE(excluded.policy_action, interception_policies.policy_action),
       intercept_mode = COALESCE(excluded.intercept_mode, interception_policies.intercept_mode),
+      detection_kind = COALESCE(excluded.detection_kind, interception_policies.detection_kind),
       updated_at_ms = excluded.updated_at_ms
   `,
   ).run(
@@ -79,12 +125,13 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     policy.name || "Unnamed Policy",
     policy.description || "",
     policy.pattern || "",
-    policy.redact_type || "mask",
+    redactType,
     policy.targets_json || "[]",
     policy.enabled ?? 1,
     policy.severity ?? "high",
-    policy.policy_action ?? "mask",
-    policy.intercept_mode ?? "enforce",
+    policyAction,
+    interceptMode,
+    detectionKind,
     now,
     now,
   );

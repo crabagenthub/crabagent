@@ -449,22 +449,30 @@ export default definePluginEntry({
       }
     };
 
+    /** Collector 默认收原文以便写 security_audit_logs；`redactBeforeCollectorPost` 时与旧行为一致先脱敏再 POST。 */
+    const batchForCollector = (batch: OpikBatchPayload): OpikBatchPayload => {
+      if (getCfg().redactBeforeCollectorPost) {
+        return getRuntime().redactBatch(batch);
+      }
+      return batch;
+    };
+
     const pushIfAny = (b: OpikBatchPayload | null | undefined, source: string) => {
       if (b && batchNonEmpty(b)) {
-        const redacted = getRuntime().redactBatch(b);
+        const payload = batchForCollector(b);
         if (serviceStartedInThisProcess) {
-          getQueue().push(redacted);
+          getQueue().push(payload);
         } else {
           const cfg = getCfg();
           if (cfg.collectorBaseUrl) {
             // hook 与 flush 分进程时，内存队列不可见；当前进程直接上报 collector。
-            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, redacted).catch(() => {});
+            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, payload).catch(() => {});
           }
         }
         traceDbg("queue_push", {
           node: "memory_queue",
           source,
-          ...summarizeOpikBatch(redacted),
+          ...summarizeOpikBatch(payload),
         });
       }
     };
@@ -603,7 +611,9 @@ export default definePluginEntry({
       }
       const event = ev as { message?: unknown; sessionKey?: string; agentId?: string };
       const ctx = c as AgentCtx & { sessionKey?: string };
-      const sk = String(event.sessionKey ?? ctx.sessionKey ?? ctx.sessionId ?? "").trim();
+      /** 必须与 `llm_input` 的 `effectiveSk(ctx)` 一致，否则影子只记在别名字段，`takeShadowWouldLeakForSession` 仍可对齐；此处优先 canonical。 */
+      const sk =
+        effectiveSk(ctx).trim() || String(event.sessionKey ?? ctx.sessionKey ?? ctx.sessionId ?? "").trim();
       const vault = getVaultStore();
       const pro = getCfg().productTier === "pro" || process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase() === "pro";
       const vaultEnabled = Boolean(pro && vault && process.env.CRABAGENT_VAULT_KEY?.trim());
@@ -615,7 +625,7 @@ export default definePluginEntry({
         return { block: true };
       }
       if (out.shadowHits > 0) {
-        getRuntime().recordShadowWouldLeak(sk || effectiveSk(ctx), out.shadowHits);
+        getRuntime().recordShadowWouldLeak(sk, out.shadowHits);
       }
       if (out.replacements > 0) {
         return { message: out.value };
@@ -901,7 +911,7 @@ export default definePluginEntry({
 
         const cfgAtStart = getCfg();
         serviceCtx.logger.info(
-          `${PLUGIN_ID}: flush service started; collectorHost=${cfgAtStart.collectorBaseUrl ? collectorHostLabel(cfgAtStart.collectorBaseUrl) : "(empty — set plugins.entries config or env CRABAGENT_COLLECTOR_URL)"}; apiKey=${cfgAtStart.collectorApiKey ? "set" : "empty"}; debugHooks=${cfgAtStart.debugLogHooks}`,
+          `${PLUGIN_ID}: flush service started; collectorHost=${cfgAtStart.collectorBaseUrl ? collectorHostLabel(cfgAtStart.collectorBaseUrl) : "(empty — set plugins.entries config or env CRABAGENT_COLLECTOR_URL)"}; apiKey=${cfgAtStart.collectorApiKey ? "set" : "empty"}; debugHooks=${cfgAtStart.debugLogHooks}; preRedactToCollector=${cfgAtStart.redactBeforeCollectorPost}`,
         );
         appendDiag({
           event: "service_start",
@@ -925,7 +935,7 @@ export default definePluginEntry({
             const room = Math.max(0, 50 - fromOutbox.length);
             const fromQueue = getQueue().drainBatch(room);
             const merged = mergeOpikBatches([...fromOutbox, ...fromQueue]);
-            const toSend = getRuntime().redactBatch(merged);
+            const toSend = batchForCollector(merged);
             if (!batchNonEmpty(toSend)) {
               return;
             }
@@ -1013,7 +1023,7 @@ export default definePluginEntry({
 
         policySyncTimer = setInterval(() => {
           void syncPolicies();
-        }, 300_000); // 5 mins
+        }, cfg.policySyncIntervalMs);
       },
       stop() {
         serviceStopped = true;

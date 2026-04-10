@@ -57,6 +57,9 @@ export class Redactor {
       if (rule.interceptMode === "observe") {
         continue;
       }
+      if (rule.policyAction === "alert_only") {
+        continue;
+      }
       const regex = this.regexCache.get(rule.id);
       if (!regex) {
         continue;

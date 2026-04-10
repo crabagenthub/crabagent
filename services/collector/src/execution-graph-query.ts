@@ -103,6 +103,8 @@ export type ExecutionGraphNode = {
    * 标在 trace 头节点与 LLM span 上；其它 span 为 null。
    */
   tool_execution_mode: "parallel" | "sequential" | null;
+  /** 入库审计写入的 `metadata_json.crabagent_interception`（无明文）。 */
+  crabagent_interception: Record<string, unknown> | null;
 };
 
 export type ExecutionGraphEdge = {
@@ -380,6 +382,7 @@ function buildExecutionGraphFromTraces(
       end_time_ms: endMs,
       duration_ms: durMs,
       tool_execution_mode: traceToolModeById.get(tid) ?? null,
+      crabagent_interception: null,
     });
   }
 
@@ -401,6 +404,11 @@ function buildExecutionGraphFromTraces(
     const traceIdStr = String(s.trace_id);
     const tem =
       kind === "LLM" ? traceToolModeById.get(traceIdStr) ?? null : null;
+    const ciRaw = meta.crabagent_interception;
+    const crabagent_interception =
+      ciRaw && typeof ciRaw === "object" && !Array.isArray(ciRaw)
+        ? (ciRaw as Record<string, unknown>)
+        : null;
     nodes.push({
       id: sid,
       trace_id: traceIdStr,
@@ -417,6 +425,7 @@ function buildExecutionGraphFromTraces(
       end_time_ms: endMs,
       duration_ms: spanWallDurationMs(startMs, endMs),
       tool_execution_mode: tem,
+      crabagent_interception,
     });
   }
 

@@ -19,6 +19,11 @@ import {
   queryResourceAuditStats,
   type ResourceAuditSemanticFilter,
 } from "./resource-audit-query.js";
+import {
+  countSecurityAuditEvents,
+  parseSecurityAuditListQuery,
+  querySecurityAuditEvents,
+} from "./security-audit-query.js";
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
@@ -482,6 +487,18 @@ const handleResourceAuditStats = (c: Context) => {
 
 app.get("/v1/resource-audit/events", handleResourceAuditEvents);
 app.get("/v1/resource-audit/stats", handleResourceAuditStats);
+
+const handleSecurityAuditEvents = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const q = parseSecurityAuditListQuery(c);
+  const items = querySecurityAuditEvents(db, q);
+  const total = countSecurityAuditEvents(db, q);
+  return c.json({ items, total });
+};
+
+app.get("/v1/security-audit/events", handleSecurityAuditEvents);
 
 app.get("/v1/observe-facets", (c) => {
   if (!checkApiKey(c)) {

@@ -13,6 +13,8 @@ export type CrabagentTracePluginConfig = {
   collectorBaseUrl: string;
   collectorApiKey: string;
   flushIntervalMs: number;
+  /** 策略拉取轮询间隔（毫秒）。默认 30000；环境变量 `CRABAGENT_POLICY_SYNC_INTERVAL_MS` 可覆盖。 */
+  policySyncIntervalMs: number;
   memoryQueueMax: number;
   sampleRateBps: number;
   /** Opik workspace（与 opik-openclaw 一致，默认 default）。 */
@@ -70,6 +72,12 @@ export type CrabagentTracePluginConfig = {
    * 环境变量 `CRABAGENT_PRODUCT_TIER=pro|basic` 可覆盖。
    */
   productTier: "basic" | "pro";
+  /**
+   * 为 true 时在 POST Collector **之前**对 batch 做插件侧脱敏（旧行为）。默认 false：上报原文，由 Collector
+   * 先跑 `security_audit_logs` 正则扫描再 `applyIngestPolicyRedaction` 落库；否则 Collector 收不到明文，审计表永远无命中。
+   * 合规要求「出站即脱敏」时设为 true 或环境变量 `CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR=1`。
+   */
+  redactBeforeCollectorPost: boolean;
 };
 
 export function resolvePluginConfig(raw: Record<string, unknown> | undefined): CrabagentTracePluginConfig {
@@ -85,6 +93,16 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     typeof c.flushIntervalMs === "number" && Number.isFinite(c.flushIntervalMs)
       ? Math.max(200, Math.floor(c.flushIntervalMs))
       : 1000;
+  const policySyncIntervalMs =
+    typeof c.policySyncIntervalMs === "number" && Number.isFinite(c.policySyncIntervalMs)
+      ? Math.max(5000, Math.floor(c.policySyncIntervalMs))
+      : (() => {
+          const raw = process.env.CRABAGENT_POLICY_SYNC_INTERVAL_MS?.trim();
+          if (raw && Number.isFinite(Number(raw))) {
+            return Math.max(5000, Math.floor(Number(raw)));
+          }
+          return 30_000;
+        })();
   const memoryQueueMax =
     typeof c.memoryQueueMax === "number" && Number.isFinite(c.memoryQueueMax)
       ? Math.max(100, Math.floor(c.memoryQueueMax))
@@ -165,10 +183,13 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     tierEnv === "pro" || c.productTier === "pro"
       ? "pro"
       : "basic";
+  const redactBeforeCollectorPost =
+    c.redactBeforeCollectorPost === true || truthyEnv("CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR");
   return {
     collectorBaseUrl: base,
     collectorApiKey: key,
     flushIntervalMs,
+    policySyncIntervalMs,
     memoryQueueMax,
     sampleRateBps,
     opikWorkspaceName,
@@ -183,5 +204,6 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     bridgeOpenClawSessionStore,
     sessionStoreRouting,
     productTier,
+    redactBeforeCollectorPost,
   };
 }

@@ -1,6 +1,12 @@
 import type Database from "better-sqlite3";
 import type { CrabagentDb } from "./db.js";
 import { buildRedactorFromPolicies } from "./policy-redaction.js";
+import {
+  buildWorkspaceMapsFromEnvelope,
+  insertSecurityAuditRows,
+  mergeCrabagentInterceptionIntoMetadata,
+  scanOpikBatchForSecurityAudit,
+} from "./ingest-security-audit.js";
 import { resolveSpanUsagePreviewJson } from "./opik-usage-preview.js";
 import { normalizeOpikSpanInputForStorage, normalizeOpikTraceInputForStorage } from "./strip-leading-bracket-date.js";
 
@@ -270,6 +276,13 @@ function mergeTraceMetadataForUpsert(incoming: unknown, previousJson: string | n
   ) {
     merged.total_tokens = prev.total_tokens;
   }
+  /** 后续批次常不带 `crabagent_interception`，须保留库内已合并的审计块，避免整段 metadata 被部分 PATCH 覆盖丢失。 */
+  if (
+    !Object.prototype.hasOwnProperty.call(incoming, "crabagent_interception") &&
+    prev.crabagent_interception !== undefined
+  ) {
+    merged.crabagent_interception = prev.crabagent_interception;
+  }
   return merged;
 }
 
@@ -452,7 +465,7 @@ function applyIngestPolicyRedaction(db: CrabagentDb, envelope: OpikBatchBody): v
   }
 }
 
-export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchResult {
+function applyOpikBatchInTransaction(db: Database.Database, body: unknown): OpikBatchResult {
   const skipped: OpikBatchResult["skipped"] = [];
   const acc = { threads: 0, traces: 0, spans: 0, attachments: 0, feedback: 0, raw: 0 };
 
@@ -462,7 +475,37 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
   }
 
   const envelope = body as OpikBatchBody;
+  /** 须在脱敏前扫描：若客户端已预脱敏（如 `redactBeforeCollectorPost`），此处无命中、security_audit_logs 为空。 */
+  const securityScan = scanOpikBatchForSecurityAudit(db as CrabagentDb, envelope);
   applyIngestPolicyRedaction(db as CrabagentDb, envelope);
+
+  for (const raw of envelope.traces ?? []) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const tid = asStr(raw.trace_id ?? raw.id);
+    if (!tid) {
+      continue;
+    }
+    const tscan = securityScan.traceScans.get(tid);
+    if (tscan?.interception) {
+      raw.metadata = mergeCrabagentInterceptionIntoMetadata(raw.metadata, tscan.interception);
+    }
+  }
+  for (const raw of envelope.spans ?? []) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const sid = asStr(raw.span_id ?? raw.id);
+    if (!sid) {
+      continue;
+    }
+    const sscan = securityScan.spanScans.get(sid);
+    if (sscan?.interception) {
+      raw.metadata = mergeCrabagentInterceptionIntoMetadata(raw.metadata, sscan.interception);
+    }
+  }
+
   const now = Date.now();
 
   if (envelope.envelope_json !== undefined) {
@@ -612,7 +655,16 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     const prevRow = selectTraceMetadata.get(traceId) as
       | { metadata_json: string | null; setting_json: string | null }
       | undefined;
-    const metaForMerge = isRecord(row.metadata) ? { ...row.metadata } : {};
+    const metaForMerge = (() => {
+      const m = row.metadata;
+      if (isRecord(m)) {
+        return { ...m };
+      }
+      if (typeof m === "string") {
+        return { ...parseJsonRecord(m) };
+      }
+      return {};
+    })();
     if (row.tags !== undefined && metaForMerge.legacy_tags === undefined) {
       metaForMerge.legacy_tags = row.tags;
     }
@@ -687,7 +739,9 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
       is_complete = MAX(excluded.is_complete, opik_spans.is_complete)
   `);
 
-  const selectSpanSetting = db.prepare("SELECT setting_json, usage_preview FROM opik_spans WHERE span_id = ?");
+  const selectSpanPrev = db.prepare(
+    "SELECT metadata_json, setting_json, usage_preview FROM opik_spans WHERE span_id = ?",
+  );
 
   const traceIdsWithLlmSpan = new Set<string>();
 
@@ -709,14 +763,26 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     if (spanType === "llm") {
       traceIdsWithLlmSpan.add(traceId);
     }
-    const prevSp = selectSpanSetting.get(spanId) as { setting_json: string | null; usage_preview: string | null } | undefined;
-    const meta = isRecord(row.metadata) ? row.metadata : {};
-    const routing = isRecord(meta.openclaw_routing) ? meta.openclaw_routing : undefined;
+    const prevSp = selectSpanPrev.get(spanId) as
+      | { metadata_json: string | null; setting_json: string | null; usage_preview: string | null }
+      | undefined;
+    const incomingMeta = (() => {
+      const m = row.metadata;
+      if (isRecord(m)) {
+        return m;
+      }
+      if (typeof m === "string") {
+        return parseJsonRecord(m);
+      }
+      return {};
+    })();
+    const routing = isRecord(incomingMeta.openclaw_routing) ? incomingMeta.openclaw_routing : undefined;
     const spanSetting = mergeOpenClawSettingJson(
       row.setting ?? row.setting_json ?? routing,
       prevSp?.setting_json ?? null,
     );
     const usagePreviewJson = resolveSpanUsagePreviewJson(row, prevSp?.usage_preview ?? null);
+    const mergedSpanMetadata = mergeTraceMetadataForUpsert(incomingMeta, prevSp?.metadata_json ?? null);
     try {
       upsertSpan.run(
         spanId,
@@ -727,7 +793,7 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
         asNum(row.start_time_ms ?? row.startTimeMs),
         asNum(row.end_time_ms ?? row.endTimeMs),
         asNum(row.duration_ms ?? row.durationMs),
-        jsonCol(row.metadata),
+        jsonCol(mergedSpanMetadata),
         jsonCol(normalizeOpikSpanInputForStorage(row.input)),
         jsonCol(row.output),
         spanSetting,
@@ -829,5 +895,20 @@ export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchR
     }
   }
 
+  const { traceWsProj, spanWsProj } = buildWorkspaceMapsFromEnvelope(envelope);
+  insertSecurityAuditRows(
+    db,
+    now,
+    securityScan.spanScans,
+    securityScan.traceScans,
+    spanWsProj,
+    traceWsProj,
+  );
+
   return { accepted: acc, skipped };
+}
+
+export function applyOpikBatch(db: Database.Database, body: unknown): OpikBatchResult {
+  const tx = db.transaction(() => applyOpikBatchInTransaction(db, body));
+  return tx();
 }

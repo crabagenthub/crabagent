@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useParams } from "next/navigation";
+import { IconExclamationCircle, IconSafe } from "@arco-design/web-react/icon";
 import { useRouter } from "@/i18n/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -101,6 +102,27 @@ function MessageDetailContent() {
     return Math.max(0, selectedSpan.end_time - selectedSpan.start_time);
   }, [selectedSpan]);
 
+  const securityHint = useMemo(() => {
+    const items = spansQuery.data?.items ?? [];
+    let best: { hitCount: number; intercepted: boolean } | null = null;
+    for (const s of items) {
+      const raw = s.metadata?.crabagent_interception;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        continue;
+      }
+      const rec = raw as Record<string, unknown>;
+      const hitCount =
+        typeof rec.hit_count === "number" && Number.isFinite(rec.hit_count)
+          ? Math.max(0, rec.hit_count)
+          : 0;
+      const intercepted = rec.intercepted === true;
+      if (!best || hitCount > best.hitCount || (intercepted && !best.intercepted)) {
+        best = { hitCount, intercepted };
+      }
+    }
+    return best;
+  }, [spansQuery.data?.items]);
+
   const messageInspectChipTags = useMemo(() => {
     const m = selectedSpan?.module?.trim();
     return m ? [m] : [];
@@ -167,6 +189,16 @@ function MessageDetailContent() {
                 value={messageId}
                 valueClassName="text-lg font-semibold tracking-tight md:text-xl"
               />
+              {securityHint ? (
+                <div className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                  {securityHint.intercepted ? (
+                    <IconSafe className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+                  ) : (
+                    <IconExclamationCircle className="size-3.5 shrink-0 text-amber-600" aria-hidden />
+                  )}
+                  <span className="tabular-nums">Sensitive hit ×{securityHint.hitCount}</span>
+                </div>
+              ) : null}
             </div>
           </div>
           <Button type="button" variant="secondary" className="shrink-0" onClick={() => router.push("/settings")}>

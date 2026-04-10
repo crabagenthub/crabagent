@@ -20,6 +20,12 @@
         "default": 2000,
         "description": "Background flush interval."
       },
+      "policySyncIntervalMs": {
+        "type": "number",
+        "minimum": 5000,
+        "default": 30000,
+        "description": "Polling interval for pulling /v1/policies. Lower values reduce policy rollout lag (env override: CRABAGENT_POLICY_SYNC_INTERVAL_MS)."
+      },
       "memoryQueueMax": {
         "type": "number",
         "minimum": 10,
@@ -47,6 +53,11 @@
         "type": "string",
         "enum": ["basic", "pro"],
         "description": "Policy/Vault tier: basic caps policies at 10, pro at 100; Vault token action needs pro + CRABAGENT_VAULT_KEY. Overridable via env CRABAGENT_PRODUCT_TIER."
+      },
+      "redactBeforeCollectorPost": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, redact the opik batch in the plugin before POST /v1/opik/batch (legacy). Default false: send plaintext over TLS so the Collector can run security_audit_logs regex scan then redact into SQLite. Set true or env CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR=1 if outbound payloads must never contain secrets."
       },
       "debugLogHooks": {
         "type": "boolean",

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -140,10 +141,28 @@ function opikSchemaDdl(): string {
       severity TEXT DEFAULT 'high',
       policy_action TEXT DEFAULT 'mask',
       intercept_mode TEXT DEFAULT 'enforce',
+      detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
       pulled_at_ms INTEGER,
       updated_at_ms INTEGER NOT NULL
     );
+
+    CREATE TABLE security_audit_logs (
+      id TEXT PRIMARY KEY,
+      created_at_ms INTEGER NOT NULL,
+      trace_id TEXT NOT NULL,
+      span_id TEXT,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      findings_json TEXT NOT NULL DEFAULT '[]',
+      total_findings INTEGER NOT NULL DEFAULT 0,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      intercepted INTEGER NOT NULL DEFAULT 0 CHECK (intercepted IN (0, 1)),
+      observe_only INTEGER NOT NULL DEFAULT 0 CHECK (observe_only IN (0, 1))
+    );
+    CREATE INDEX idx_security_audit_trace ON security_audit_logs(trace_id);
+    CREATE INDEX idx_security_audit_created ON security_audit_logs(created_at_ms DESC);
+    CREATE INDEX idx_security_audit_span ON security_audit_logs(span_id);
   `;
 }
 
@@ -156,6 +175,8 @@ function dropAllTables(db: Database.Database) {
     DROP TABLE IF EXISTS opik_raw_ingest;
     DROP TABLE IF EXISTS opik_trace_feedback;
     DROP TABLE IF EXISTS opik_attachments;
+    DROP TABLE IF EXISTS security_audit_logs;
+    DROP TABLE IF EXISTS interception_policies;
     DROP TABLE IF EXISTS opik_spans;
     DROP TABLE IF EXISTS opik_thread_turns;
     DROP TABLE IF EXISTS opik_traces;
@@ -382,11 +403,105 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
       severity TEXT DEFAULT 'high',
       policy_action TEXT DEFAULT 'mask',
       intercept_mode TEXT DEFAULT 'enforce',
+      detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
       pulled_at_ms INTEGER,
       updated_at_ms INTEGER NOT NULL
     );
   `);
+}
+
+function ensureSecurityAuditLogsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS security_audit_logs (
+      id TEXT PRIMARY KEY,
+      created_at_ms INTEGER NOT NULL,
+      trace_id TEXT NOT NULL,
+      span_id TEXT,
+      workspace_name TEXT NOT NULL DEFAULT 'default',
+      project_name TEXT NOT NULL DEFAULT 'openclaw',
+      findings_json TEXT NOT NULL DEFAULT '[]',
+      total_findings INTEGER NOT NULL DEFAULT 0,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      intercepted INTEGER NOT NULL DEFAULT 0 CHECK (intercepted IN (0, 1)),
+      observe_only INTEGER NOT NULL DEFAULT 0 CHECK (observe_only IN (0, 1))
+    );
+  `);
+  /** 旧库可能已有同名表但缺列（CREATE IF NOT EXISTS 不会升级表结构），先 ALTER 再建索引。 */
+  ensureSecurityAuditLogsColumns(db);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_security_audit_trace ON security_audit_logs(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_security_audit_created ON security_audit_logs(created_at_ms DESC);
+    CREATE INDEX IF NOT EXISTS idx_security_audit_span ON security_audit_logs(span_id);
+  `);
+}
+
+function ensureSecurityAuditLogsColumns(db: Database.Database): void {
+  if (!tableExists(db, "security_audit_logs")) {
+    return;
+  }
+  /** 产品侧已弃用 `source_kind`；SQLite 3.35+ 可删列，失败则仍须用户手工处理 NOT NULL 无默认的列。 */
+  try {
+    db.exec(`ALTER TABLE security_audit_logs DROP COLUMN source_kind`);
+  } catch {
+    /* 无此列、或 SQLite 不支持 DROP COLUMN */
+  }
+  let names = tableColumnNames(db, "security_audit_logs");
+  /** 早期半成品表可能无 `id` 列（CREATE IF NOT EXISTS 不会补主键列）。 */
+  if (!names.has("id")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN id TEXT`);
+    const rowids = db
+      .prepare(`SELECT rowid FROM security_audit_logs WHERE id IS NULL`)
+      .all() as { rowid: number }[];
+    const upd = db.prepare(`UPDATE security_audit_logs SET id = ? WHERE rowid = ?`);
+    for (const { rowid } of rowids) {
+      upd.run(randomUUID(), rowid);
+    }
+  }
+  /** 旧分支 DDL 可能仅有 `timestamp_ms`；与当前代码统一为 `created_at_ms` 并保留 `timestamp_ms` 供 INSERT 写入。 */
+  if (names.has("timestamp_ms") && !names.has("created_at_ms")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`UPDATE security_audit_logs SET created_at_ms = timestamp_ms`);
+    names = tableColumnNames(db, "security_audit_logs");
+  }
+  if (!names.has("created_at_ms")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0`);
+    db.exec(
+      `UPDATE security_audit_logs SET created_at_ms = (CAST(strftime('%s','now') AS INTEGER) * 1000) WHERE created_at_ms = 0`,
+    );
+    names = tableColumnNames(db, "security_audit_logs");
+  }
+  if (!names.has("trace_id")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN trace_id TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!names.has("span_id")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN span_id TEXT`);
+  }
+  if (!names.has("workspace_name")) {
+    db.exec(
+      `ALTER TABLE security_audit_logs ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'default'`,
+    );
+  }
+  if (!names.has("project_name")) {
+    db.exec(
+      `ALTER TABLE security_audit_logs ADD COLUMN project_name TEXT NOT NULL DEFAULT 'openclaw'`,
+    );
+  }
+  if (!names.has("findings_json")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN findings_json TEXT NOT NULL DEFAULT '[]'`);
+  }
+  if (!names.has("total_findings")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN total_findings INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!names.has("hit_count")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!names.has("intercepted")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN intercepted INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!names.has("observe_only")) {
+    db.exec(`ALTER TABLE security_audit_logs ADD COLUMN observe_only INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 /** 旧库补齐 `created_at_ms` / `pulled_at_ms`（插件定时拉取成功后会写 `pulled_at_ms`）。 */
@@ -413,6 +528,11 @@ function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void
   if (!names.has("intercept_mode")) {
     db.exec(`ALTER TABLE interception_policies ADD COLUMN intercept_mode TEXT DEFAULT 'enforce'`);
   }
+  if (!names.has("detection_kind")) {
+    db.exec(
+      `ALTER TABLE interception_policies ADD COLUMN detection_kind TEXT NOT NULL DEFAULT 'regex'`,
+    );
+  }
 }
 
 function tableExists(db: Database.Database, name: string): boolean {
@@ -425,6 +545,7 @@ function tableExists(db: Database.Database, name: string): boolean {
 function ensureOpikIncrementalMigrations(db: Database.Database): void {
   ensureOpikAuxTables(db);
   ensureInterceptionPoliciesTable(db);
+  ensureSecurityAuditLogsTable(db);
   ensureInterceptionPoliciesTimestampColumns(db);
   ensureOpikThreadsAgentChannelColumns(db);
   ensureOpikThreadsPlanColumns(db);

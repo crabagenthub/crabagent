@@ -4,7 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TableProps } from "@arco-design/web-react";
-import { Table, Button, Modal, Form, Input, Select, Switch, Message, Tag, Space, Popconfirm } from "@arco-design/web-react";
+import {
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  Select,
+  Switch,
+  Message,
+  Tag,
+  Space,
+  Popconfirm,
+  Radio,
+  Tooltip,
+} from "@arco-design/web-react";
 import { IconEdit, IconDelete } from "@arco-design/web-react/icon";
 import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
@@ -17,6 +31,17 @@ import "@/lib/arco-react19-setup";
 
 const Option = Select.Option;
 
+/** 策略弹框「处置方式」选项与举例文案 key（对应 DataSecurity.*） */
+const DISPOSITION_RADIO_OPTIONS = [
+  { value: "mask", labelKey: "policyActionMask", exampleKey: "policyActionExampleMask" },
+  { value: "hash", labelKey: "policyActionHash", exampleKey: "policyActionExampleHash" },
+  { value: "vault_token", labelKey: "policyActionVaultToken", exampleKey: "policyActionExampleVaultToken" },
+  { value: "pseudonymize", labelKey: "policyActionPseudonymize", exampleKey: "policyActionExamplePseudonymize" },
+  { value: "block_message", labelKey: "policyActionBlockMessage", exampleKey: "policyActionExampleBlockMessage" },
+  { value: "abort_run", labelKey: "policyActionAbortRun", exampleKey: "policyActionExampleAbortRun" },
+  { value: "alert_only", labelKey: "policyActionAlertOnly", exampleKey: "policyActionExampleAlertOnly" },
+] as const;
+
 interface InterceptionPolicy {
   id: string;
   name: string;
@@ -28,6 +53,7 @@ interface InterceptionPolicy {
   severity?: string | null;
   policy_action?: string | null;
   intercept_mode?: string | null;
+  detection_kind?: string | null;
   created_at_ms?: number | null;
   updated_at_ms: number;
   pulled_at_ms?: number | null;
@@ -51,8 +77,18 @@ export function InterceptorPoliciesManager({
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<Partial<InterceptionPolicy> | null>(null);
   const [form] = Form.useForm();
+  /** 与「正则表达式」表单项显隐联动（模型检测上线后同逻辑） */
+  const [detectionKind, setDetectionKind] = useState<"regex" | "model">("regex");
   /** 创建时间列排序：默认最新在前（与 Trace 列表时间倒序一致） */
   const [createdSortOrder, setCreatedSortOrder] = useState<"ascend" | "descend">("descend");
+
+  useEffect(() => {
+    if (!isModalVisible) {
+      return;
+    }
+    const dk = form.getFieldValue("detection_kind");
+    setDetectionKind(dk === "model" ? "model" : "regex");
+  }, [isModalVisible, editingPolicy?.id, form]);
 
   useEffect(() => {
     if (!templatePolicy) {
@@ -65,10 +101,10 @@ export function InterceptorPoliciesManager({
       name: templatePolicy.name ?? "",
       description: templatePolicy.description ?? "",
       pattern: templatePolicy.pattern ?? "",
-      redact_type: templatePolicy.redact_type ?? "mask",
       severity: tp?.severity ?? "high",
       policy_action: tp?.policy_action ?? "mask",
-      intercept_mode: tp?.intercept_mode ?? "observe",
+      intercept_mode: tp?.intercept_mode ?? "enforce",
+      detection_kind: "regex",
       targets: templatePolicy.targets ?? ["prompt", "assistantTexts"],
       enabled: templatePolicy.enabled !== 0,
     });
@@ -104,8 +140,11 @@ export function InterceptorPoliciesManager({
   const filteredPolicies = useMemo(() => {
     return policies.filter((policy) => {
       if (normalizedSearch) {
-        const searchIn = [policy.name, policy.description || "", policy.pattern, policy.targets_json].join(" ").toLowerCase();
-        if (!searchIn.includes(normalizedSearch)) {
+        const idLower = policy.id.toLowerCase();
+        const searchIn = [policy.name, policy.description || "", policy.pattern, policy.targets_json]
+          .join(" ")
+          .toLowerCase();
+        if (!idLower.includes(normalizedSearch) && !searchIn.includes(normalizedSearch)) {
           return false;
         }
       }
@@ -219,6 +258,7 @@ export function InterceptorPoliciesManager({
         severity: policy.severity ?? "high",
         policy_action: policy.policy_action ?? "mask",
         intercept_mode: policy.intercept_mode ?? "enforce",
+        detection_kind: policy.detection_kind === "model" ? "model" : (policy.detection_kind ?? "regex"),
       });
       setIsModalVisible(true);
     },
@@ -239,17 +279,49 @@ export function InterceptorPoliciesManager({
   const handleSubmit = async () => {
     try {
       const values = await form.validate();
+      const v = values as {
+        name?: string;
+        description?: string;
+        pattern?: string;
+        detection_kind?: string;
+        severity?: string;
+        policy_action?: string;
+        intercept_mode?: string;
+        targets?: string[];
+        enabled?: boolean;
+      };
+      const dk = v.detection_kind === "model" ? "model" : "regex";
       const payload: Partial<InterceptionPolicy> = {
-        ...values,
         id: editingPolicy?.id,
-        enabled: values.enabled ? 1 : 0,
-        targets_json: JSON.stringify(values.targets || []),
+        name: v.name,
+        description: v.description,
+        pattern: dk === "regex" ? String(v.pattern ?? "").trim() : "",
+        severity: v.severity,
+        policy_action: v.policy_action,
+        intercept_mode: v.intercept_mode,
+        enabled: v.enabled ? 1 : 0,
+        targets_json: JSON.stringify(v.targets || []),
+        detection_kind: dk,
       };
       upsertMutation.mutate(payload);
     } catch {
       // Validation error
     }
   };
+
+  const actionForcesEnforce = (action: unknown): boolean => {
+    const a = String(action ?? "")
+      .trim()
+      .toLowerCase();
+    return a === "block_message" || a === "abort_run";
+  };
+
+  const handleCloseModal = useCallback(() => {
+    setIsModalVisible(false);
+    setEditingPolicy(null);
+    form.resetFields();
+    setDetectionKind("regex");
+  }, [form]);
 
   const columns = useMemo(
     () => [
@@ -276,9 +348,21 @@ export function InterceptorPoliciesManager({
         ),
       },
       {
+        title: <ObserveTableHeaderLabel>{t("policyPulledAt")}</ObserveTableHeaderLabel>,
+        dataIndex: "pulled_at_ms",
+        key: "pulled_at_ms",
+        width: 168,
+        render: (pulled_at_ms?: number | null) => (
+          <span className="text-xs tabular-nums text-neutral-800 dark:text-neutral-100">
+            {pulled_at_ms != null && Number.isFinite(pulled_at_ms) ? formatPolicyTime(pulled_at_ms) : "—"}
+          </span>
+        ),
+      },
+      {
         title: <ObserveTableHeaderLabel>{t("policyName")}</ObserveTableHeaderLabel>,
         dataIndex: "name",
         key: "name",
+        width: 260,
         render: (name: string, record: InterceptionPolicy) => (
           <Space direction="vertical" size={0}>
             <span className="text-xs text-neutral-800 dark:text-neutral-100">{name}</span>
@@ -287,14 +371,26 @@ export function InterceptorPoliciesManager({
         ),
       },
       {
-        title: <ObserveTableHeaderLabel>{t("policyPattern")}</ObserveTableHeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("detectionKind")}</ObserveTableHeaderLabel>,
         dataIndex: "pattern",
-        key: "pattern",
-        render: (pattern: string) => (
-          <span className="break-all text-xs text-neutral-800 dark:text-neutral-100" title={pattern}>
-            {pattern}
-          </span>
-        ),
+        key: "detection_display",
+        width: 260,
+        render: (_pattern: string, record: InterceptionPolicy) => {
+          const dk = (record.detection_kind ?? "regex").toLowerCase();
+          if (dk === "model") {
+            return (
+              <span className="text-xs text-neutral-600 dark:text-neutral-400" title={t("detectionModelSoon")}>
+                {t("detectionModelSoon")}
+              </span>
+            );
+          }
+          const pat = record.pattern || "";
+          return (
+            <span className="break-all text-xs text-neutral-800 dark:text-neutral-100" title={pat}>
+              {pat || "—"}
+            </span>
+          );
+        },
       },
       {
         title: <ObserveTableHeaderLabel>{t("policySeverity")}</ObserveTableHeaderLabel>,
@@ -307,7 +403,7 @@ export function InterceptorPoliciesManager({
           const label =
             s === "low" ? t("policySeverityLow") : s === "critical" ? t("policySeverityCritical") : t("policySeverityHigh");
           return (
-            <Tag color={color} className="text-xs">
+            <Tag color={color} className="!rounded-md text-xs">
               {label}
             </Tag>
           );
@@ -335,9 +431,12 @@ export function InterceptorPoliciesManager({
                         ? "policyActionAlertOnly"
                         : "policyActionMask";
           return (
-            <Tag color="arcoblue" className="max-w-[8rem] truncate text-xs" title={a}>
+            <span
+              className="block max-w-[10rem] truncate text-xs text-neutral-800 dark:text-neutral-200"
+              title={t(labelKey)}
+            >
               {t(labelKey)}
-            </Tag>
+            </span>
           );
         },
       },
@@ -349,10 +448,11 @@ export function InterceptorPoliciesManager({
         render: (mode: string | null | undefined) => {
           const m = mode ?? "enforce";
           const enforce = m === "enforce";
+          const label = enforce ? t("policyModeEnforce") : t("policyModeObserve");
           return (
-            <Tag color={enforce ? "blue" : "orangered"} className="text-xs">
-              {enforce ? t("policyModeEnforce") : t("policyModeObserve")}
-            </Tag>
+            <span className="block max-w-[9rem] truncate text-xs text-neutral-800 dark:text-neutral-200" title={label}>
+              {label}
+            </span>
           );
         },
       },
@@ -379,30 +479,16 @@ export function InterceptorPoliciesManager({
         ),
       },
       {
-        title: <ObserveTableHeaderLabel>{t("policyPulledAt")}</ObserveTableHeaderLabel>,
-        dataIndex: "pulled_at_ms",
-        key: "pulled_at_ms",
-        width: 168,
-        render: (pulled_at_ms?: number | null) => (
-          <span className="text-xs tabular-nums text-neutral-800 dark:text-neutral-100">
-            {pulled_at_ms != null && Number.isFinite(pulled_at_ms) ? formatPolicyTime(pulled_at_ms) : "—"}
-          </span>
-        ),
-      },
-      {
-        title: <ObserveTableHeaderLabel>{t("policyRedactType")}</ObserveTableHeaderLabel>,
+        title: <ObserveTableHeaderLabel>{t("policyRedactDerivedColumn")}</ObserveTableHeaderLabel>,
         dataIndex: "redact_type",
         key: "redact_type",
-        render: (type: string) => {
-          const colors: Record<string, string> = {
-            mask: "arcoblue",
-            hash: "purple",
-            block: "red",
-          };
+        width: 88,
+        render: (type: string | undefined) => {
+          const v = (type ?? "mask").toUpperCase();
           return (
-            <Tag color={colors[type]} className="text-xs">
-              {type.toUpperCase()}
-            </Tag>
+            <span className="font-mono text-xs tabular-nums text-neutral-800 dark:text-neutral-200" title={v}>
+              {v}
+            </span>
           );
         },
       },
@@ -421,10 +507,16 @@ export function InterceptorPoliciesManager({
         width: 120,
         render: (_: unknown, record: InterceptionPolicy) => (
           <Space>
-            <Button type="text" size="small" icon={<IconEdit />} onClick={() => handleEdit(record)} />
-            <Popconfirm title={t("deletePolicyConfirm")} onOk={() => deleteMutation.mutate(record.id)}>
-              <Button type="text" size="small" status="danger" icon={<IconDelete />} />
-            </Popconfirm>
+            <Tooltip content={t("editPolicy")}>
+              <Button type="text" size="small" icon={<IconEdit />} onClick={() => handleEdit(record)} />
+            </Tooltip>
+            <Tooltip content={t("deletePolicyTooltip")}>
+              <span className="inline-flex">
+                <Popconfirm title={t("deletePolicyConfirm")} onOk={() => deleteMutation.mutate(record.id)}>
+                  <Button type="text" size="small" status="danger" icon={<IconDelete />} />
+                </Popconfirm>
+              </span>
+            </Tooltip>
           </Space>
         ),
       },
@@ -464,67 +556,146 @@ export function InterceptorPoliciesManager({
         visible={isModalVisible}
         onOk={handleSubmit}
         confirmLoading={upsertMutation.isPending}
-        onCancel={() => setIsModalVisible(false)}
-        style={{ width: 520 }}
+        onCancel={handleCloseModal}
+        className="policy-edit-modal"
+        style={{ width: 640, maxWidth: "calc(100vw - 2rem)" }}
+        maskClosable={false}
       >
-        <Form form={form} layout="vertical">
-          <Form.Item label={t("policyName")} field="name" rules={[{ required: true }]}>
-            <Input placeholder="例如：拦截手机号" />
-          </Form.Item>
-          <Form.Item label={t("policyDescription")} field="description">
-            <Input.TextArea placeholder="可选描述" />
-          </Form.Item>
-          <Form.Item label={t("policyPattern")} field="pattern" rules={[{ required: true }]} extra="用于匹配敏感信息的正则，如 1[3-9]\d{9}">
-            <Input placeholder="RegExp pattern" />
-          </Form.Item>
-          <Form.Item label={t("policyRedactType")} field="redact_type" initialValue="mask">
-            <Select>
-              <Option value="mask">遮蔽 (Mask) - 如 138****1234</Option>
-              <Option value="hash">哈希 (Hash) - 如 [HASH:a1b2c3d4]</Option>
-              <Option value="block">阻断 (Block) - 如 [REDACTED]</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label={t("policySeverity")} field="severity" initialValue="high">
-            <Select>
-              <Option value="low">{t("policySeverityLow")}</Option>
-              <Option value="high">{t("policySeverityHigh")}</Option>
-              <Option value="critical">{t("policySeverityCritical")}</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label={t("policyAction")} field="policy_action" initialValue="mask">
-            <Select>
-              <Option value="mask">{t("policyActionMask")}</Option>
-              <Option value="hash">{t("policyActionHash")}</Option>
-              <Option value="vault_token">{t("policyActionVaultToken")}</Option>
-              <Option value="pseudonymize">{t("policyActionPseudonymize")}</Option>
-              <Option value="block_message">{t("policyActionBlockMessage")}</Option>
-              <Option value="abort_run">{t("policyActionAbortRun")}</Option>
-              <Option value="alert_only">{t("policyActionAlertOnly")}</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label={t("policyInterceptMode")} field="intercept_mode" initialValue="observe">
-            <Select>
-              <Option value="enforce">{t("policyModeEnforce")}</Option>
-              <Option value="observe">{t("policyModeObserve")}</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            label={t("policyTargets")}
-            field="targets"
-            initialValue={["prompt", "assistantTexts"]}
-            extra="指定哪些字段需要进行脱敏处理"
+        <div className="policy-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-1 [-webkit-overflow-scrolling:touch]">
+          <Form
+            form={form}
+            layout="vertical"
+            className="policy-modal-form"
+            onValuesChange={(changed, all) => {
+              const next = (all as { detection_kind?: string }).detection_kind;
+              const resolved = next === "model" ? "model" : "regex";
+              setDetectionKind(resolved);
+              if (Object.prototype.hasOwnProperty.call(changed, "detection_kind") && changed.detection_kind === "model") {
+                form.setFieldValue("pattern", "");
+              }
+              if (
+                Object.prototype.hasOwnProperty.call(changed, "policy_action") &&
+                actionForcesEnforce((all as { policy_action?: string }).policy_action)
+              ) {
+                form.setFieldValue("intercept_mode", "enforce");
+              }
+            }}
           >
-            <Select mode="multiple" placeholder="选择字段">
-              <Option value="prompt">用户 Prompt</Option>
-              <Option value="assistantTexts">模型输出 (Assistant)</Option>
-              <Option value="tool_params">工具调用参数</Option>
-              <Option value="metadata">元数据 (Metadata)</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label={t("policyEnabled")} field="enabled" triggerPropName="checked" initialValue={true}>
-            <Switch />
-          </Form.Item>
-        </Form>
+            <Form.Item label={t("policyName")} field="name" rules={[{ required: true }]}>
+              <Input placeholder="例如：拦截手机号" />
+            </Form.Item>
+            <Form.Item label={t("policyDescription")} field="description">
+              <Input.TextArea placeholder="可选描述" autoSize={{ minRows: 2, maxRows: 6 }} />
+            </Form.Item>
+
+            <div className="policy-modal-section">
+              <Form.Item
+                label={t("detectionKind")}
+                field="detection_kind"
+                initialValue="regex"
+                className="policy-modal-detection-row !mb-0"
+              >
+                <Radio.Group className="custom-radio-card-group custom-radio-card-group--horizontal custom-radio-card-group--detection-pair">
+                  <Radio value="regex">{t("detectionRegex")}</Radio>
+                  <Radio value="model" disabled>
+                    {t("detectionModelSoon")}
+                  </Radio>
+                </Radio.Group>
+              </Form.Item>
+            </div>
+            <Form.Item label={t("policySeverity")} field="severity" initialValue="high" className="!mb-0">
+              <Select>
+                <Option value="low">{t("policySeverityLow")}</Option>
+                <Option value="high">{t("policySeverityHigh")}</Option>
+                <Option value="critical">{t("policySeverityCritical")}</Option>
+              </Select>
+            </Form.Item>
+
+            {detectionKind === "regex" ? (
+              <Form.Item
+                label={t("policyPattern")}
+                field="pattern"
+                rules={[{ required: true, message: t("policyPatternRequired") }]}
+                extra={t("policyPatternExtra")}
+              >
+                <Input placeholder="RegExp pattern" />
+              </Form.Item>
+            ) : (
+              <div className="mb-4 rounded-[var(--radius)] border border-dashed border-border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                {t("detectionModelNoPatternHint")}
+              </div>
+            )}
+
+            <div className="policy-modal-section">
+              <Form.Item
+                label={t("policyDisposition")}
+                field="policy_action"
+                initialValue="mask"
+                extra={t("policyDispositionHint")}
+                className="policy-modal-disposition-inline"
+              >
+                <Radio.Group className="custom-radio-card-group custom-radio-card-group--grid">
+                  {DISPOSITION_RADIO_OPTIONS.map((opt) => (
+                    <Radio key={opt.value} value={opt.value}>
+                      <span className="block w-full min-w-0">
+                        <span className="font-medium text-neutral-800 dark:text-neutral-100">{t(opt.labelKey)}</span>
+                        <span className="mt-0.5 block text-xs font-normal leading-snug text-neutral-500 dark:text-neutral-400">
+                          {t(opt.exampleKey)}
+                        </span>
+                      </span>
+                    </Radio>
+                  ))}
+                </Radio.Group>
+              </Form.Item>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+              <Form.Item shouldUpdate noStyle>
+                {() => {
+                  const lockObserve = actionForcesEnforce(form.getFieldValue("policy_action"));
+                  return (
+                    <Form.Item
+                      label={t("policyInterceptMode")}
+                      field="intercept_mode"
+                      initialValue="enforce"
+                      className="!mb-0"
+                    >
+                      <Radio.Group className="custom-radio-card-group custom-radio-card-group--horizontal">
+                        <Radio value="enforce">{t("policyModeEnforce")}</Radio>
+                        <Radio value="observe" disabled={lockObserve}>
+                          {t("policyModeObserve")}
+                        </Radio>
+                      </Radio.Group>
+                    </Form.Item>
+                  );
+                }}
+              </Form.Item>
+              <Form.Item
+                label={t("policyEnabled")}
+                field="enabled"
+                triggerPropName="checked"
+                initialValue={true}
+                className="policy-modal-enabled-row !mb-0"
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+
+            <Form.Item
+              label={t("policyTargets")}
+              field="targets"
+              initialValue={["prompt", "assistantTexts"]}
+              extra="指定哪些字段需要进行脱敏处理"
+            >
+              <Select mode="multiple" placeholder="选择字段">
+                <Option value="prompt">用户 Prompt</Option>
+                <Option value="assistantTexts">模型输出 (Assistant)</Option>
+                <Option value="tool_params">工具调用参数</Option>
+                <Option value="metadata">元数据 (Metadata)</Option>
+              </Select>
+            </Form.Item>
+          </Form>
+        </div>
       </Modal>
     </div>
   );

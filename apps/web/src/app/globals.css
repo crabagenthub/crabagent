@@ -64,8 +64,9 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
   }
   /* shadcn/ui 主题，主色改为暗夜紫 */
   :root {
-    --radius: 0.375rem;
-    --radius-md: 0.375rem;
+    /** 表单与卡片统一圆角（shadcn + 下方 Arco 覆盖共用） */
+    --radius: 0.5rem;
+    --radius-md: 0.5rem;
     --background: oklch(1 0 0);
     --foreground: oklch(0.141 0.005 285.823);
     --card: oklch(1 0 0);
@@ -403,6 +404,191 @@ body {
 .observe-arco-table.arco-table-hover tbody tr.arco-table-tr-hover > .arco-table-td.arco-table-col-fixed-left::before,
 .observe-arco-table.arco-table-hover tbody tr.arco-table-tr-hover > .arco-table-td.arco-table-col-fixed-right::before {
   background-color: #f7f9fc !important;
+}
+
+/**
+ * Arco 表单控件全局圆角（与 `--radius` 一致；`arco.css` 默认偏小）
+ */
+.arco-input-inner-wrapper,
+.arco-input-search .arco-input-inner-wrapper,
+.arco-textarea-wrapper .arco-textarea,
+.arco-select-view,
+.arco-select-multiple .arco-select-view,
+.arco-picker,
+.arco-picker-range,
+.arco-input-number .arco-input-inner-wrapper,
+.arco-cascader-view {
+  border-radius: var(--radius) !important;
+}
+
+/* 数据安全策略表单：Radio 卡片式选项 */
+.policy-edit-modal .arco-modal {
+  border-radius: 16px;
+}
+.policy-edit-modal .arco-modal-header {
+  padding: 18px 24px 12px;
+  border-bottom: 0;
+}
+.policy-edit-modal .arco-modal-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+}
+.policy-edit-modal .arco-modal-body {
+  padding: 0 24px 12px;
+}
+.policy-edit-modal .arco-modal-footer {
+  padding: 12px 24px 20px;
+  border-top: 0;
+}
+.policy-modal-form .arco-form-item-label-col {
+  padding-bottom: 6px;
+}
+.policy-modal-form .arco-form-item-label {
+  font-weight: 600;
+  color: #374151;
+}
+.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+}
+.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col {
+  grid-column: 1;
+  margin-bottom: 0;
+  padding-top: 7px;
+}
+.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-wrapper-col {
+  grid-column: 2;
+  min-width: 0;
+}
+.policy-edit-modal .policy-modal-form .policy-modal-enabled-row .arco-form-item-label-col {
+  padding-top: 3px;
+}
+.policy-edit-modal .policy-modal-form .policy-modal-enabled-row .arco-switch {
+  margin-top: 2px;
+}
+.policy-modal-section {
+  margin: 10px 0 14px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafbff;
+}
+@media (max-width: 640px) {
+  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col,
+  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-wrapper-col {
+    grid-column: 1;
+  }
+  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col {
+    padding-top: 0;
+  }
+}
+.custom-radio-card-group.arco-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+.custom-radio-card-group--grid.arco-radio-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+@media (max-width: 480px) {
+  .custom-radio-card-group--grid.arco-radio-group {
+    grid-template-columns: 1fr;
+  }
+}
+.custom-radio-card-group--horizontal.arco-radio-group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.custom-radio-card-group--horizontal .arco-radio {
+  flex: 1 1 0;
+  min-width: min(100%, 9rem);
+}
+/** 检测方式：正则 / 模型两个选项固定同一行（与严重等级分行） */
+.custom-radio-card-group--detection-pair.arco-radio-group {
+  flex-wrap: nowrap;
+  width: 100%;
+}
+.custom-radio-card-group--detection-pair .arco-radio {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.custom-radio-card-group--detection-pair .arco-radio-text {
+  font-size: 0.8125rem;
+}
+.custom-radio-card-group .arco-radio {
+  margin-right: 0;
+  align-items: flex-start;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #dbe3f3;
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.custom-radio-card-group .arco-radio-text {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+.custom-radio-card-group .arco-radio:hover {
+  border-color: #8ba6ff;
+}
+.custom-radio-card-group .arco-radio.arco-radio-checked {
+  border-color: #2f54eb;
+  background: #f5f8ff;
+  box-shadow: 0 0 0 1px rgba(47, 84, 235, 0.12);
+}
+body[arco-theme="dark"] .custom-radio-card-group .arco-radio {
+  border-color: rgb(63 63 70 / 0.85);
+  background: rgb(24 24 27 / 0.5);
+}
+body[arco-theme="dark"] .custom-radio-card-group .arco-radio.arco-radio-checked {
+  border-color: rgb(167 139 250 / 0.7);
+  background: rgb(88 28 135 / 0.25);
+}
+
+/** 策略弹框：处置方式 — 左侧标题与右侧选项区同一行对齐 */
+.policy-modal-form .policy-modal-disposition-inline.arco-form-item {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 0.75rem;
+  align-items: start;
+}
+.policy-modal-form .policy-modal-disposition-inline .arco-form-item-label {
+  grid-column: 1;
+  grid-row: 1;
+  margin-bottom: 0 !important;
+  padding-top: 0.5rem;
+  line-height: 1.375;
+}
+.policy-modal-form .policy-modal-disposition-inline .arco-form-item-wrapper {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+@media (max-width: 520px) {
+  .policy-modal-form .policy-modal-disposition-inline.arco-form-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .policy-modal-form .policy-modal-disposition-inline .arco-form-item-label {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 0;
+  }
+  .policy-modal-form .policy-modal-disposition-inline .arco-form-item-wrapper {
+    grid-column: 1;
+    grid-row: 2;
+  }
 }
 
 body[arco-theme="dark"] {

@@ -25,6 +25,8 @@ export type ExecutionGraphNodeDto = {
   duration_ms?: number | null;
   /** 本回合工具调度：并发 / 串行（来自 trace metadata）。 */
   tool_execution_mode?: "parallel" | "sequential" | null;
+  /** 入库审计写入的 span metadata `crabagent_interception`（无明文）。 */
+  crabagent_interception?: Record<string, unknown> | null;
 };
 
 export type ExecutionGraphEdgeDto = {

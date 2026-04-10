@@ -178,7 +178,7 @@ export default function DataSecurityPage() {
       enabled: 1,
       severity: "high",
       policy_action: "mask",
-      intercept_mode: "observe",
+      intercept_mode: "enforce",
     });
   }, []);
 
@@ -192,8 +192,8 @@ export default function DataSecurityPage() {
         targets: template.targets,
         enabled: 1,
         severity: "high",
-        policy_action: "mask",
-        intercept_mode: "observe",
+        policy_action: template.redactType === "block" ? "block_message" : template.redactType,
+        intercept_mode: "enforce",
       });
       setActiveTab("policies");
     },

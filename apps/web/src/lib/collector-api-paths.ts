@@ -11,6 +11,7 @@ export const COLLECTOR_API = {
   spanList: "/v1/span/list",
   resourceAuditEvents: "/v1/resource-audit/events",
   resourceAuditStats: "/v1/resource-audit/stats",
+  securityAuditEvents: "/v1/security-audit/events",
 } as const;
 
 /** React Query cache key prefixes (not URLs; aligned with {@link COLLECTOR_API}). */
@@ -24,6 +25,7 @@ export const COLLECTOR_QUERY_SCOPE = {
   threadTokenBreakdown: "thread-token-breakdown",
   resourceAuditEvents: "resource-audit-events",
   resourceAuditStats: "resource-audit-stats",
+  securityAuditEvents: "security-audit-events",
 } as const;
 
 /** `GET /v1/conversation/:threadId/trace-graph` — encode thread id for path segment. */

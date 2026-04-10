@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import "@xyflow/react/dist/style.css";
 import "./execution-trace-flow.css";
 import { IconClose } from "@arco-design/web-react/icon";
-import { Maximize2, MessageSquare, Minimize2 } from "lucide-react";
+import { Maximize2, MessageSquare, Minimize2, ShieldAlert } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
@@ -191,12 +191,23 @@ const ExecFlowNode = memo(function ExecFlowNodeFn(props: NodeProps) {
   const showToolBatch =
     batchMode === "parallel" || batchMode === "sequential";
 
+  const ci = !isTrace ? (d.crabagent_interception ?? null) : null;
+  const secHit =
+    ci && typeof ci.hit_count === "number" && Number.isFinite(ci.hit_count) ? Math.max(0, ci.hit_count) : 0;
+  const secIntercepted = ci?.intercepted === true;
+  const secMode = typeof ci?.mode === "string" && ci.mode ? String(ci.mode) : "—";
+  const showSec = !isTrace && secHit > 0;
+
   return (
     <div
       className={cn(
         "relative w-[230px] rounded-lg border-2 px-2 py-1.5 text-left text-[10px] shadow-sm",
         "bg-card text-card-foreground",
         isTrace ? traceKindBorder(d.kind) : spanKindBorder(d.kind),
+        showSec &&
+          (secIntercepted
+            ? "border-amber-500/90 ring-1 ring-amber-500/40"
+            : "border-slate-400/85 ring-1 ring-slate-400/30 dark:border-zinc-500/80 dark:ring-zinc-500/25"),
       )}
     >
       <Handle
@@ -244,6 +255,15 @@ const ExecFlowNode = memo(function ExecFlowNodeFn(props: NodeProps) {
           />
         ) : null}
         <div className="line-clamp-2 min-w-0 flex-1 text-[11px] font-semibold leading-snug">{title}</div>
+        {showSec ? (
+          <span
+            className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+            title={t("execNodeSecurityTooltip", { count: secHit, mode: secMode })}
+            aria-label={t("execNodeSecurityTooltip", { count: secHit, mode: secMode })}
+          >
+            <ShieldAlert className="size-4" strokeWidth={2} aria-hidden />
+          </span>
+        ) : null}
       </div>
       <div className="mt-1 space-y-0.5 text-muted-foreground">
         <div className="flex justify-between gap-2">

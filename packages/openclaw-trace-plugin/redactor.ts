@@ -15,6 +15,32 @@ export interface RedactionRule {
   interceptMode?: string;
 }
 
+export type RedactionAuditFinding = {
+  policy_id: string;
+  policy_name: string;
+  match_count: number;
+  policy_action: string;
+  intercept_mode: string;
+  redact_type: RedactionType;
+};
+
+export type RedactionAuditInterceptionMeta = {
+  version: number;
+  intercepted: boolean;
+  mode: "enforce" | "observe";
+  hit_count: number;
+  tags: string[];
+  policy_ids: string[];
+};
+
+export type RedactionAuditSummary = {
+  findings: RedactionAuditFinding[];
+  hit_count: number;
+  intercepted: number;
+  observe_only: number;
+  interception: RedactionAuditInterceptionMeta | null;
+};
+
 export class Redactor {
   private rules: RedactionRule[] = [];
   private regexCache: Map<string, RegExp> = new Map();
@@ -82,6 +108,86 @@ export class Redactor {
       });
     }
     return result;
+  }
+
+  scanObject(obj: unknown): RedactionAuditSummary {
+    if (!obj || typeof obj !== "object") {
+      return { findings: [], hit_count: 0, intercepted: 0, observe_only: 0, interception: null };
+    }
+    let text = "";
+    try {
+      text = JSON.stringify(obj);
+    } catch {
+      text = "";
+    }
+    if (!text) {
+      return { findings: [], hit_count: 0, intercepted: 0, observe_only: 0, interception: null };
+    }
+
+    const findings: RedactionAuditFinding[] = [];
+    for (const rule of this.rules) {
+      const regex = this.regexCache.get(rule.id);
+      if (!regex) {
+        continue;
+      }
+      regex.lastIndex = 0;
+      let n = 0;
+      for (;;) {
+        const m = regex.exec(text);
+        if (!m) {
+          break;
+        }
+        n += 1;
+        if (m[0] === "") {
+          regex.lastIndex += 1;
+        }
+        if (n > 10_000) {
+          break;
+        }
+      }
+      regex.lastIndex = 0;
+      if (n <= 0) {
+        continue;
+      }
+      const action = (rule.policyAction ?? rule.redactType ?? "mask").toLowerCase();
+      findings.push({
+        policy_id: rule.id,
+        policy_name: rule.name ?? rule.id,
+        match_count: n,
+        policy_action: action,
+        intercept_mode: (rule.interceptMode ?? "enforce").toLowerCase(),
+        redact_type: rule.redactType,
+      });
+    }
+
+    if (findings.length === 0) {
+      return { findings, hit_count: 0, intercepted: 0, observe_only: 0, interception: null };
+    }
+    const hit_count = findings.reduce((s, f) => s + f.match_count, 0);
+    let enforceHit = false;
+    let observeHit = false;
+    for (const f of findings) {
+      if (f.intercept_mode === "observe") {
+        observeHit = true;
+        continue;
+      }
+      if (f.policy_action === "alert_only") {
+        observeHit = true;
+        continue;
+      }
+      enforceHit = true;
+    }
+    const intercepted = enforceHit ? 1 : 0;
+    const observe_only = observeHit && !enforceHit ? 1 : 0;
+    const interception: RedactionAuditInterceptionMeta = {
+      version: 1,
+      intercepted: enforceHit,
+      mode: enforceHit ? "enforce" : "observe",
+      hit_count,
+      tags: [...new Set(findings.map((f) => f.policy_name))],
+      policy_ids: [...new Set(findings.map((f) => f.policy_id))],
+    };
+    return { findings, hit_count, intercepted, observe_only, interception };
   }
 
   private applyMask(match: string): string {

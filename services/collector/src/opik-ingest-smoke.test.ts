@@ -429,4 +429,82 @@ describe("Collector opik ingest（染色数据）", () => {
       }
     }
   });
+
+  it("ingest 命中策略时写入 security_audit_logs 与 span metadata.crabagent_interception", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-security-audit-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const policyId = `pol-sec-${Date.now()}`;
+      const ts = Date.now();
+      db.prepare(
+        `INSERT INTO interception_policies (
+          id, name, description, pattern, redact_type, targets_json, enabled,
+          severity, policy_action, intercept_mode, detection_kind, created_at_ms, updated_at_ms
+        ) VALUES (?, 'digits', '', ?, 'mask', '[]', 1, 'high', 'mask', 'enforce', 'regex', ?, ?)`,
+      ).run(policyId, "ZZZ_SENSITIVE_TOKEN_ZZZ", ts, ts);
+
+      const tick = Date.now();
+      const traceId = `sec-trace-${tick}`;
+      const spanId = `sec-span-${tick}`;
+      const threadId = "sec-thread-smoke";
+      const now = tick;
+      const r = applyOpikBatch(db, {
+        threads: [
+          {
+            thread_id: threadId,
+            workspace_name: "default",
+            project_name: "openclaw",
+            first_seen_ms: now,
+            last_seen_ms: now,
+          },
+        ],
+        traces: [
+          {
+            trace_id: traceId,
+            thread_id: threadId,
+            workspace_name: "default",
+            project_name: "openclaw",
+            created_at_ms: now,
+            is_complete: 1,
+          },
+        ],
+        spans: [
+          {
+            span_id: spanId,
+            trace_id: traceId,
+            name: "llm",
+            type: "llm",
+            start_time_ms: now,
+            is_complete: 1,
+            input: { text: "prefix ZZZ_SENSITIVE_TOKEN_ZZZ suffix" },
+          },
+        ],
+      });
+      assert.equal(r.skipped.length, 0, JSON.stringify(r.skipped));
+
+      const audit = db
+        .prepare(`SELECT COUNT(*) AS n FROM security_audit_logs WHERE trace_id = ? AND span_id = ?`)
+        .get(traceId, spanId) as { n: number };
+      assert.ok(audit.n >= 1, "expected security_audit_logs row");
+
+      const meta = db
+        .prepare(`SELECT metadata_json FROM opik_spans WHERE span_id = ?`)
+        .get(spanId) as { metadata_json: string | null } | undefined;
+      assert.ok(meta?.metadata_json, `missing span metadata_json row=${JSON.stringify(meta)}`);
+      assert.ok(
+        meta.metadata_json.includes("crabagent_interception"),
+        `expected crabagent_interception in ${meta.metadata_json}`,
+      );
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 });

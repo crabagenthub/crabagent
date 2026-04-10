@@ -112,23 +112,7 @@ export function processTextSegment(
     if (!re) {
       continue;
     }
-    const mode = rule.interceptMode ?? "enforce";
-    if (mode === "observe") {
-      const m = out.match(re);
-      if (m) {
-        shadowHits += m.length;
-      }
-      continue;
-    }
-
     const action = rule.policyAction ?? "mask";
-    if (action === "alert_only") {
-      const m = out.match(re);
-      if (m) {
-        shadowHits += m.length;
-      }
-      continue;
-    }
     if (action === "block_message" || action === "abort_run") {
       re.lastIndex = 0;
       if (re.test(out)) {
@@ -138,6 +122,21 @@ export function processTextSegment(
         break;
       }
       re.lastIndex = 0;
+      continue;
+    }
+    const mode = rule.interceptMode ?? "enforce";
+    if (mode === "observe") {
+      const m = out.match(re);
+      if (m) {
+        shadowHits += m.length;
+      }
+      continue;
+    }
+    if (action === "alert_only") {
+      const m = out.match(re);
+      if (m) {
+        shadowHits += m.length;
+      }
       continue;
     }
 
