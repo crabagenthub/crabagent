@@ -221,7 +221,90 @@ export default definePluginEntry({
      * 在下一轮 `syncPolicies`（最多 5 分钟）之前脱敏一直不生效。
      */
     let cachedRedactionRules: RedactionRule[] = [];
+    let lastPolicyWarmupAttemptMs = 0;
+    const inboundHardBlocks = new Map<
+      string,
+      { atMs: number; replyText: string; policyIds: string[]; policyNames: string[] }
+    >();
     const vaultStoresByRoot = new Map<string, EncryptedVaultStore>();
+
+    const scanInboundForHardBlock = (
+      text: string,
+      rules: readonly RedactionRule[],
+    ): { policyIds: string[]; policyNames: string[] } | null => {
+      const t = text.trim();
+      if (!t) {
+        return null;
+      }
+      const ids: string[] = [];
+      const names: string[] = [];
+      for (const r of rules) {
+        if (!r.enabled) {
+          continue;
+        }
+        const action = String((r as { policyAction?: unknown }).policyAction ?? "mask")
+          .trim()
+          .toLowerCase();
+        const mode = String((r as { interceptMode?: unknown }).interceptMode ?? "enforce")
+          .trim()
+          .toLowerCase();
+        if ((action !== "abort_run" && action !== "block_message") || mode === "observe") {
+          continue;
+        }
+        const pat = String(r.pattern ?? "").trim();
+        if (!pat) {
+          continue;
+        }
+        try {
+          const re = new RegExp(pat, "g");
+          re.lastIndex = 0;
+          if (re.test(t)) {
+            ids.push(r.id);
+            names.push(r.name || r.id);
+          }
+        } catch {
+          /* ignore invalid pattern */
+        }
+      }
+      if (ids.length <= 0) {
+        return null;
+      }
+      return { policyIds: ids, policyNames: names };
+    };
+
+    const setInboundHardBlock = (
+      keys: readonly string[],
+      payload: { replyText: string; policyIds: string[]; policyNames: string[] },
+    ) => {
+      const now = Date.now();
+      for (const raw of keys) {
+        const k = raw.trim();
+        if (!k) {
+          continue;
+        }
+        inboundHardBlocks.set(k, { atMs: now, ...payload });
+      }
+    };
+
+    const pickInboundHardBlock = (keys: readonly string[]): { replyText: string; policyIds: string[]; policyNames: string[] } | null => {
+      const now = Date.now();
+      for (const raw of keys) {
+        const k = raw.trim();
+        if (!k) {
+          continue;
+        }
+        const hit = inboundHardBlocks.get(k);
+        if (!hit) {
+          continue;
+        }
+        if (now - hit.atMs > 60_000) {
+          inboundHardBlocks.delete(k);
+          continue;
+        }
+        return { replyText: hit.replyText, policyIds: hit.policyIds, policyNames: hit.policyNames };
+      }
+      return null;
+    };
 
     const resolveVaultRootDir = (): string => {
       if (persistPendingRoot?.trim()) {
@@ -330,6 +413,22 @@ export default definePluginEntry({
         }
       } catch (err) {
         /* silent fail; Collector may be down or unauth */
+      }
+    };
+
+    const ensurePoliciesWarm = async () => {
+      const now = Date.now();
+      if (cachedRedactionRules.length > 0) {
+        return;
+      }
+      if (now - lastPolicyWarmupAttemptMs < 3_000) {
+        return;
+      }
+      lastPolicyWarmupAttemptMs = now;
+      try {
+        await syncPolicies();
+      } catch {
+        /* ignore warmup failure */
       }
     };
 
@@ -487,6 +586,19 @@ export default definePluginEntry({
       agentName: ctx.agentName,
     });
 
+    const hardBlockContribution = (replyText: string, source: string, policyIds: string[], policyNames: string[]) => ({
+      block: true,
+      reply: replyText,
+      message: replyText,
+      content: replyText,
+      error: `blocked_by_policy:${source}`,
+      crabagent_blocked: {
+        source,
+        policyIds,
+        policyNames,
+      },
+    });
+
     api.on("session_start", (ev: unknown) => {
       const event = ev as SessionStartEvent;
       mergePendingForCtx(
@@ -497,7 +609,7 @@ export default definePluginEntry({
       );
     });
 
-    api.on("message_received", (ev: unknown, c: unknown) => {
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("message_received", async (ev: unknown, c: unknown) => {
       const event = ev as MessageReceivedEvent;
       const ctx = c as AgentCtx;
       const md =
@@ -524,6 +636,29 @@ export default definePluginEntry({
         contentLen: String(event.content ?? "").length,
         preview: String(event.content ?? "").slice(0, 160),
       });
+      const cfgNow = getCfg();
+      if (cfgNow.hardBlockOnInboundMatch && cachedRedactionRules.length === 0) {
+        await ensurePoliciesWarm();
+      }
+      if (cfgNow.hardBlockOnInboundMatch) {
+        const checked = scanInboundForHardBlock(String(event.content ?? ""), cachedRedactionRules);
+        if (checked) {
+          const blockKeys = traceSessionKeyCandidatesForInbound(ctx, event.from);
+          setInboundHardBlock(blockKeys, {
+            replyText: cfgNow.hardBlockReplyText,
+            policyIds: checked.policyIds,
+            policyNames: checked.policyNames,
+          });
+          traceDbg("message_blocked", {
+            node: "hook_message_received_blocked",
+            sessionKey: effectiveSk(ctx, event.from),
+            keys: blockKeys,
+            policyIds: checked.policyIds,
+            policyNames: checked.policyNames,
+          });
+          // message_received return contribution is observational only in current runtime.
+        }
+      }
       const deferKeys = traceSessionKeyCandidatesForInbound(ctx, event.from);
       const deferPrimary = effectiveSk(ctx, event.from);
       const deferMs = getCfg().deferredUserMessageFlushMs;
@@ -546,9 +681,14 @@ export default definePluginEntry({
       }
     });
 
-    api.on("before_model_resolve", (ev: unknown, c: unknown) => {
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_model_resolve", async (ev: unknown, c: unknown) => {
       const event = ev as BeforeModelResolveEvent;
       const ctx = c as AgentCtx;
+      if (cachedRedactionRules.length === 0) {
+        await ensurePoliciesWarm();
+      }
+      const blocked = pickInboundHardBlock(traceSessionKeyCandidates(ctx));
+      void blocked;
       const p = typeof event.prompt === "string" ? event.prompt : "";
       mergePendingWithInboundMirror(ctx, {
         before_model_resolve: {
@@ -558,9 +698,11 @@ export default definePluginEntry({
       });
     });
 
-    api.on("before_prompt_build", (ev: unknown, c: unknown) => {
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_prompt_build", (ev: unknown, c: unknown) => {
       const event = ev as BeforePromptBuildEvent;
       const ctx = c as AgentCtx;
+      const blocked = pickInboundHardBlock(traceSessionKeyCandidates(ctx));
+      void blocked;
       const p = typeof event.prompt === "string" ? event.prompt : "";
       mergePendingWithInboundMirror(ctx, {
         before_prompt_build: {
@@ -571,9 +713,11 @@ export default definePluginEntry({
       });
     });
 
-    api.on("before_agent_start", (ev: unknown, c: unknown) => {
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_agent_start", (ev: unknown, c: unknown) => {
       const event = ev as BeforeAgentStartEvent;
       const ctx = c as AgentCtx;
+      const blocked = pickInboundHardBlock(traceSessionKeyCandidates(ctx));
+      void blocked;
       const p = typeof event.prompt === "string" ? event.prompt : "";
       mergePendingWithInboundMirror(ctx, {
         before_agent_start: {
@@ -614,6 +758,10 @@ export default definePluginEntry({
       /** 必须与 `llm_input` 的 `effectiveSk(ctx)` 一致，否则影子只记在别名字段，`takeShadowWouldLeakForSession` 仍可对齐；此处优先 canonical。 */
       const sk =
         effectiveSk(ctx).trim() || String(event.sessionKey ?? ctx.sessionKey ?? ctx.sessionId ?? "").trim();
+      const hardBlocked = pickInboundHardBlock([sk, ...traceSessionKeyCandidates(ctx)]);
+      if (hardBlocked) {
+        return hardBlockContribution(hardBlocked.replyText, "before_message_write", hardBlocked.policyIds, hardBlocked.policyNames);
+      }
       const vault = getVaultStore();
       const pro = getCfg().productTier === "pro" || process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase() === "pro";
       const vaultEnabled = Boolean(pro && vault && process.env.CRABAGENT_VAULT_KEY?.trim());
@@ -896,6 +1044,31 @@ export default definePluginEntry({
       } else {
         pendingGatewayFlush = true;
       }
+    });
+
+    (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_agent_reply", async (ev: unknown, c: unknown) => {
+      const event = ev as { cleanedBody?: unknown };
+      const ctx = c as AgentCtx;
+      const cfg = getCfg();
+      if (cfg.hardBlockOnInboundMatch && cachedRedactionRules.length === 0) {
+        await ensurePoliciesWarm();
+      }
+      const body = typeof event.cleanedBody === "string" ? event.cleanedBody : "";
+      const matched = cfg.hardBlockOnInboundMatch ? scanInboundForHardBlock(body, cachedRedactionRules) : null;
+      if (!matched) {
+        return undefined;
+      }
+      const keys = traceSessionKeyCandidates(ctx);
+      setInboundHardBlock(keys, {
+        replyText: cfg.hardBlockReplyText,
+        policyIds: matched.policyIds,
+        policyNames: matched.policyNames,
+      });
+      return {
+        handled: true,
+        reply: { text: cfg.hardBlockReplyText },
+        reason: `crabagent_policy_block:${matched.policyIds.join(",")}`,
+      };
     });
 
     api.registerService({

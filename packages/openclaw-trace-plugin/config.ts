@@ -78,6 +78,16 @@ export type CrabagentTracePluginConfig = {
    * 合规要求「出站即脱敏」时设为 true 或环境变量 `CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR=1`。
    */
   redactBeforeCollectorPost: boolean;
+  /**
+   * 在 `message_received` 阶段命中 `abort_run` / `block_message` 后，尝试短路后续流程（多 hook 兜底）。
+   * 环境变量：`CRABAGENT_POLICY_HARD_BLOCK=0|false|no` 可关闭。
+   */
+  hardBlockOnInboundMatch: boolean;
+  /**
+   * 命中硬拦截时返回给用户的固定回复文案。
+   * 环境变量：`CRABAGENT_POLICY_BLOCK_REPLY_TEXT`。
+   */
+  hardBlockReplyText: string;
 };
 
 export function resolvePluginConfig(raw: Record<string, unknown> | undefined): CrabagentTracePluginConfig {
@@ -185,6 +195,12 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
       : "basic";
   const redactBeforeCollectorPost =
     c.redactBeforeCollectorPost === true || truthyEnv("CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR");
+  const hardBlockOnInboundMatch =
+    c.hardBlockOnInboundMatch !== false && !["0", "false", "no"].includes((process.env.CRABAGENT_POLICY_HARD_BLOCK ?? "").trim().toLowerCase());
+  const hardBlockReplyText =
+    typeof c.hardBlockReplyText === "string" && c.hardBlockReplyText.trim().length > 0
+      ? c.hardBlockReplyText.trim()
+      : (process.env.CRABAGENT_POLICY_BLOCK_REPLY_TEXT?.trim() || "消息包含敏感信息，已拒绝执行。");
   return {
     collectorBaseUrl: base,
     collectorApiKey: key,
@@ -205,5 +221,7 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
     sessionStoreRouting,
     productTier,
     redactBeforeCollectorPost,
+    hardBlockOnInboundMatch,
+    hardBlockReplyText,
   };
 }

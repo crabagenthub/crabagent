@@ -59,6 +59,16 @@
         "default": false,
         "description": "If true, redact the opik batch in the plugin before POST /v1/opik/batch (legacy). Default false: send plaintext over TLS so the Collector can run security_audit_logs regex scan then redact into SQLite. Set true or env CRABAGENT_TRACE_REDACT_BEFORE_COLLECTOR=1 if outbound payloads must never contain secrets."
       },
+      "hardBlockOnInboundMatch": {
+        "type": "boolean",
+        "default": true,
+        "description": "When true, inbound content matching abort/block policies is short-circuited at hook level to stop downstream model execution (best-effort multi-hook guard). Env override: CRABAGENT_POLICY_HARD_BLOCK=0 to disable."
+      },
+      "hardBlockReplyText": {
+        "type": "string",
+        "default": "消息包含敏感信息，已拒绝执行。",
+        "description": "Fixed reply text used when inbound hard-block policy is triggered. Env override: CRABAGENT_POLICY_BLOCK_REPLY_TEXT."
+      },
       "debugLogHooks": {
         "type": "boolean",
         "default": true,
