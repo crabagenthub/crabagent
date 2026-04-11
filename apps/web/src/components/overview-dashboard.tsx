@@ -477,7 +477,6 @@ export function OverviewDashboard() {
                   onChange={(v) => setModel(String(v))}
                   style={{ minWidth: 220 }}
                   size="small"
-                  triggerProps={{ autoAlignPopupWidth: false }}
                 >
                   <Select.Option value="__all__">{t("filterModelAll")}</Select.Option>
                   {modelOptions.map((m) => (
