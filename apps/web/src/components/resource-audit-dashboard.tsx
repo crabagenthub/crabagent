@@ -7,6 +7,7 @@ import {
   Card,
   Input,
   Pagination,
+  Popover,
   Select,
   Space,
   Spin,
@@ -16,7 +17,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
-import { IconRefresh } from "@arco-design/web-react/icon";
+import { IconCopy, IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -28,7 +29,10 @@ import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
 import { MessageHint } from "@/components/message-hint";
+import { SpanRecordInspectDrawer } from "@/components/span-record-inspect-drawer";
 import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger";
+import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
+import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import {
@@ -38,6 +42,10 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
+import {
+  OBSERVE_TABLE_FRAME_CLASSNAME,
+  OBSERVE_TABLE_SCROLL_X,
+} from "@/lib/observe-table-style";
 import {
   resourceClassPieFromNamed,
   resourceDailyCharsBarOption,
@@ -51,6 +59,7 @@ import {
   type ResourceAuditEventRow,
   type ResourceAuditSemanticClassParam,
 } from "@/lib/resource-audit-records";
+import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
@@ -137,6 +146,38 @@ function flagColor(f: string): string {
   return "gray";
 }
 
+function resourceAuditEventToSpanRecord(row: ResourceAuditEventRow): SpanRecordRow {
+  const endMs =
+    row.duration_ms != null && Number.isFinite(row.duration_ms)
+      ? Math.round(row.started_at_ms + row.duration_ms)
+      : null;
+  return {
+    span_id: row.span_id,
+    trace_id: row.trace_id,
+    parent_span_id: null,
+    name: row.span_name || "",
+    span_type: row.span_type || "general",
+    start_time_ms: row.started_at_ms,
+    end_time_ms: endMs,
+    duration_ms: row.duration_ms,
+    model: null,
+    provider: null,
+    is_complete: true,
+    input_preview: row.snippet,
+    output_preview: null,
+    thread_key: row.thread_key,
+    workspace_name: row.workspace_name,
+    project_name: row.project_name,
+    agent_name: null,
+    channel_name: null,
+    total_tokens: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    cache_read_tokens: 0,
+    list_status: "success",
+  };
+}
+
 function ColHintTitle({
   label,
   hint,
@@ -171,6 +212,7 @@ export function ResourceAuditDashboard() {
   const [uriPrefixDraft, setUriPrefixDraft] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -286,26 +328,32 @@ export function ResourceAuditDashboard() {
     [pathname, router, searchParams],
   );
 
+  const spanDrawerRows = useMemo(
+    () => (eventsQ.data?.items ?? []).map(resourceAuditEventToSpanRecord),
+    [eventsQ.data?.items],
+  );
+
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
-        title: <ColHintTitle label={t("colTime")} hint={t("colTimeHint")} />,
-        dataIndex: "started_at_ms",
-        width: 168,
-        render: (ms: number) => (
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatTraceDateTimeFromMs(ms)}
-          </span>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
-        ellipsis: true,
+        width: 280,
         render: (uri: string) => (
-          <Typography.Text className="text-xs" ellipsis={{ rows: 2, showTooltip: true }}>
-            {maskUri(uri)}
-          </Typography.Text>
+          <div className="flex items-center gap-1">
+            <Popover content={<div className="max-w-md break-all text-xs">{uri || "—"}</div>}>
+              <span className="text-xs">{maskUri(uri)}</span>
+            </Popover>
+            {uri && (
+              <TraceCopyIconButton
+                text={uri}
+                ariaLabel={t("copy")}
+                tooltipLabel={t("copy")}
+                successLabel={t("copySuccessToast")}
+                stopPropagation={true}
+              />
+            )}
+          </div>
         ),
       },
       {
@@ -319,6 +367,16 @@ export function ResourceAuditDashboard() {
         dataIndex: "access_mode",
         width: 88,
         render: (m: string | null) => <span className="text-xs font-mono">{m ?? "—"}</span>,
+      },
+      {
+        title: <ColHintTitle label={t("colTime")} hint={t("colTimeHint")} />,
+        dataIndex: "started_at_ms",
+        width: 160,
+        render: (ms: number) => (
+          <span className="whitespace-nowrap text-xs">
+            {formatTraceDateTimeFromMs(ms)}
+          </span>
+        ),
       },
       {
         title: <ColHintTitle label={t("colChars")} hint={t("colCharsHint")} />,
@@ -348,17 +406,16 @@ export function ResourceAuditDashboard() {
         title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
         dataIndex: "trace_id",
         width: 120,
-        render: (_: unknown, row: ResourceAuditEventRow) => {
-          const q = `trace=${encodeURIComponent(row.trace_id)}&span=${encodeURIComponent(row.span_id)}`;
-          return (
-            <LocalizedLink
-              href={`/traces?${q}`}
-              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-            >
-              {t("openTrace")} ({formatShortId(row.trace_id)})
-            </LocalizedLink>
-          );
-        },
+        render: (_: unknown, row: ResourceAuditEventRow) => (
+          <Button
+            type="text"
+            size="mini"
+            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+            onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(row))}
+          >
+            {t("openTrace")} ({formatShortId(row.trace_id)})
+          </Button>
+        ),
       },
       {
         title: <ColHintTitle label={t("colLinkage")} hint={t("colLinkageHint")} />,
@@ -794,12 +851,10 @@ export function ResourceAuditDashboard() {
         ) : null}
 
         <section aria-label={t("sectionTable")} className="space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-            <div>
-              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-                {t("sectionTable")}
-              </Typography.Title>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+              {t("sectionTable")}
+            </Typography.Title>
             <Space wrap className="items-center">
               <Input.Search
                 size="small"
@@ -868,16 +923,27 @@ export function ResourceAuditDashboard() {
             </div>
           ) : (
             <>
-              <Table
-                className="[&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc]"
-                rowKey="span_id"
-                columns={columns}
-                data={eventsQ.data?.items ?? []}
-                pagination={false}
-                border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                size="small"
-                scroll={{ x: 1520 }}
-              />
+              <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+                <ScrollableTableFrame
+                  variant="neutral"
+                  contentKey={`${eventsQ.data?.items.length ?? 0}`}
+                  scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+                >
+                  <div className="min-w-0 w-full">
+                    <Table
+                      tableLayoutFixed
+                      size="small"
+                      border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                      columns={columns}
+                      data={eventsQ.data?.items ?? []}
+                      rowKey="span_id"
+                      pagination={false}
+                      scroll={OBSERVE_TABLE_SCROLL_X}
+                      hover={true}
+                    />
+                  </div>
+                </ScrollableTableFrame>
+              </div>
               <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
@@ -917,6 +983,20 @@ export function ResourceAuditDashboard() {
           )}
         </section>
       </main>
+
+      <SpanRecordInspectDrawer
+        open={spanInspectRow != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setSpanInspectRow(null);
+          }
+        }}
+        row={spanInspectRow}
+        rows={spanDrawerRows}
+        onNavigate={setSpanInspectRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
     </AppPageShell>
   );
 }

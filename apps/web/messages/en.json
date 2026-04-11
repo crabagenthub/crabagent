@@ -659,7 +659,7 @@
     "colCharsHint": "Character volume for this access when resource.chars is present—helps spot large reads.",
     "colDurationHint": "Span duration in milliseconds—useful for slow IO or blocking tools.",
     "relevanceHint": "Max relevance-style score parsed from output (e.g. top_k hits). Mostly relevant for memory/RAG tools.",
-    "colTraceHint": "Open the message list focused on this trace to see the full turn and execution graph.",
+    "colTraceHint": "Open execution step details for this trace in a side drawer on this page (semantic tree and I/O), without leaving resource audit.",
     "colLinkageHint": "Filter this page to one trace, or open content audit with trace/span context.",
     "colFlagsHint": "Heuristic risk tags; multiple can apply. Compare with the risk breakdown chart above.",
     "colSpanNameHint": "Tool or step name in the trace (e.g. read, exec).",

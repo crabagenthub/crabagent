@@ -35,8 +35,8 @@ export function SpanRecordInspectDrawer({
   open,
   onOpenChange,
   row,
-  rows,
-  onNavigate,
+  rows: _rows,
+  onNavigate: _onNavigate,
   baseUrl,
   apiKey,
 }: Props) {
