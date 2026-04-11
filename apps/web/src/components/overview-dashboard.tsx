@@ -1,8 +1,18 @@
 "use client";
 
 import "@/lib/arco-react19-setup";
-import { Button, Card, Radio, Select, Skeleton, Space, Spin, Tag, Typography } from "@arco-design/web-react";
-import { IconRefresh } from "@arco-design/web-react/icon";
+import { Card, Radio, Select, Skeleton, Space, Spin, Typography } from "@arco-design/web-react";
+import {
+  IconArrowFall,
+  IconArrowRise,
+  IconRefresh,
+  IconShareExternal,
+} from "@arco-design/web-react/icon";
+import { Button } from "@/components/ui/button";
+import {
+  OBSERVE_CONTROL_OUTLINE_CLASSNAME,
+  OBSERVE_TOOLBAR_HOVER_FG_ICO,
+} from "@/lib/observe-table-style";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -40,7 +50,9 @@ import { loadSpanRecords } from "@/lib/span-records";
 import { loadTraceRecords } from "@/lib/trace-records";
 import { cn } from "@/lib/utils";
 import { ActivityTimeline } from "@/components/activity-timeline";
+import { LocalizedLink } from "@/components/localized-link";
 import { loadActivityTimelineData } from "@/lib/activity-timeline-data";
+import { BarChart3, LineChart } from "lucide-react";
 
 function fmtPct(n: number | null | undefined, digits = 2): string {
   if (n == null || !Number.isFinite(n)) {
@@ -65,6 +77,34 @@ function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
   return { text: fmtPct(n), color: "red" };
 }
 
+/** 与 Arco 统计卡片一致的环比标签色（图 1） */
+function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
+  const palette =
+    tone === "green"
+      ? "bg-[#E8FFEA] text-[#00B42A]"
+      : tone === "red"
+        ? "bg-[#FFECE8] text-[#F53F3F]"
+        : "bg-[#F2F3F5] text-[#86909C]";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded px-2 py-0.5 text-xs font-medium tabular-nums",
+        palette,
+      )}
+    >
+      {tone === "green" ? <IconArrowRise className="size-3 shrink-0" aria-hidden /> : null}
+      {tone === "red" ? <IconArrowFall className="size-3 shrink-0" aria-hidden /> : null}
+      {text}
+    </span>
+  );
+}
+
+const kpiCardShellClass =
+  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
+
+/** 消息列表（Trace）页，与总览同一时间窗需在目标页自行选择或已持久化 */
+const OVERVIEW_KPI_TRACES_HREF = "/traces";
+
 type KpiCardProps = {
   title: string;
   hint?: string;
@@ -72,43 +112,61 @@ type KpiCardProps = {
   suffix?: string;
   mom?: number | null;
   momLabel: string;
+  /** 悬停时显示「查看」，指向 Trace / 消息列表 */
+  tracesHref?: string;
 };
 
-function KpiCard({ title, hint, value, suffix, mom, momLabel }: KpiCardProps) {
+function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiCardProps) {
+  const tOv = useTranslations("Overview");
   const momM = momTagMeta(mom ?? null);
   return (
-    <Card bordered className="overflow-hidden rounded-lg border-border/80 shadow-sm" bodyStyle={{ padding: "16px" }}>
-      <div className="mb-2 flex flex-row items-start justify-between gap-2">
+    <Card
+      bordered={false}
+      className={cn(kpiCardShellClass, tracesHref ? "group" : null)}
+      bodyStyle={{ padding: "16px" }}
+    >
+      <div className="mb-3 flex flex-row items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
-          <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>
+          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
             {title}
           </Typography.Text>
-          {hint ? <TitleHintIcon tooltipText={hint} iconClassName="h-4 w-4" className="shrink-0" /> : null}
+          {hint ? (
+            <TitleHintIcon
+              tooltipText={hint}
+              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+              className="shrink-0"
+            />
+          ) : null}
         </div>
-      </div>
-      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
-        <Typography.Title heading={5} className="!m-0 tabular-nums tracking-tight">
-          {value}
-        </Typography.Title>
-        {suffix ? (
-          <Typography.Text type="secondary" style={{ fontSize: 14 }}>
-            {suffix}
-          </Typography.Text>
+        {tracesHref ? (
+          <LocalizedLink
+            href={tracesHref}
+            prefetch={false}
+            aria-label={tOv("kpiViewTracesAria")}
+            className={cn(
+              "relative z-[1] inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium",
+              "text-primary opacity-0 transition-opacity duration-150",
+              "group-hover:opacity-100 focus-visible:opacity-100",
+              "hover:underline",
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
+            {tOv("kpiViewTraces")}
+          </LocalizedLink>
         ) : null}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-          {momLabel}
-        </Typography.Text>
-        {mom === null ? (
-          <Tag size="small" color="gray">
-            —
-          </Tag>
-        ) : (
-          <Tag size="small" color={momM.color}>
-            {momM.text}
-          </Tag>
-        )}
+      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
+        <span className="text-[22px] font-semibold leading-tight tracking-tight text-[#1D2129] tabular-nums dark:text-foreground">
+          {value}
+        </span>
+        {suffix ? (
+          <span className="text-[22px] font-semibold leading-tight text-[#1D2129] dark:text-foreground">{suffix}</span>
+        ) : null}
+      </div>
+      <div className="mt-4 flex flex-row items-center justify-between gap-2">
+        <Typography.Text className="text-[11px] text-[#86909C] dark:text-muted-foreground">{momLabel}</Typography.Text>
+        {mom === null ? <KpiMomPill tone="gray" text="—" /> : <KpiMomPill tone={momM.color} text={momM.text} />}
       </div>
     </Card>
   );
@@ -125,16 +183,22 @@ type ChartCardProps = {
 export function ChartCard({ title, hint, children, className, rightSlot }: ChartCardProps) {
   const showHeader = Boolean(title) || Boolean(hint) || Boolean(rightSlot);
   return (
-    <Card bordered className={cn("overflow-hidden rounded-lg border-border/80 shadow-sm", className)} bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}>
+    <Card
+      bordered={false}
+      className={cn(kpiCardShellClass, className)}
+      bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}
+    >
       {showHeader ? (
         <div className="mb-2 flex flex-row items-center justify-between gap-2 px-1">
           <div className="flex min-w-0 items-center gap-1">
             {title ? (
-              <Typography.Text bold className="truncate text-sm">
+              <Typography.Text bold className="truncate text-sm text-[#4E5969] dark:text-foreground/90">
                 {title}
               </Typography.Text>
             ) : null}
-            {hint ? <TitleHintIcon tooltipText={hint} iconClassName="h-4 w-4" className="shrink-0" /> : null}
+            {hint ? (
+              <TitleHintIcon tooltipText={hint} iconClassName="h-3.5 w-3.5 text-[#86909C]" className="shrink-0" />
+            ) : null}
           </div>
           {rightSlot}
         </div>
@@ -153,6 +217,7 @@ export function OverviewDashboard() {
   const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
   const [model, setModel] = useState<string>("__all__");
   const [tokenUnit, setTokenUnit] = useState<"k" | "wan">("wan");
+  const [tokenChartKind, setTokenChartKind] = useState<"line" | "bar">("line");
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -266,7 +331,7 @@ export function OverviewDashboard() {
     }
     const mult = tokenUnit === "wan" ? 1 : 10;
     return overview.charts.tokensByDay.map((row) => ({
-      day: row.day.slice(5),
+      day: row.day,
       input: Math.round(row.inputWan * mult * 100) / 100,
       output: Math.round(row.outputWan * mult * 100) / 100,
     }));
@@ -275,13 +340,43 @@ export function OverviewDashboard() {
   const tokenScaleHint =
     tokenUnit === "wan" ? t("tokenAxisWan") : t("tokenAxisK");
 
+  const tokenSummary = useMemo(() => {
+    if (!overview) {
+      return null;
+    }
+    const { totalTokens } = overview.kpis;
+    if (tokenUnit === "k") {
+      const k = totalTokens / 1000;
+      return {
+        total: k.toFixed(2),
+        input: (k * 0.58).toFixed(2),
+        output: (k * 0.42).toFixed(2),
+        unitLabel: t("unitKTokensAbs"),
+      };
+    }
+    const w = totalTokens / 10_000;
+    return {
+      total: w.toFixed(2),
+      input: (w * 0.58).toFixed(2),
+      output: (w * 0.42).toFixed(2),
+      unitLabel: t("unitWanTokens"),
+    };
+  }, [overview, tokenUnit, t]);
+
   const echartsOpts = useMemo(() => {
     if (!overview) {
       return null;
     }
     const c = overview.charts;
     return {
-      token: tokenSplitOption(tokenSeries, tokenScaleHint, t("legendInput"), t("legendOutput")),
+      token: tokenSplitOption(
+        tokenSeries,
+        tokenScaleHint,
+        t("legendInput"),
+        t("legendOutput"),
+        t("legendTokenTotal"),
+        tokenChartKind,
+      ),
       modelQps: areaSingleOption(
         c.traceCountByDay.map((d) => ({ day: d.day, v: d.n / 86_400 })),
         "QPS",
@@ -340,7 +435,7 @@ export function OverviewDashboard() {
       ),
       serviceOk: areaPercentOption(c.serviceSuccessByDay, t("rate")),
     };
-  }, [overview, tokenSeries, tokenScaleHint, t]);
+  }, [overview, tokenSeries, tokenScaleHint, tokenChartKind, t]);
 
   if (!mounted) {
     return (
@@ -383,13 +478,32 @@ export function OverviewDashboard() {
           <Space size={12} wrap className="items-center">
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
             <Button
-              type="default"
-              size="small"
-              icon={<IconRefresh className={cn("size-3.5", q.isFetching && "animate-spin")} />}
+              type="button"
+              variant="outline"
+              size="sm"
               disabled={q.isFetching}
               onClick={() => void q.refetch()}
+              className={cn(
+                "group/ico h-9 gap-2 rounded-md bg-white px-3 font-medium text-neutral-700 shadow-sm transition-all active:scale-[0.98] dark:bg-zinc-950/50 dark:text-zinc-300",
+                OBSERVE_CONTROL_OUTLINE_CLASSNAME
+              )}
             >
-              {t("refresh")}
+              <IconRefresh
+                className={cn(
+                  "size-4 shrink-0 text-neutral-500 transition-colors duration-150 dark:text-zinc-400",
+                  OBSERVE_TOOLBAR_HOVER_FG_ICO,
+                  q.isFetching && "animate-spin"
+                )}
+                aria-hidden
+              />
+              <span
+                className={cn(
+                  "text-neutral-700 transition-colors duration-150 dark:text-zinc-300",
+                  OBSERVE_TOOLBAR_HOVER_FG_ICO
+                )}
+              >
+                {t("refresh")}
+              </span>
             </Button>
           </Space>
         </header>
@@ -400,7 +514,10 @@ export function OverviewDashboard() {
 
         {overview ? (
           <>
-            <section aria-label={t("sectionKpi")} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <section
+              aria-label={t("sectionKpi")}
+              className="grid gap-4 rounded-xl  sm:grid-cols-2 xl:grid-cols-4 dark:border-border/50 dark:bg-muted/25"
+            >
               <KpiCard
                 title={t("kpiUsage")}
                 hint={t("hintUsage")}
@@ -408,6 +525,7 @@ export function OverviewDashboard() {
                 suffix={t("unitTimes")}
                 mom={model === "__all__" ? overview.kpis.momUsage : null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiSpanErr")}
@@ -416,6 +534,7 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiModelErr")}
@@ -424,6 +543,7 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiModelDur")}
@@ -432,6 +552,7 @@ export function OverviewDashboard() {
                 suffix="ms"
                 mom={null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiTokens")}
@@ -440,6 +561,7 @@ export function OverviewDashboard() {
                 suffix={t("unitWanTokens")}
                 mom={model === "__all__" ? overview.kpis.momTokens : null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiToolCalls")}
@@ -448,6 +570,7 @@ export function OverviewDashboard() {
                 suffix={t("unitTimes")}
                 mom={model === "__all__" ? overview.kpis.momToolCalls : null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiToolErr")}
@@ -456,6 +579,7 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
               <KpiCard
                 title={t("kpiToolDur")}
@@ -464,6 +588,7 @@ export function OverviewDashboard() {
                 suffix="ms"
                 mom={null}
                 momLabel={t("mom")}
+                tracesHref={OVERVIEW_KPI_TRACES_HREF}
               />
             </section>
 
@@ -491,57 +616,154 @@ export function OverviewDashboard() {
               </Typography.Text>
             </div>
 
-            <section className="space-y-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-                    {t("sectionTokens")}
-                  </Typography.Title>
-                  <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                    <Typography.Text type="secondary">
-                      {t("tokenTotal")}:{" "}
-                      <Typography.Text bold className="font-mono">
-                        {(overview.kpis.totalTokens / 1000).toFixed(2)}
-                      </Typography.Text>{" "}
-                      {t("unitKTokensAbs")}
-                    </Typography.Text>
-                    <Typography.Text type="secondary">
-                      {t("tokenInputEst")}:{" "}
-                      <Typography.Text bold className="font-mono" style={{ color: CHART_PRIMARY }}>
-                        {((overview.kpis.totalTokens * 0.58) / 1000).toFixed(2)}
+            <section className="space-y-3" aria-label={t("sectionTokens")}>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+                {t("sectionTokens")}
+              </Typography.Title>
+              <ChartCard title="" hint="">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 flex-1 flex-wrap gap-x-10 gap-y-5">
+                      {tokenSummary ? (
+                        <>
+                          <div className="min-w-[140px]">
+                            <div className="mb-1 flex items-center gap-1">
+                              <Typography.Text
+                                type="secondary"
+                                className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground"
+                              >
+                                {t("tokenTotal")}
+                              </Typography.Text>
+                              <TitleHintIcon
+                                tooltipText={t("hintTokens")}
+                                iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+                                className="shrink-0"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-baseline gap-x-1">
+                              <span className="text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                                {tokenSummary.total}
+                              </span>
+                              <span className="text-sm text-[#86909C] dark:text-muted-foreground">
+                                {tokenSummary.unitLabel}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="min-w-[140px]">
+                            <div className="mb-1 flex items-center gap-1">
+                              <Typography.Text
+                                type="secondary"
+                                className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground"
+                              >
+                                {t("tokenInputEst")}
+                              </Typography.Text>
+                              <TitleHintIcon
+                                tooltipText={t("hintTokenSplit")}
+                                iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+                                className="shrink-0"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-baseline gap-x-1">
+                              <span
+                                className="text-[22px] font-semibold tabular-nums dark:text-foreground"
+                                style={{ color: CHART_PRIMARY }}
+                              >
+                                {tokenSummary.input}
+                              </span>
+                              <span className="text-sm text-[#86909C] dark:text-muted-foreground">
+                                {tokenSummary.unitLabel}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="min-w-[140px]">
+                            <div className="mb-1 flex items-center gap-1">
+                              <Typography.Text
+                                type="secondary"
+                                className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground"
+                              >
+                                {t("tokenOutputEst")}
+                              </Typography.Text>
+                              <TitleHintIcon
+                                tooltipText={t("hintTokenSplit")}
+                                iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+                                className="shrink-0"
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-baseline gap-x-1">
+                              <span
+                                className="text-[22px] font-semibold tabular-nums dark:text-foreground"
+                                style={{ color: CHART_SECONDARY }}
+                              >
+                                {tokenSummary.output}
+                              </span>
+                              <span className="text-sm text-[#86909C] dark:text-muted-foreground">
+                                {tokenSummary.unitLabel}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                    <Space size={8} className="shrink-0 items-center lg:pt-0.5">
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {t("tokenUnitLabel")}
                       </Typography.Text>
-                    </Typography.Text>
-                    <Typography.Text type="secondary">
-                      {t("tokenOutputEst")}:{" "}
-                      <Typography.Text bold className="font-mono" style={{ color: CHART_SECONDARY }}>
-                        {((overview.kpis.totalTokens * 0.42) / 1000).toFixed(2)}
-                      </Typography.Text>
-                    </Typography.Text>
+                      <Radio.Group
+                        type="button"
+                        name="overview-token-unit"
+                        size="small"
+                        value={tokenUnit}
+                        onChange={(v) => setTokenUnit(v as "k" | "wan")}
+                      >
+                        <Radio value="k">{t("unitKTokens")}</Radio>
+                        <Radio value="wan">{t("unitWanTokens")}</Radio>
+                      </Radio.Group>
+                    </Space>
                   </div>
-                </div>
-                <Space size={8} className="items-center">
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {t("tokenUnitLabel")}
-                  </Typography.Text>
-                  <Radio.Group
-                    type="button"
-                    name="overview-token-unit"
-                    size="small"
-                    value={tokenUnit}
-                    onChange={(v) => setTokenUnit(v as "k" | "wan")}
-                  >
-                    <Radio value="k">{t("unitKTokens")}</Radio>
-                    <Radio value="wan">{t("unitWanTokens")}</Radio>
-                  </Radio.Group>
-                </Space>
-              </div>
-              <ChartCard title="" hint={t("hintTokenSplit")}>
-                <div className="h-[300px] w-full min-w-0">
-                  {tokenSeries.length === 0 ? (
-                    <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
-                  ) : (
-                    <ReactEChart option={echartsOpts!.token} />
-                  )}
+
+                  <div className="relative w-full min-w-0">
+                    <div
+                      className="absolute right-0 top-0 z-[2] flex rounded-md border border-solid border-[#E5E6EB] bg-white p-0.5 shadow-sm dark:border-border dark:bg-card"
+                      role="group"
+                      aria-label={t("sectionTokens")}
+                    >
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-8 items-center justify-center rounded transition-colors",
+                          tokenChartKind === "line"
+                            ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
+                            : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
+                        )}
+                        aria-pressed={tokenChartKind === "line"}
+                        aria-label={t("tokenChartLine")}
+                        onClick={() => setTokenChartKind("line")}
+                      >
+                        <LineChart className="size-4" strokeWidth={1.75} aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-8 items-center justify-center rounded transition-colors",
+                          tokenChartKind === "bar"
+                            ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
+                            : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
+                        )}
+                        aria-pressed={tokenChartKind === "bar"}
+                        aria-label={t("tokenChartBar")}
+                        onClick={() => setTokenChartKind("bar")}
+                      >
+                        <BarChart3 className="size-4" strokeWidth={1.75} aria-hidden />
+                      </button>
+                    </div>
+                    <div className="h-[320px] w-full min-w-0 pt-10">
+                      {tokenSeries.length === 0 ? (
+                        <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
+                      ) : (
+                        <ReactEChart key={tokenChartKind} option={echartsOpts!.token} />
+                      )}
+                    </div>
+                  </div>
                 </div>
               </ChartCard>
             </section>

@@ -3,6 +3,8 @@ import type { NamedPct } from "@/lib/overview-metrics";
 
 export const OV_CHART_PRIMARY = "#7c3aed";
 export const OV_CHART_SECONDARY = "#14b8a6";
+/** 总消耗折线 / 柱（与 Input+Output 一致，便于图例与 tooltip 展示） */
+export const OV_CHART_TOTAL = "#475569";
 export const OV_PIE_COLORS = ["#7c3aed", "#14b8a6", "#f59e0b", "#ec4899", "#3b82f6", "#64748b"];
 
 const MUTED = "#64748b";
@@ -59,38 +61,105 @@ function hexAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+export type TokenSplitChartMode = "line" | "bar";
+
+function xAxisTokenTrend(days: string[], barMode: boolean): EChartsOption["xAxis"] {
+  return {
+    type: "category",
+    boundaryGap: barMode,
+    data: days,
+    axisLabel: { fontSize: 11, color: MUTED },
+    axisLine: { lineStyle: { color: MUTED } },
+    splitLine: { show: false },
+  } as EChartsOption["xAxis"];
+}
+
 export function tokenSplitOption(
   rows: { day: string; input: number; output: number }[],
   yAxisName: string,
   legendInput: string,
   legendOutput: string,
+  legendTotal: string,
+  mode: TokenSplitChartMode = "line",
 ): EChartsOption {
   const days = rows.map((r) => r.day);
+  const totalData = rows.map((r) => Math.round((r.input + r.output) * 100) / 100);
+  const tooltipOrder = [legendTotal, legendInput, legendOutput];
+  const tooltipFmt: EChartsOption["tooltip"] = {
+    ...axisTooltip(),
+    formatter: (params) => {
+      const arr = Array.isArray(params) ? params : [params];
+      const byName = new Map(arr.map((p) => [String(p.seriesName), p]));
+      const lines = tooltipOrder
+        .map((name) => {
+          const p = byName.get(name);
+          return p ? `${p.marker} ${p.seriesName}: ${p.value}` : null;
+        })
+        .filter(Boolean);
+      return `${axisTickLabel(arr[0])}<br/>${lines.join("<br/>")}`;
+    },
+  };
+  const yAxisToken = {
+    ...yAxisValue(),
+    name: yAxisName,
+    nameTextStyle: { fontSize: 10, color: MUTED },
+    nameLocation: "middle" as const,
+    nameGap: 36,
+  };
+
+  const legendToken = {
+    bottom: 0,
+    textStyle: { fontSize: 12, color: MUTED },
+    data: [legendTotal, legendInput, legendOutput],
+  };
+
+  if (mode === "bar") {
+    return {
+      grid: GRID_LEGEND,
+      tooltip: tooltipFmt,
+      legend: legendToken,
+      xAxis: xAxisTokenTrend(days, true),
+      yAxis: yAxisToken,
+      series: [
+        {
+          name: legendInput,
+          type: "bar",
+          data: rows.map((r) => r.input),
+          itemStyle: { color: OV_CHART_PRIMARY, borderRadius: [3, 3, 0, 0] },
+          barMaxWidth: 16,
+        },
+        {
+          name: legendOutput,
+          type: "bar",
+          data: rows.map((r) => r.output),
+          itemStyle: { color: OV_CHART_SECONDARY, borderRadius: [3, 3, 0, 0] },
+          barMaxWidth: 16,
+        },
+        {
+          name: legendTotal,
+          type: "bar",
+          data: totalData,
+          itemStyle: { color: OV_CHART_TOTAL, borderRadius: [3, 3, 0, 0] },
+          barMaxWidth: 16,
+        },
+      ],
+    };
+  }
+
   return {
     grid: GRID_LEGEND,
-    tooltip: {
-      ...axisTooltip(),
-      formatter: (params) => {
-        const arr = Array.isArray(params) ? params : [params];
-        const lines = arr.map((p) => `${p.marker} ${p.seriesName}: ${p.value}`);
-        return `${axisTickLabel(arr[0])}<br/>${lines.join("<br/>")}`;
-      },
-    },
-    legend: { bottom: 0, textStyle: { fontSize: 12, color: MUTED } },
-    xAxis: xAxisCategory(days),
-    yAxis: {
-      ...yAxisValue(),
-      name: yAxisName,
-      nameTextStyle: { fontSize: 10, color: MUTED },
-      nameLocation: "middle",
-      nameGap: 36,
-    },
+    tooltip: tooltipFmt,
+    legend: legendToken,
+    xAxis: xAxisTokenTrend(days, false),
+    yAxis: yAxisToken,
     series: [
       {
         name: legendInput,
         type: "line",
         smooth: true,
-        symbol: "none",
+        symbol: "circle",
+        symbolSize: 6,
+        showSymbol: true,
         data: rows.map((r) => r.input),
         lineStyle: { width: 2, color: OV_CHART_PRIMARY },
         itemStyle: { color: OV_CHART_PRIMARY },
@@ -112,7 +181,9 @@ export function tokenSplitOption(
         name: legendOutput,
         type: "line",
         smooth: true,
-        symbol: "none",
+        symbol: "circle",
+        symbolSize: 6,
+        showSymbol: true,
         data: rows.map((r) => r.output),
         lineStyle: { width: 2, color: OV_CHART_SECONDARY },
         itemStyle: { color: OV_CHART_SECONDARY },
@@ -129,6 +200,18 @@ export function tokenSplitOption(
             ],
           },
         },
+      },
+      {
+        name: legendTotal,
+        type: "line",
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 6,
+        showSymbol: true,
+        z: 3,
+        data: totalData,
+        lineStyle: { width: 2, type: "dashed", color: OV_CHART_TOTAL },
+        itemStyle: { color: OV_CHART_TOTAL },
       },
     ],
   };
