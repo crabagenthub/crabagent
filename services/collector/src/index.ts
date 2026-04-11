@@ -459,8 +459,21 @@ const handleResourceAuditEvents = (c: Context) => {
     Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
   const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
   const uri_prefix = optionalQueryString(c, "uri_prefix");
+  const trace_id = optionalQueryString(c, "trace_id");
+  const span_id = optionalQueryString(c, "span_id");
 
-  const listQuery = { limit, offset, order, search, sinceMs, untilMs, semantic_class, uri_prefix };
+  const listQuery = {
+    limit,
+    offset,
+    order,
+    search,
+    sinceMs,
+    untilMs,
+    semantic_class,
+    uri_prefix,
+    trace_id: trace_id ?? undefined,
+    span_id: span_id ?? undefined,
+  };
   const items = queryResourceAuditEvents(db, listQuery);
   const total = countResourceAuditEvents(db, listQuery);
   return c.json({ items, total });
@@ -480,8 +493,18 @@ const handleResourceAuditStats = (c: Context) => {
     Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
   const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
   const uri_prefix = optionalQueryString(c, "uri_prefix");
+  const trace_id = optionalQueryString(c, "trace_id");
+  const span_id = optionalQueryString(c, "span_id");
 
-  const stats = queryResourceAuditStats(db, { search, sinceMs, untilMs, semantic_class, uri_prefix });
+  const stats = queryResourceAuditStats(db, {
+    search,
+    sinceMs,
+    untilMs,
+    semantic_class,
+    uri_prefix,
+    trace_id: trace_id ?? undefined,
+    span_id: span_id ?? undefined,
+  });
   return c.json(stats);
 };
 

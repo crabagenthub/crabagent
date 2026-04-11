@@ -14,6 +14,10 @@ export type ResourceAuditListQuery = {
   search?: string;
   semantic_class?: ResourceAuditSemanticFilter;
   uri_prefix?: string;
+  /** 仅某条消息（Trace）下的资源事件 */
+  trace_id?: string;
+  /** 仅某个 Span */
+  span_id?: string;
 };
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
@@ -41,6 +45,28 @@ export function sqlCoalesceResourceUri(alias: string): string {
     NULLIF(TRIM(json_extract(${alias}.input_json, '$.params.targetFile')), ''),
     ''
   )`;
+}
+
+/** 与 `sensitivePathFlags` 对齐的 URI 条件（用于聚合统计）。 */
+function sqlSensitiveUriPredicate(uriExpr: string): string {
+  const u = `lower(${uriExpr})`;
+  return `(
+    instr(${u}, '/etc/') > 0 OR ${u} LIKE '/etc%'
+    OR instr(${u}, '.ssh') > 0 OR instr(${u}, 'id_rsa') > 0 OR instr(${u}, 'id_ed25519') > 0
+    OR instr(${u}, '.env') > 0 OR ${u} LIKE '%.pem' OR instr(${u}, 'private.key') > 0
+  )`;
+}
+
+/** 与 `piiHintFlags` 对齐：metadata.resource.snippet 与 output 前缀。 */
+function sqlPiiHintPredicate(): string {
+  const snip = `COALESCE(json_extract(s.metadata_json, '$.resource.snippet'), '')`;
+  const outPfx = `substr(COALESCE(s.output_json, ''), 1, 4096)`;
+  const hits = (field: string) => `(
+    instr(upper(${field}), 'API_KEY') > 0 OR instr(upper(${field}), 'APIKEY') > 0
+    OR instr(upper(${field}), 'PASSWORD') > 0 OR instr(upper(${field}), 'SECRET_KEY') > 0
+    OR instr(upper(${field}), 'PRIVATE_KEY') > 0
+  )`;
+  return `(${hits(snip)} OR ${hits(outPfx)})`;
 }
 
 function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[] } {
@@ -79,6 +105,17 @@ function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[]
   if (pref) {
     parts.push(`instr(lower(${uriExpr}), lower(?)) = 1`);
     params.push(pref.toLowerCase());
+  }
+
+  const traceId = q.trace_id?.trim();
+  if (traceId) {
+    parts.push(`s.trace_id = ?`);
+    params.push(traceId);
+  }
+  const spanId = q.span_id?.trim();
+  if (spanId) {
+    parts.push(`s.span_id = ?`);
+    params.push(spanId);
   }
 
   const sc = q.semantic_class ?? "all";
@@ -303,15 +340,53 @@ export function queryResourceAuditEvents(db: Database.Database, q: ResourceAudit
 }
 
 export type ResourceAuditStatsJson = {
+  summary: {
+    total_events: number;
+    sum_chars: number | null;
+    avg_duration_ms: number | null;
+    risk_sensitive_path: number;
+    risk_pii_hint: number;
+    risk_large_read: number;
+    /** 至少命中任一风险启发式的事件数（去重计数行，非标志去重） */
+    risk_any: number;
+  };
   top_resources: { uri: string; count: number; sum_chars: number | null; avg_duration_ms: number | null }[];
   class_distribution: { semantic_class: string; count: number }[];
-  daily_io: { day: string; event_count: number; avg_duration_ms: number | null }[];
+  daily_io: {
+    day: string;
+    event_count: number;
+    avg_duration_ms: number | null;
+    sum_chars: number | null;
+  }[];
+  top_tools: { span_name: string; count: number }[];
+  by_access_mode: { access_mode: string; count: number }[];
+  by_workspace: { workspace_name: string; count: number }[];
 };
 
 export function queryResourceAuditStats(db: Database.Database, q: Omit<ResourceAuditListQuery, "limit" | "offset" | "order">): ResourceAuditStatsJson {
   const baseQ: ResourceAuditListQuery = { ...q, limit: 500, offset: 0, order: "desc" };
   const { sql: whereSql, params } = buildWhere(baseQ);
   const uriExpr = sqlCoalesceResourceUri("s");
+  const sensPred = sqlSensitiveUriPredicate(uriExpr);
+  const piiPred = sqlPiiHintPredicate();
+  const largePred = `(
+    CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL) >= ${RESOURCE_AUDIT_LARGE_CHARS}
+  )`;
+  const anyRiskPred = `(${sensPred} OR ${piiPred} OR ${largePred})`;
+
+  const summarySql = `
+SELECT COUNT(*) AS n,
+       SUM(CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL)) AS sum_chars,
+       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur,
+       SUM(CASE WHEN ${sensPred} THEN 1 ELSE 0 END) AS n_sens,
+       SUM(CASE WHEN ${piiPred} THEN 1 ELSE 0 END) AS n_pii,
+       SUM(CASE WHEN ${largePred} THEN 1 ELSE 0 END) AS n_large,
+       SUM(CASE WHEN ${anyRiskPred} THEN 1 ELSE 0 END) AS n_any_risk
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+`;
+  const summaryRow = db.prepare(summarySql).get(...params) as Record<string, unknown>;
 
   const topSql = `
 SELECT ${uriExpr} AS uri,
@@ -346,7 +421,8 @@ GROUP BY semantic_class
   const dailySql = `
 SELECT strftime('%Y-%m-%d', datetime(CAST(COALESCE(s.start_time_ms, t.created_at_ms, 0) AS REAL) / 1000, 'unixepoch')) AS day,
        COUNT(*) AS n,
-       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur
+       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur,
+       SUM(CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL)) AS sum_chars
 FROM opik_spans s
 LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
 ${whereSql}
@@ -357,7 +433,59 @@ LIMIT 90
 `;
   const dailyRows = db.prepare(dailySql).all(...params) as Record<string, unknown>[];
 
+  const toolsSql = `
+SELECT COALESCE(NULLIF(TRIM(s.name), ''), '(unnamed)') AS tool_name,
+       COUNT(*) AS cnt
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+AND s.span_type = 'tool'
+GROUP BY tool_name
+ORDER BY cnt DESC
+LIMIT 12
+`;
+  const toolRows = db.prepare(toolsSql).all(...params) as Record<string, unknown>[];
+
+  const modeSql = `
+SELECT COALESCE(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.access_mode')), ''), '(unknown)') AS mode,
+       COUNT(*) AS cnt
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+GROUP BY mode
+ORDER BY cnt DESC
+LIMIT 12
+`;
+  const modeRows = db.prepare(modeSql).all(...params) as Record<string, unknown>[];
+
+  const wsSql = `
+SELECT COALESCE(NULLIF(TRIM(t.workspace_name), ''), 'default') AS ws,
+       COUNT(*) AS cnt
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+GROUP BY ws
+ORDER BY cnt DESC
+LIMIT 10
+`;
+  const wsRows = db.prepare(wsSql).all(...params) as Record<string, unknown>[];
+
   return {
+    summary: {
+      total_events: Number(summaryRow?.n ?? 0),
+      sum_chars:
+        summaryRow?.sum_chars != null && String(summaryRow.sum_chars) !== ""
+          ? Number(summaryRow.sum_chars)
+          : null,
+      avg_duration_ms:
+        summaryRow?.avg_dur != null && String(summaryRow.avg_dur) !== ""
+          ? Number(summaryRow.avg_dur)
+          : null,
+      risk_sensitive_path: Number(summaryRow?.n_sens ?? 0),
+      risk_pii_hint: Number(summaryRow?.n_pii ?? 0),
+      risk_large_read: Number(summaryRow?.n_large ?? 0),
+      risk_any: Number(summaryRow?.n_any_risk ?? 0),
+    },
     top_resources: topRows.map((r) => ({
       uri: String(r.uri ?? ""),
       count: Number(r.cnt ?? 0),
@@ -372,6 +500,19 @@ LIMIT 90
       day: String(r.day ?? ""),
       event_count: Number(r.n ?? 0),
       avg_duration_ms: r.avg_dur != null && String(r.avg_dur) !== "" ? Number(r.avg_dur) : null,
+      sum_chars: r.sum_chars != null && String(r.sum_chars) !== "" ? Number(r.sum_chars) : null,
+    })),
+    top_tools: toolRows.map((r) => ({
+      span_name: String(r.tool_name ?? ""),
+      count: Number(r.cnt ?? 0),
+    })),
+    by_access_mode: modeRows.map((r) => ({
+      access_mode: String(r.mode ?? ""),
+      count: Number(r.cnt ?? 0),
+    })),
+    by_workspace: wsRows.map((r) => ({
+      workspace_name: String(r.ws ?? ""),
+      count: Number(r.cnt ?? 0),
     })),
   };
 }

@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { ResourceAuditDashboard } from "@/components/resource-audit-dashboard";
 
 export default function ResourceAuditPage() {
-  return <ResourceAuditDashboard />;
+  return (
+    <Suspense fallback={null}>
+      <ResourceAuditDashboard />
+    </Suspense>
+  );
 }

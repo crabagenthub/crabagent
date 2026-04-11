@@ -18,6 +18,7 @@ import { loadSemanticSpans } from "@/lib/semantic-spans";
 import { formatDurationMs } from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { cn, formatShortId } from "@/lib/utils";
+import { SpanInspectAuditBridge } from "@/components/span-inspect-audit-bridge";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -294,6 +295,13 @@ export function SpanRecordInspectDrawer({
                   </div>
                 </div>
               </div>
+              <SpanInspectAuditBridge
+                open={open}
+                baseUrl={baseUrl}
+                apiKey={apiKey}
+                traceId={traceId}
+                spanId={selectedSpanId}
+              />
             </div>
           </aside>
         </div>

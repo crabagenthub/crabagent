@@ -32,6 +32,7 @@ export type LoadSecurityAuditEventsParams = {
   sinceMs?: number;
   untilMs?: number;
   traceId?: string;
+  spanId?: string;
 };
 
 export function parseSecurityAuditFindings(raw: string | null | undefined): SecurityAuditFinding[] {
@@ -77,6 +78,9 @@ export async function loadSecurityAuditEvents(
   }
   if (params.traceId?.trim()) {
     sp.set("trace_id", params.traceId.trim());
+  }
+  if (params.spanId?.trim()) {
+    sp.set("span_id", params.spanId.trim());
   }
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });

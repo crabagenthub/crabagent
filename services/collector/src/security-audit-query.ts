@@ -7,6 +7,7 @@ export type SecurityAuditListQuery = {
   sinceMs?: number;
   untilMs?: number;
   traceId?: string;
+  spanId?: string;
 };
 
 export type SecurityAuditEventRow = {
@@ -66,7 +67,8 @@ export function parseSecurityAuditListQuery(c: {
     return Number.isFinite(n) && n > 0 ? n : undefined;
   })();
   const traceId = c.req.query("trace_id")?.trim() || undefined;
-  return { limit, offset, order, sinceMs, untilMs, traceId };
+  const spanId = c.req.query("span_id")?.trim() || undefined;
+  return { limit, offset, order, sinceMs, untilMs, traceId, spanId };
 }
 
 export function countSecurityAuditEvents(db: Database.Database, q: SecurityAuditListQuery): number {
@@ -91,6 +93,10 @@ function buildWhere(q: SecurityAuditListQuery): { sql: string; params: unknown[]
   if (q.traceId) {
     parts.push(`trace_id = ?`);
     params.push(q.traceId);
+  }
+  if (q.spanId) {
+    parts.push(`(span_id IS NOT NULL AND span_id = ?)`);
+    params.push(q.spanId);
   }
   const sql = parts.length ? `WHERE ${parts.join(" AND ")}` : "";
   return { sql, params };

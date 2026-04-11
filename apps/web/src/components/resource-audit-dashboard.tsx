@@ -17,8 +17,10 @@ import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/li
 import { IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import { ReactEChart } from "@/components/react-echart";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
@@ -34,7 +36,13 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
-import { resourceDailyIoOption } from "@/lib/resource-audit-echarts-options";
+import {
+  resourceClassPieFromNamed,
+  resourceDailyCharsBarOption,
+  resourceDailyIoOption,
+  resourceHBarOption,
+  resourceRiskBarOption,
+} from "@/lib/resource-audit-echarts-options";
 import {
   loadResourceAuditEvents,
   loadResourceAuditStats,
@@ -44,7 +52,25 @@ import {
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
-const PAGE_SIZE = 50;
+const kpiShellClass =
+  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-border dark:bg-card dark:shadow-sm";
+
+function fmtCompactNumber(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) {
+    return "—";
+  }
+  const abs = Math.abs(n);
+  if (abs >= 1e9) {
+    return `${(n / 1e9).toFixed(2)}B`;
+  }
+  if (abs >= 1e6) {
+    return `${(n / 1e6).toFixed(2)}M`;
+  }
+  if (abs >= 1e4) {
+    return `${(n / 1e3).toFixed(1)}K`;
+  }
+  return Math.round(n).toLocaleString();
+}
 
 function classLabel(
   t: ReturnType<typeof useTranslations<"ResourceAudit">>,
@@ -101,6 +127,10 @@ function flagColor(f: string): string {
 export function ResourceAuditDashboard() {
   const t = useTranslations("ResourceAudit");
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -108,6 +138,8 @@ export function ResourceAuditDashboard() {
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [semanticClass, setSemanticClass] = useState<ResourceAuditSemanticClassParam>("all");
+  const [uriPrefix, setUriPrefix] = useState("");
+  const [uriPrefixDraft, setUriPrefixDraft] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
@@ -153,8 +185,10 @@ export function ResourceAuditDashboard() {
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
       semantic_class: semanticClass,
+      uri_prefix: uriPrefix.trim() || undefined,
+      trace_id: traceFromUrl || undefined,
     }),
-    [page, search, sinceMs, untilMs, semanticClass],
+    [page, pageSize, search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl],
   );
 
   const statsParams = useMemo(
@@ -163,8 +197,10 @@ export function ResourceAuditDashboard() {
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
       semantic_class: semanticClass,
+      uri_prefix: uriPrefix.trim() || undefined,
+      trace_id: traceFromUrl || undefined,
     }),
-    [search, sinceMs, untilMs, semanticClass],
+    [search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl],
   );
 
   const enabled = mounted && baseUrl.trim().length > 0;
@@ -188,6 +224,39 @@ export function ResourceAuditDashboard() {
     setPage(1);
   }, [searchDraft]);
 
+  const applyUriPrefix = useCallback(() => {
+    setUriPrefix(uriPrefixDraft);
+    setPage(1);
+  }, [uriPrefixDraft]);
+
+  const clearUriPrefix = useCallback(() => {
+    setUriPrefixDraft("");
+    setUriPrefix("");
+    setPage(1);
+  }, []);
+
+  const filterByResourceUri = useCallback((prefix: string) => {
+    setUriPrefixDraft(prefix);
+    setUriPrefix(prefix);
+    setPage(1);
+  }, []);
+
+  const setTraceFilterUrl = useCallback(
+    (tid: string) => {
+      const p = new URLSearchParams(searchParams.toString());
+      const next = tid.trim();
+      if (next) {
+        p.set("trace_id", next);
+      } else {
+        p.delete("trace_id");
+      }
+      const qs = p.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+      setPage(1);
+    },
+    [pathname, router, searchParams],
+  );
+
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
@@ -198,6 +267,16 @@ export function ResourceAuditDashboard() {
           <span className="whitespace-nowrap text-xs text-muted-foreground">
             {formatTraceDateTimeFromMs(ms)}
           </span>
+        ),
+      },
+      {
+        title: t("colWorkspace"),
+        dataIndex: "workspace_name",
+        width: 100,
+        render: (w: string) => (
+          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+            {w || "—"}
+          </Typography.Text>
         ),
       },
       {
@@ -263,6 +342,28 @@ export function ResourceAuditDashboard() {
         },
       },
       {
+        title: t("colLinkage"),
+        width: 168,
+        render: (_: unknown, row: ResourceAuditEventRow) => (
+          <Space direction="vertical" size={4}>
+            <Button
+              type="text"
+              size="mini"
+              className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+              onClick={() => setTraceFilterUrl(row.trace_id)}
+            >
+              {t("filterSameTrace")}
+            </Button>
+            <LocalizedLink
+              href={`/data-security-audit?trace_id=${encodeURIComponent(row.trace_id)}&span_id=${encodeURIComponent(row.span_id)}`}
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              {t("openSecurityAudit")}
+            </LocalizedLink>
+          </Space>
+        ),
+      },
+      {
         title: t("colFlags"),
         dataIndex: "risk_flags",
         width: 200,
@@ -288,7 +389,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t],
+    [t, setTraceFilterUrl],
   );
 
   const dailyRows = useMemo(() => {
@@ -297,16 +398,97 @@ export function ResourceAuditDashboard() {
       return null;
     }
     return io.map((d) => ({
-      day: d.day.slice(5),
+      day: d.day.length >= 10 ? d.day.slice(5) : d.day,
       n: d.event_count,
       avg: d.avg_duration_ms != null ? Math.round(d.avg_duration_ms) : 0,
     }));
   }, [statsQ.data?.daily_io]);
 
+  const dailyCharsRows = useMemo(() => {
+    const io = statsQ.data?.daily_io;
+    if (!io?.length) {
+      return null;
+    }
+    const rows = io
+      .filter((d) => d.day && d.sum_chars != null && d.sum_chars > 0)
+      .map((d) => ({
+        day: d.day.length >= 10 ? d.day.slice(5) : d.day,
+        chars: Math.round(Number(d.sum_chars)),
+      }));
+    return rows.length ? rows : null;
+  }, [statsQ.data?.daily_io]);
+
   const dailyOpt = useMemo(
-    () => (dailyRows ? resourceDailyIoOption(dailyRows, "events", "avg ms") : null),
-    [dailyRows],
+    () => (dailyRows ? resourceDailyIoOption(dailyRows, t("seriesEvents"), t("seriesAvgMs")) : null),
+    [dailyRows, t],
   );
+
+  const dailyCharsOpt = useMemo(
+    () => (dailyCharsRows ? resourceDailyCharsBarOption(dailyCharsRows, t("seriesDailyChars")) : null),
+    [dailyCharsRows, t],
+  );
+
+  const classPieOpt = useMemo(() => {
+    const dist = statsQ.data?.class_distribution ?? [];
+    if (!dist.length) {
+      return null;
+    }
+    return resourceClassPieFromNamed(
+      dist.map((c) => ({ name: classLabel(t, c.semantic_class), value: c.count })),
+    );
+  }, [statsQ.data?.class_distribution, t]);
+
+  const riskBarOpt = useMemo(() => {
+    const s = statsQ.data?.summary;
+    if (!s) {
+      return null;
+    }
+    const rows = [
+      { name: t("flagSensitivePath"), value: s.risk_sensitive_path },
+      { name: t("flagPiiHint"), value: s.risk_pii_hint },
+      { name: t("flagLargeRead"), value: s.risk_large_read },
+    ];
+    if (!rows.some((r) => r.value > 0)) {
+      return null;
+    }
+    return resourceRiskBarOption(rows, t("chartRiskHits"));
+  }, [statsQ.data?.summary, t]);
+
+  const toolsBarOpt = useMemo(() => {
+    const tools = statsQ.data?.top_tools ?? [];
+    if (!tools.length) {
+      return null;
+    }
+    return resourceHBarOption(
+      tools.map((x) => ({ label: x.span_name, value: x.count })),
+      t("chartTopTools"),
+      "#7c3aed",
+    );
+  }, [statsQ.data?.top_tools, t]);
+
+  const modeBarOpt = useMemo(() => {
+    const modes = statsQ.data?.by_access_mode ?? [];
+    if (!modes.length) {
+      return null;
+    }
+    return resourceHBarOption(
+      modes.map((x) => ({ label: x.access_mode, value: x.count })),
+      t("chartAccessMode"),
+      "#14b8a6",
+    );
+  }, [statsQ.data?.by_access_mode, t]);
+
+  const workspaceBarOpt = useMemo(() => {
+    const ws = statsQ.data?.by_workspace ?? [];
+    if (!ws.length) {
+      return null;
+    }
+    return resourceHBarOption(
+      ws.map((x) => ({ label: x.workspace_name, value: x.count })),
+      t("chartWorkspaces"),
+      "#6366f1",
+    );
+  }, [statsQ.data?.by_workspace, t]);
 
   if (!mounted) {
     return (
@@ -344,6 +526,19 @@ export function ResourceAuditDashboard() {
       </Typography.Text>
     );
 
+  const dailyCharsChart =
+    dailyCharsOpt != null ? (
+      <div className="h-[200px] w-full min-w-0">
+        <ReactEChart option={dailyCharsOpt} />
+      </div>
+    ) : (
+      <Typography.Text type="secondary" className="text-sm">
+        —
+      </Typography.Text>
+    );
+
+  const summary = statsQ.data?.summary;
+
   return (
     <AppPageShell variant="overview">
       <main className="ca-page relative z-[1] space-y-6 pb-10">
@@ -355,6 +550,17 @@ export function ResourceAuditDashboard() {
             <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 text-sm">
               {t("subtitle")}
             </Typography.Paragraph>
+            <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 max-w-3xl text-xs leading-relaxed">
+              {t("valueProps")}
+            </Typography.Paragraph>
+            <div className="mt-2">
+              <LocalizedLink
+                href="/data-security-audit"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {t("linkSecurityAudit")}
+              </LocalizedLink>
+            </div>
           </div>
           <Space wrap>
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
@@ -373,42 +579,153 @@ export function ResourceAuditDashboard() {
           </Space>
         </header>
 
+        <section aria-label={t("sectionKpi")} className="space-y-3">
+          <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+            {t("sectionKpi")}
+          </Typography.Title>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+                {t("kpiTotalEvents")}
+              </Typography.Text>
+              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                {summary ? summary.total_events.toLocaleString() : "—"}
+              </div>
+            </Card>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+                {t("kpiSumChars")}
+              </Typography.Text>
+              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                {summary ? fmtCompactNumber(summary.sum_chars) : "—"}
+              </div>
+            </Card>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+                {t("kpiRiskAny")}
+              </Typography.Text>
+              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                {summary ? summary.risk_any.toLocaleString() : "—"}
+              </div>
+            </Card>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+                {t("kpiAvgDuration")}
+              </Typography.Text>
+              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                {summary?.avg_duration_ms != null ? `${Math.round(summary.avg_duration_ms)} ms` : "—"}
+              </div>
+            </Card>
+          </div>
+        </section>
+
         <section aria-label={t("sectionDashboard")} className="space-y-3">
           <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
             {t("sectionDashboard")}
           </Typography.Title>
+          <Typography.Text type="secondary" className="block text-xs">
+            {t("dashboardHint")}
+          </Typography.Text>
           <div className="grid gap-4 lg:grid-cols-3">
             <Card title={t("topResources")} bordered className="shadow-sm">
+              <Typography.Text type="secondary" className="mb-2 block text-[11px]">
+                {t("topResourcesHint")}
+              </Typography.Text>
               <ul className="space-y-2 text-sm">
                 {(statsQ.data?.top_resources ?? []).length === 0 ? (
                   <li className="text-muted-foreground">—</li>
                 ) : (
                   statsQ.data!.top_resources.map((r) => (
-                    <li key={r.uri} className="flex min-w-0 flex-col gap-0.5 border-b border-border/60 pb-2 last:border-0">
-                      <Typography.Text ellipsis className="text-xs font-medium">
-                        {r.uri}
-                      </Typography.Text>
-                      <span className="text-[11px] text-muted-foreground">
-                        {r.count}×
-                        {r.sum_chars != null ? ` · ${Math.round(r.sum_chars).toLocaleString()} chars` : ""}
-                      </span>
+                    <li key={r.uri} className="border-b border-border/60 pb-2 last:border-0">
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 flex-col gap-0.5 rounded text-left transition-colors hover:bg-muted/40"
+                        onClick={() => filterByResourceUri(r.uri)}
+                      >
+                        <Typography.Text ellipsis className="text-xs font-medium text-primary">
+                          {r.uri}
+                        </Typography.Text>
+                        <span className="text-[11px] text-muted-foreground">
+                          {r.count}×
+                          {r.sum_chars != null ? ` · ${Math.round(r.sum_chars).toLocaleString()} chars` : ""}
+                        </span>
+                      </button>
                     </li>
                   ))
                 )}
               </ul>
             </Card>
-            <Card title={t("classDist")} bordered className="shadow-sm">
-              <Space direction="vertical" size={8} className="w-full">
-                {(statsQ.data?.class_distribution ?? []).map((c) => (
-                  <div key={c.semantic_class} className="flex items-center justify-between text-sm">
-                    <span>{classLabel(t, c.semantic_class)}</span>
-                    <Tag>{c.count}</Tag>
-                  </div>
-                ))}
-              </Space>
+            <Card title={t("classDist")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {classPieOpt ? (
+                <div className="h-[260px] w-full min-w-0">
+                  <ReactEChart option={classPieOpt} />
+                </div>
+              ) : (
+                <Space direction="vertical" size={8} className="w-full py-4">
+                  {(statsQ.data?.class_distribution ?? []).map((c) => (
+                    <div key={c.semantic_class} className="flex items-center justify-between text-sm">
+                      <span>{classLabel(t, c.semantic_class)}</span>
+                      <Tag>{c.count}</Tag>
+                    </div>
+                  ))}
+                </Space>
+              )}
             </Card>
             <Card title={t("dailyTrend")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
               {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card title={t("chartDailyCharsTitle")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyCharsChart}
+            </Card>
+            <Card title={t("chartRiskHits")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {riskBarOpt ? (
+                <div className="h-[200px] w-full min-w-0">
+                  <ReactEChart option={riskBarOpt} />
+                </div>
+              ) : (
+                <Typography.Text type="secondary" className="text-sm">
+                  {t("emptyRiskChart")}
+                </Typography.Text>
+              )}
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card title={t("chartTopTools")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {toolsBarOpt ? (
+                <div className="h-[240px] w-full min-w-0">
+                  <ReactEChart option={toolsBarOpt} />
+                </div>
+              ) : (
+                <Typography.Text type="secondary" className="text-sm">
+                  —
+                </Typography.Text>
+              )}
+            </Card>
+            <Card title={t("chartAccessMode")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {modeBarOpt ? (
+                <div className="h-[240px] w-full min-w-0">
+                  <ReactEChart option={modeBarOpt} />
+                </div>
+              ) : (
+                <Typography.Text type="secondary" className="text-sm">
+                  —
+                </Typography.Text>
+              )}
+            </Card>
+            <Card title={t("chartWorkspaces")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+              {workspaceBarOpt ? (
+                <div className="h-[240px] w-full min-w-0">
+                  <ReactEChart option={workspaceBarOpt} />
+                </div>
+              ) : (
+                <Typography.Text type="secondary" className="text-sm">
+                  —
+                </Typography.Text>
+              )}
             </Card>
           </div>
         </section>
@@ -427,6 +744,21 @@ export function ResourceAuditDashboard() {
                 onChange={setSearchDraft}
                 onSearch={applySearch}
               />
+              <Space size={8}>
+                <Input.Search
+                  size="small"
+                  placeholder={t("uriPrefixPlaceholder")}
+                  style={{ width: 220 }}
+                  value={uriPrefixDraft}
+                  onChange={setUriPrefixDraft}
+                  onSearch={applyUriPrefix}
+                />
+                {uriPrefix ? (
+                  <Button type="outline" size="small" onClick={clearUriPrefix}>
+                    {t("clearUriPrefix")}
+                  </Button>
+                ) : null}
+              </Space>
               <Select
                 size="small"
                 style={{ width: 160 }}
@@ -443,6 +775,23 @@ export function ResourceAuditDashboard() {
               </Select>
             </Space>
           </div>
+
+          {traceFromUrl ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <Tag color="arcoblue" size="small">
+                {t("activeTraceFilter", { id: formatShortId(traceFromUrl) })}
+              </Tag>
+              <LocalizedLink
+                href={`/traces?trace=${encodeURIComponent(traceFromUrl)}`}
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {t("openTraceListForFilter")}
+              </LocalizedLink>
+              <Button type="outline" size="mini" onClick={() => setTraceFilterUrl("")}>
+                {t("clearTraceFilter")}
+              </Button>
+            </div>
+          ) : null}
 
           {eventsQ.isError ? (
             <MessageHint text={String(eventsQ.error)} clampClass="line-clamp-6" className="text-destructive" />
@@ -462,7 +811,7 @@ export function ResourceAuditDashboard() {
                 pagination={false}
                 border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
                 size="small"
-                scroll={{ x: 1200 }}
+                scroll={{ x: 1520 }}
               />
               <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">

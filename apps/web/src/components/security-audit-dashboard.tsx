@@ -5,6 +5,7 @@ import { Button, Card, Pagination, Space, Spin, Table, Tag, Typography } from "@
 import { IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReactEChart } from "@/components/react-echart";
@@ -12,7 +13,7 @@ import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint } from "@/components/message-hint";
 import { ObserveDateRangeTrigger } from "@/components/observe-date-range-trigger";
-import { useRouter } from "@/i18n/navigation";
+import { usePathname, useRouter } from "@/i18n/navigation";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
@@ -61,6 +62,10 @@ function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, ca
 export function SecurityAuditDashboard() {
   const t = useTranslations("SecurityAudit");
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
+  const spanFromUrl = searchParams.get("span_id")?.trim() ?? "";
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -108,8 +113,10 @@ export function SecurityAuditDashboard() {
       order: "desc" as const,
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
+      traceId: traceFromUrl || undefined,
+      spanId: spanFromUrl || undefined,
     }),
-    [page, pageSize, sinceMs, untilMs],
+    [page, pageSize, sinceMs, untilMs, traceFromUrl, spanFromUrl],
   );
 
   const analyticsParams = useMemo(
@@ -119,9 +126,20 @@ export function SecurityAuditDashboard() {
       order: "desc" as const,
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
+      traceId: traceFromUrl || undefined,
+      spanId: spanFromUrl || undefined,
     }),
-    [sinceMs, untilMs],
+    [sinceMs, untilMs, traceFromUrl, spanFromUrl],
   );
+
+  const clearTraceSpanFilters = useCallback(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete("trace_id");
+    p.delete("span_id");
+    const qs = p.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+    setPage(1);
+  }, [pathname, router, searchParams]);
 
   const enabled = mounted && baseUrl.trim().length > 0;
 
@@ -304,6 +322,23 @@ export function SecurityAuditDashboard() {
           <div>
             <h1 className="ca-page-title">{t("title")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
+            {traceFromUrl || spanFromUrl ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                {traceFromUrl ? (
+                  <Tag color="arcoblue" size="small">
+                    {t("filterChipTrace", { id: formatShortId(traceFromUrl) })}
+                  </Tag>
+                ) : null}
+                {spanFromUrl ? (
+                  <Tag color="cyan" size="small">
+                    {t("filterChipSpan", { id: formatShortId(spanFromUrl) })}
+                  </Tag>
+                ) : null}
+                <Button type="outline" size="mini" onClick={clearTraceSpanFilters}>
+                  {t("clearTraceSpanFilters")}
+                </Button>
+              </div>
+            ) : null}
           </div>
           <Space>
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
