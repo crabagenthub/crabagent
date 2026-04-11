@@ -338,6 +338,8 @@ export function ResourceAuditDashboard() {
       {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
+        key: "resource_uri",
+        fixed: "left",
         width: 280,
         render: (uri: string) => (
           <div className="flex items-center gap-1">
@@ -363,12 +365,6 @@ export function ResourceAuditDashboard() {
         render: (c: string) => <span className="text-xs">{classLabel(t, c)}</span>,
       },
       {
-        title: <ColHintTitle label={t("colMode")} hint={t("colModeHint")} />,
-        dataIndex: "access_mode",
-        width: 88,
-        render: (m: string | null) => <span className="text-xs font-mono">{m ?? "—"}</span>,
-      },
-      {
         title: <ColHintTitle label={t("colTime")} hint={t("colTimeHint")} />,
         dataIndex: "started_at_ms",
         width: 160,
@@ -379,19 +375,31 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
+        title: <ColHintTitle label={t("colDuration")} hint={t("colDurationHint")} />,
+        dataIndex: "duration_ms",
+        width: 96,
+        render: (n: number | null) => (
+          <span className="tabular-nums text-xs">{n != null ? `${Math.round(n)} ms` : "—"}</span>
+        ),
+      },
+      {
+        title: <ColHintTitle label={t("colExecType")} hint={t("colExecTypeHint")} />,
+        dataIndex: "span_name",
+        key: "span_name",
+        width: 120,
+        ellipsis: true,
+        render: (name: string) => (
+          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+            {name || "—"}
+          </Typography.Text>
+        ),
+      },
+      {
         title: <ColHintTitle label={t("colChars")} hint={t("colCharsHint")} />,
         dataIndex: "chars",
         width: 100,
         render: (n: number | null) => (
           <span className="tabular-nums text-xs">{n != null ? n.toLocaleString() : "—"}</span>
-        ),
-      },
-      {
-        title: <ColHintTitle label={t("colDuration")} hint={t("colDurationHint")} />,
-        dataIndex: "duration_ms",
-        width: 96,
-        render: (n: number | null) => (
-          <span className="tabular-nums text-xs">{n != null ? Math.round(n) : "—"}</span>
         ),
       },
       {
@@ -413,7 +421,7 @@ export function ResourceAuditDashboard() {
             className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
             onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(row))}
           >
-            {t("openTrace")} ({formatShortId(row.trace_id)})
+            {formatShortId(row.span_id)}
           </Button>
         ),
       },
@@ -451,17 +459,6 @@ export function ResourceAuditDashboard() {
               </Tag>
             ))}
           </Space>
-        ),
-      },
-      {
-        title: <ColHintTitle label={t("colSpanName")} hint={t("colSpanNameHint")} />,
-        dataIndex: "span_name",
-        width: 120,
-        ellipsis: true,
-        render: (name: string) => (
-          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-            {name || "—"}
-          </Typography.Text>
         ),
       },
     ],
