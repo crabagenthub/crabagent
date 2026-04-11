@@ -2,7 +2,7 @@
 
 import "@/lib/arco-react19-setup";
 import { Tooltip } from "@arco-design/web-react";
-import { IconMessage } from "@arco-design/web-react/icon";
+import { IconMessage, IconQuestionCircle } from "@arco-design/web-react/icon";
 import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -10,26 +10,6 @@ import { Button } from "@/components/ui/button";
 
 function ChatBubbleIcon({ className }: { className?: string }) {
   return <IconMessage className={className} />;
-}
-
-/** “?” in a small pill — reads as help, scales with `iconClassName` (default 28×28px). */
-function TitleQuestionMarkBadge({ className = "" }: { className?: string }) {
-  return (
-    <span
-      className={[
-        "inline-flex shrink-0 select-none items-center justify-center rounded-full",
-        "border border-neutral-400/50 bg-gradient-to-b from-white to-neutral-100/95",
-        "font-semibold leading-none tracking-tight text-neutral-600 tabular-nums antialiased",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.88)] ring-1 ring-black/[0.05]",
-        "transition-[color,background-color,border-color,box-shadow] duration-150",
-        "group-hover:border-neutral-500/55 group-hover:bg-white group-hover:text-neutral-900 group-hover:shadow-sm",
-        className,
-      ].join(" ")}
-      aria-hidden
-    >
-      ?
-    </span>
-  );
 }
 
 type HintTooltipButtonProps = {
@@ -140,13 +120,13 @@ export type TitleHintIconProps = {
 };
 
 /**
- * “?” help badge after a page title; tooltip content via props (usually `t("…")`).
+ * Arco「问号圈」帮助图标；文案通过 Tooltip 展示（通常 `t("…")`）。
  */
 export function TitleHintIcon({
   tooltipText,
   "aria-label": ariaLabel,
   className = "",
-  iconClassName = "h-7 w-7 text-[13px] md:h-8 md:w-8 md:text-[15px]",
+  iconClassName = "h-4 w-4",
   tooltipClassName,
   tooltipStyle,
 }: TitleHintIconProps) {
@@ -181,7 +161,13 @@ export function TitleHintIcon({
         )}
         aria-label={label}
       >
-        <TitleQuestionMarkBadge className={iconClassName} />
+        <IconQuestionCircle
+          className={cn(
+            "shrink-0 text-muted-foreground transition-colors group-hover:text-foreground",
+            iconClassName,
+          )}
+          aria-hidden
+        />
       </button>
     </Tooltip>
   );
