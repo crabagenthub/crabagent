@@ -74,6 +74,17 @@ function fmtCompactNumber(n: number | null | undefined): string {
   return Math.round(n).toLocaleString();
 }
 
+function maskUri(uri: string): string {
+  if (!uri) {
+    return "—";
+  }
+  const MAX_LENGTH = 30;
+  if (uri.length <= MAX_LENGTH) {
+    return uri;
+  }
+  return `...${uri.slice(-MAX_LENGTH)}`;
+}
+
 function classLabel(
   t: ReturnType<typeof useTranslations<"ResourceAudit">>,
   c: string,
@@ -288,22 +299,12 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: <ColHintTitle label={t("colWorkspace")} hint={t("colWorkspaceHint")} />,
-        dataIndex: "workspace_name",
-        width: 100,
-        render: (w: string) => (
-          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-            {w || "—"}
-          </Typography.Text>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
         ellipsis: true,
         render: (uri: string) => (
           <Typography.Text className="text-xs" ellipsis={{ rows: 2, showTooltip: true }}>
-            {uri || "—"}
+            {maskUri(uri)}
           </Typography.Text>
         ),
       },
@@ -571,31 +572,6 @@ export function ResourceAuditDashboard() {
             <Typography.Title heading={4} className="ca-page-title !m-0">
               {t("title")}
             </Typography.Title>
-            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 max-w-3xl text-sm leading-relaxed">
-              {t("subtitle")}
-            </Typography.Paragraph>
-            <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 max-w-3xl text-xs leading-relaxed">
-              {t("positioningLine")}
-            </Typography.Paragraph>
-            <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
-              <li>{t("bulletAggregate")}</li>
-              <li>{t("bulletRiskHeuristics")}</li>
-              <li>{t("bulletSecurityAudit")}</li>
-            </ul>
-            <details className="mt-3 max-w-3xl rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              <summary className="cursor-pointer select-none font-medium text-foreground">
-                {t("methodologySummary")}
-              </summary>
-              <p className="mt-2 whitespace-pre-line">{t("methodologyBody")}</p>
-            </details>
-            <div className="mt-2">
-              <LocalizedLink
-                href="/data-security-audit"
-                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-              >
-                {t("linkSecurityAudit")}
-              </LocalizedLink>
-            </div>
           </div>
           <Space wrap>
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
@@ -713,7 +689,7 @@ export function ResourceAuditDashboard() {
               {t("chartSampleNote")}
             </Typography.Text>
             <div className="grid gap-4 lg:grid-cols-3">
-            <Card title={t("topResources")} bordered className="shadow-sm">
+            <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
               <Typography.Text type="secondary" className="mb-2 block text-[11px]">
                 {t("topResourcesHint")}
               </Typography.Text>
@@ -729,7 +705,7 @@ export function ResourceAuditDashboard() {
                         onClick={() => filterByResourceUri(r.uri)}
                       >
                         <Typography.Text ellipsis className="text-xs font-medium text-primary">
-                          {r.uri}
+                          {maskUri(r.uri)}
                         </Typography.Text>
                         <span className="text-[11px] text-muted-foreground">
                           {r.count}×
@@ -741,7 +717,7 @@ export function ResourceAuditDashboard() {
                 )}
               </ul>
             </Card>
-            <Card title={t("classDist")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {classPieOpt ? (
                 <div className="h-[260px] w-full min-w-0">
                   <ReactEChart option={classPieOpt} />
@@ -757,16 +733,16 @@ export function ResourceAuditDashboard() {
                 </Space>
               )}
             </Card>
-            <Card title={t("dailyTrend")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
             </Card>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title={t("chartDailyCharsTitle")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartDailyCharsTitle")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyCharsChart}
             </Card>
-            <Card title={t("chartRiskHits")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {riskBarOpt ? (
                 <div className="h-[200px] w-full min-w-0">
                   <ReactEChart option={riskBarOpt} />
@@ -780,7 +756,7 @@ export function ResourceAuditDashboard() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <Card title={t("chartTopTools")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {toolsBarOpt ? (
                 <div className="h-[240px] w-full min-w-0">
                   <ReactEChart option={toolsBarOpt} />
@@ -791,7 +767,7 @@ export function ResourceAuditDashboard() {
                 </Typography.Text>
               )}
             </Card>
-            <Card title={t("chartAccessMode")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartAccessMode")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {modeBarOpt ? (
                 <div className="h-[240px] w-full min-w-0">
                   <ReactEChart option={modeBarOpt} />
@@ -802,7 +778,7 @@ export function ResourceAuditDashboard() {
                 </Typography.Text>
               )}
             </Card>
-            <Card title={t("chartWorkspaces")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartWorkspaces")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
               {workspaceBarOpt ? (
                 <div className="h-[240px] w-full min-w-0">
                   <ReactEChart option={workspaceBarOpt} />
@@ -823,9 +799,6 @@ export function ResourceAuditDashboard() {
               <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
                 {t("sectionTable")}
               </Typography.Title>
-              <Typography.Text type="secondary" className="mt-1 block max-w-3xl text-xs leading-relaxed">
-                {t("tableIntro")}
-              </Typography.Text>
             </div>
             <Space wrap className="items-center">
               <Input.Search
