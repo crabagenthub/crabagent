@@ -152,7 +152,17 @@
     "chartServiceLatency": "整体耗时",
     "hintServiceLatency": "Trace 按日平均持续时间。",
     "chartServiceSuccess": "服务请求成功率",
-    "hintServiceSuccess": "按日 Trace 成功率。"
+    "hintServiceSuccess": "按日 Trace 成功率。",
+    "activityTimeline": "按时间查看活动",
+    "activityTimelineTitle": "按时间查看活动",
+    "activityTimelineSubtitle": "根据会话跨度（首次/最后活动）估算。时区：本地。",
+    "activityCount": "活动次数",
+    "noActivityData": "暂无活动数据",
+    "activityTimelineHint": "显示24小时内的活动分布，帮助了解系统使用高峰时段。",
+    "weekLabel": "星期",
+    "hourLabel": "小时",
+    "lowDensity": "低",
+    "highDensity": "高 Token 密度"
   },
   "Logs": {
     "title": "日志",

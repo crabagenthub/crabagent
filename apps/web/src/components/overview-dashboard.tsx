@@ -6,21 +6,7 @@ import { IconRefresh } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { ReactEChart } from "@/components/react-echart";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint, TitleHintIcon } from "@/components/message-hint";
@@ -34,6 +20,16 @@ import {
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
 import {
+  areaPercentOption,
+  areaSingleOption,
+  lineSingleOption,
+  OV_CHART_PRIMARY as CHART_PRIMARY,
+  OV_CHART_SECONDARY as CHART_SECONDARY,
+  pieNamedPctOption,
+  pieSimpleOption,
+  tokenSplitOption,
+} from "@/lib/overview-echarts-options";
+import {
   buildOverview,
   collectModelOptions,
   filterByModel,
@@ -43,10 +39,8 @@ import {
 import { loadSpanRecords } from "@/lib/span-records";
 import { loadTraceRecords } from "@/lib/trace-records";
 import { cn } from "@/lib/utils";
-
-const CHART_PRIMARY = "#7c3aed";
-const CHART_SECONDARY = "#14b8a6";
-const PIE_COLORS = ["#7c3aed", "#14b8a6", "#f59e0b", "#ec4899", "#3b82f6", "#64748b"];
+import { ActivityTimeline } from "@/components/activity-timeline";
+import { loadActivityTimelineData } from "@/lib/activity-timeline-data";
 
 function fmtPct(n: number | null | undefined, digits = 2): string {
   if (n == null || !Number.isFinite(n)) {
@@ -128,7 +122,7 @@ type ChartCardProps = {
   rightSlot?: React.ReactNode;
 };
 
-function ChartCard({ title, hint, children, className, rightSlot }: ChartCardProps) {
+export function ChartCard({ title, hint, children, className, rightSlot }: ChartCardProps) {
   const showHeader = Boolean(title) || Boolean(hint) || Boolean(rightSlot);
   return (
     <Card bordered className={cn("overflow-hidden rounded-lg border-border/80 shadow-sm", className)} bodyStyle={{ padding: showHeader ? "10px 12px 12px" : "12px" }}>
@@ -232,6 +226,16 @@ export function OverviewDashboard() {
     staleTime: 30_000,
   });
 
+  // 活动时间线数据查询
+  const activityQuery = useQuery({
+    queryKey: ["activity-timeline", baseUrl, apiKey, sinceMs ?? 0, untilMs ?? 0],
+    queryFn: async () => {
+      return await loadActivityTimelineData(baseUrl, apiKey, sinceMs ?? 0, untilMs ?? 0);
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+
   const modelOptions = useMemo(() => collectModelOptions(q.data?.spans ?? []), [q.data?.spans]);
 
   const overview = useMemo(() => {
@@ -270,6 +274,73 @@ export function OverviewDashboard() {
 
   const tokenScaleHint =
     tokenUnit === "wan" ? t("tokenAxisWan") : t("tokenAxisK");
+
+  const echartsOpts = useMemo(() => {
+    if (!overview) {
+      return null;
+    }
+    const c = overview.charts;
+    return {
+      token: tokenSplitOption(tokenSeries, tokenScaleHint, t("legendInput"), t("legendOutput")),
+      modelQps: areaSingleOption(
+        c.traceCountByDay.map((d) => ({ day: d.day, v: d.n / 86_400 })),
+        "QPS",
+      ),
+      modelSuccess: areaPercentOption(c.modelSuccessByDay, t("rate")),
+      modelTokenRate: lineSingleOption(
+        c.modelTokenRateByDay.map((d) => ({ day: d.day, v: d.tps })),
+        false,
+      ),
+      modelDur: areaSingleOption(
+        c.modelDurationSumByDay.map((d) => ({ day: d.day, v: d.ms / 1000 })),
+        t("duration"),
+        (v) => `${v.toFixed(1)} s`,
+      ),
+      ttft: lineSingleOption(
+        c.ttftByDay.map((d) => ({ day: d.day, v: d.ms })),
+        true,
+        CHART_PRIMARY,
+        (v) => `${v.toFixed(0)} ms`,
+      ),
+      tpot: areaSingleOption(
+        c.tpotByDay.map((d) => ({ day: d.day, v: d.ms })),
+        "TPOT",
+        (v) => `${v.toFixed(2)} ms`,
+      ),
+      modelPie: pieNamedPctOption(c.modelDistribution, t("calls")),
+      toolVol: lineSingleOption(c.toolVolumeByDay.map((d) => ({ day: d.day, v: d.n })), true),
+      toolLat: areaSingleOption(
+        c.toolLatencyByDay.map((d) => ({ day: d.day, v: d.avgMs / 1000 })),
+        t("avg"),
+        (v) => `${v.toFixed(2)} s`,
+      ),
+      toolOk: areaPercentOption(c.toolSuccessByDay, t("rate")),
+      toolPie: pieSimpleOption(c.toolDistribution.slice(0, 6)),
+      agentSteps: lineSingleOption(c.agentStepsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      agentTools: lineSingleOption(c.agentToolsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      agentModels: lineSingleOption(c.agentModelsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      traceReport: areaSingleOption(c.traceReportByDay.map((d) => ({ day: d.day, v: d.n })), "n"),
+      uniqueThreads: lineSingleOption(
+        c.uniqueThreadsByDay.map((d) => ({ day: d.day, v: d.n })),
+        true,
+        CHART_PRIMARY,
+        undefined,
+        true,
+      ),
+      messages: lineSingleOption(
+        c.traceCountByDay.map((d) => ({ day: d.day, v: d.n })),
+        true,
+        CHART_SECONDARY,
+      ),
+      serviceQps: areaSingleOption(c.serviceQpsByDay.map((d) => ({ day: d.day, v: d.qps })), "QPS"),
+      serviceLat: areaSingleOption(
+        c.serviceLatencyByDay.map((d) => ({ day: d.day, v: d.avgMs / 1000 })),
+        t("avg"),
+        (v) => `${v.toFixed(1)} s`,
+      ),
+      serviceOk: areaPercentOption(c.serviceSuccessByDay, t("rate")),
+    };
+  }, [overview, tokenSeries, tokenScaleHint, t]);
 
   if (!mounted) {
     return (
@@ -470,37 +541,20 @@ export function OverviewDashboard() {
                   {tokenSeries.length === 0 ? (
                     <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={tokenSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="ovIn" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={CHART_PRIMARY} stopOpacity={0.35} />
-                            <stop offset="100%" stopColor={CHART_PRIMARY} stopOpacity={0.02} />
-                          </linearGradient>
-                          <linearGradient id="ovOut" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={CHART_SECONDARY} stopOpacity={0.3} />
-                            <stop offset="100%" stopColor={CHART_SECONDARY} stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                        <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => String(v)} label={{ value: tokenScaleHint, angle: -90, position: "insideLeft", offset: 8, style: { fontSize: 10, fill: "hsl(var(--muted-foreground))" } }} />
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: 8,
-                            border: "1px solid hsl(var(--border))",
-                            fontSize: 12,
-                          }}
-                          formatter={(val: number, name: string) => [`${val}`, name === "input" ? t("legendInput") : t("legendOutput")]}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v) => (v === "input" ? t("legendInput") : t("legendOutput"))} />
-                        <Area type="monotone" dataKey="input" stroke={CHART_PRIMARY} fill="url(#ovIn)" strokeWidth={2} name="input" />
-                        <Area type="monotone" dataKey="output" stroke={CHART_SECONDARY} fill="url(#ovOut)" strokeWidth={2} name="output" />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.token} />
                   )}
                 </div>
               </ChartCard>
+            </section>
+
+            {/* 活动时间线部分 */}
+            <section aria-label={t("activityTimeline")}>
+              <ActivityTimeline
+                totalTokens={activityQuery.data?.totalTokens}
+                dayData={activityQuery.data?.dayData}
+                hourData={activityQuery.data?.hourData}
+                loading={activityQuery.isFetching}
+              />
             </section>
 
             <section aria-label={t("sectionModel")} className="space-y-3">
@@ -513,55 +567,23 @@ export function OverviewDashboard() {
                     {overview.charts.traceCountByDay.length === 0 ? (
                       <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
                     ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={overview.charts.traceCountByDay.map((d) => ({ ...d, qps: d.n / 86400 }))}>
-                          <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                          <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                          <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip />
-                          <Area type="monotone" dataKey="qps" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} name="QPS" />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                      <ReactEChart option={echartsOpts!.modelQps} />
                     )}
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartModelSuccess")} hint={t("hintModelSuccess")}>
                   <div className="h-[240px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.modelSuccessByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, t("rate")]} />
-                        <Area type="monotone" dataKey="rate" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.12} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.modelSuccess} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartTokenRate")} hint={t("hintTokenRate")}>
                   <div className="h-[240px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.modelTokenRateByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="tps" stroke={CHART_PRIMARY} strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.modelTokenRate} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartModelDurSum")} hint={t("hintModelDurSum")}>
                   <div className="h-[240px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.modelDurationSumByDay.map((d) => ({ ...d, sec: d.ms / 1000 }))}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)} s`, t("duration")]} />
-                        <Area type="monotone" dataKey="sec" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.modelDur} />
                   </div>
                 </ChartCard>
               </div>
@@ -574,28 +596,12 @@ export function OverviewDashboard() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <ChartCard title={t("chartTtft")} hint={t("hintTtft")}>
                   <div className="h-[240px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.ttftByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(0)} ms`, ""]} />
-                        <Line type="monotone" dataKey="ms" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.ttft} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartTpot")} hint={t("hintTpot")}>
                   <div className="h-[240px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.tpotByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(2)} ms`, "TPOT"]} />
-                        <Area type="monotone" dataKey="ms" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.14} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.tpot} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartModelDist")} hint={t("hintModelDist")}>
@@ -603,17 +609,7 @@ export function OverviewDashboard() {
                     {overview.charts.modelDistribution.length === 0 ? (
                       <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
                     ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={overview.charts.modelDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={88} label={(e) => `${(e as { name: string }).name}`}>
-                            {overview.charts.modelDistribution.map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(v: number, _n, p) => [`${v} (${(p as { payload?: { pct?: number } }).payload?.pct?.toFixed?.(1)}%)`, t("calls")]} />
-                          <Legend layout="vertical" align="left" verticalAlign="middle" />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      <ReactEChart option={echartsOpts!.modelPie} />
                     )}
                   </div>
                 </ChartCard>
@@ -633,41 +629,17 @@ export function OverviewDashboard() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartToolVol")} hint={t("hintToolVol")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.toolVolumeByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="n" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.toolVol} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartToolLat")} hint={t("hintToolLat")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.toolLatencyByDay.map((d) => ({ ...d, s: d.avgMs / 1000 }))}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(2)} s`, t("avg")]} />
-                        <Area type="monotone" dataKey="s" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.toolLat} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartToolOk")} hint={t("hintToolOk")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.toolSuccessByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, t("rate")]} />
-                        <Area type="monotone" dataKey="rate" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.12} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.toolOk} />
                   </div>
                 </ChartCard>
               </div>
@@ -677,17 +649,7 @@ export function OverviewDashboard() {
                     {overview.charts.toolDistribution.length === 0 ? (
                       <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
                     ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={overview.charts.toolDistribution.slice(0, 6)} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={88} label>
-                            {overview.charts.toolDistribution.slice(0, 6).map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                          <Legend layout="vertical" align="left" verticalAlign="middle" />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      <ReactEChart option={echartsOpts!.toolPie} />
                     )}
                   </div>
                 </ChartCard>
@@ -707,41 +669,17 @@ export function OverviewDashboard() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartAgentSteps")} hint={t("hintAgentSteps")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.agentStepsByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="avg" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.agentSteps} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartAgentTools")} hint={t("hintAgentTools")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.agentToolsByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="avg" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.agentTools} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartAgentModels")} hint={t("hintAgentModels")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.agentModelsByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="avg" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.agentModels} />
                   </div>
                 </ChartCard>
               </div>
@@ -754,41 +692,17 @@ export function OverviewDashboard() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartTraceReport")} hint={t("hintTraceReport")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.traceReportByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="n" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.traceReport} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartUsers")} hint={t("hintUsers")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.uniqueThreadsByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="n" stroke={CHART_PRIMARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.uniqueThreads} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartMessages")} hint={t("hintMessages")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={overview.charts.traceCountByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="n" stroke={CHART_SECONDARY} strokeWidth={2} dot />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.messages} />
                   </div>
                 </ChartCard>
               </div>
@@ -798,41 +712,17 @@ export function OverviewDashboard() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartServiceQps")} hint={t("hintServiceQps")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.serviceQpsByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip />
-                        <Area type="monotone" dataKey="qps" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.serviceQps} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartServiceLatency")} hint={t("hintServiceLatency")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.serviceLatencyByDay.map((d) => ({ ...d, s: d.avgMs / 1000 }))}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)} s`, t("avg")]} />
-                        <Area type="monotone" dataKey="s" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.15} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.serviceLat} />
                   </div>
                 </ChartCard>
                 <ChartCard title={t("chartServiceSuccess")} hint={t("hintServiceSuccess")}>
                   <div className="h-[220px] w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={overview.charts.serviceSuccessByDay}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={(x) => String(x).slice(5)} />
-                        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                        <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, t("rate")]} />
-                        <Area type="monotone" dataKey="rate" stroke={CHART_PRIMARY} fill={CHART_PRIMARY} fillOpacity={0.12} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <ReactEChart option={echartsOpts!.serviceOk} />
                   </div>
                 </ChartCard>
               </div>

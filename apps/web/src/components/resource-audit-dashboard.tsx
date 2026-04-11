@@ -19,7 +19,7 @@ import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ReactEChart } from "@/components/react-echart";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
@@ -34,6 +34,7 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
+import { resourceDailyIoOption } from "@/lib/resource-audit-echarts-options";
 import {
   loadResourceAuditEvents,
   loadResourceAuditStats,
@@ -290,6 +291,23 @@ export function ResourceAuditDashboard() {
     [t],
   );
 
+  const dailyRows = useMemo(() => {
+    const io = statsQ.data?.daily_io;
+    if (!io?.length || !io.some((d) => d.day)) {
+      return null;
+    }
+    return io.map((d) => ({
+      day: d.day.slice(5),
+      n: d.event_count,
+      avg: d.avg_duration_ms != null ? Math.round(d.avg_duration_ms) : 0,
+    }));
+  }, [statsQ.data?.daily_io]);
+
+  const dailyOpt = useMemo(
+    () => (dailyRows ? resourceDailyIoOption(dailyRows, "events", "avg ms") : null),
+    [dailyRows],
+  );
+
   if (!mounted) {
     return (
       <AppPageShell variant="overview">
@@ -316,42 +334,9 @@ export function ResourceAuditDashboard() {
   }
 
   const dailyChart =
-    statsQ.data?.daily_io?.length && statsQ.data.daily_io.some((d) => d.day) ? (
+    dailyRows && dailyOpt ? (
       <div className="h-[220px] w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={statsQ.data.daily_io.map((d) => ({
-              day: d.day.slice(5),
-              n: d.event_count,
-              avg: d.avg_duration_ms != null ? Math.round(d.avg_duration_ms) : 0,
-            }))}
-            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-            <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-            <YAxis yAxisId="n" tick={{ fontSize: 11 }} />
-            <YAxis yAxisId="avg" orientation="right" tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Line
-              yAxisId="n"
-              type="monotone"
-              dataKey="n"
-              name="events"
-              stroke="#7c3aed"
-              dot={false}
-              strokeWidth={2}
-            />
-            <Line
-              yAxisId="avg"
-              type="monotone"
-              dataKey="avg"
-              name="avg ms"
-              stroke="#14b8a6"
-              dot={false}
-              strokeWidth={2}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        <ReactEChart option={dailyOpt} />
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">

@@ -7,19 +7,7 @@ import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { ReactEChart } from "@/components/react-echart";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint } from "@/components/message-hint";
@@ -35,6 +23,11 @@ import {
   writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
+import {
+  securityHitPieOption,
+  securityTopSourcesBarOption,
+  securityTrendBarOption,
+} from "@/lib/security-audit-echarts-options";
 import {
   buildSecurityAuditHitTypeDistribution,
   buildSecurityAuditRiskTrend,
@@ -53,12 +46,6 @@ import { cn, formatShortId } from "@/lib/utils";
 const PAGE_SIZE = 50;
 /** Collector 对安全审计列表的 limit 上限 */
 const ANALYTICS_LIMIT = 200;
-
-const PIE_COLORS: Record<SecurityHitCategory, string> = {
-  pii: "#2563eb",
-  secret: "#ea580c",
-  injection: "#9333ea",
-};
 
 function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, cat: SecurityHitCategory): string {
   switch (cat) {
@@ -152,7 +139,7 @@ export function SecurityAuditDashboard() {
     staleTime: 20_000,
   });
 
-  const analyticsRows = analyticsQ.data?.items ?? [];
+  const analyticsRows = useMemo(() => analyticsQ.data?.items ?? [], [analyticsQ.data?.items]);
   const trendData = useMemo(() => buildSecurityAuditRiskTrend(analyticsRows), [analyticsRows]);
   const hitSlices = useMemo(() => buildSecurityAuditHitTypeDistribution(analyticsRows), [analyticsRows]);
   const topSources = useMemo(() => buildSecurityAuditTopSources(analyticsRows, 8), [analyticsRows]);
@@ -165,6 +152,23 @@ export function SecurityAuditDashboard() {
         category: s.category,
       })),
     [hitSlices, t],
+  );
+
+  const riskTrendOpt = useMemo(
+    () => securityTrendBarOption(trendData, t("seriesEnforced"), t("seriesObserve")),
+    [trendData, t],
+  );
+
+  const hitTypeOpt = useMemo(() => securityHitPieOption(pieChartData), [pieChartData]);
+
+  const sourcesOpt = useMemo(
+    () =>
+      securityTopSourcesBarOption(
+        topSources.map((s) => s.label),
+        topSources.map((s) => s.count),
+        t("chartTopSources"),
+      ),
+    [topSources, t],
   );
 
   const openTraceForRow = useCallback(
@@ -239,23 +243,7 @@ export function SecurityAuditDashboard() {
   const riskTrendChart =
     trendData.length > 0 ? (
       <div className="h-[220px] w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-            <RechartsTooltip
-              contentStyle={{ fontSize: 12 }}
-              formatter={(value: number, name: string) => [value, name === "enforcedHits" ? t("seriesEnforced") : t("seriesObserve")]}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 11 }}
-              formatter={(value) => (value === "enforcedHits" ? t("seriesEnforced") : t("seriesObserve"))}
-            />
-            <Bar dataKey="enforcedHits" stackId="hits" fill="#ea580c" name="enforcedHits" />
-            <Bar dataKey="observeHits" stackId="hits" fill="#94a3b8" name="observeHits" />
-          </BarChart>
-        </ResponsiveContainer>
+        <ReactEChart option={riskTrendOpt} />
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
@@ -266,26 +254,7 @@ export function SecurityAuditDashboard() {
   const hitTypeChart =
     pieChartData.length > 0 ? (
       <div className="mx-auto h-[220px] w-full max-w-[280px] min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={pieChartData}
-              dataKey="value"
-              nameKey="name"
-              cx="50%"
-              cy="50%"
-              innerRadius={48}
-              outerRadius={72}
-              paddingAngle={2}
-            >
-              {pieChartData.map((entry) => (
-                <Cell key={entry.category} fill={PIE_COLORS[entry.category as SecurityHitCategory]} />
-              ))}
-            </Pie>
-            <RechartsTooltip contentStyle={{ fontSize: 12 }} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-          </PieChart>
-        </ResponsiveContainer>
+        <ReactEChart option={hitTypeOpt} />
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
@@ -296,19 +265,7 @@ export function SecurityAuditDashboard() {
   const sourcesChart =
     topSources.length > 0 ? (
       <div className="h-[220px] w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            layout="vertical"
-            data={topSources}
-            margin={{ top: 8, right: 12, left: 4, bottom: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-            <YAxis type="category" dataKey="label" width={132} tick={{ fontSize: 9 }} interval={0} />
-            <RechartsTooltip contentStyle={{ fontSize: 12 }} />
-            <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} name={t("chartTopSources")} />
-          </BarChart>
-        </ResponsiveContainer>
+        <ReactEChart option={sourcesOpt} />
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
