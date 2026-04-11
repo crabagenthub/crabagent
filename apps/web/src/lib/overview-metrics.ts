@@ -11,6 +11,28 @@ function dayKeyLocal(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
+/** 模型 QPS / QPM：按 Trace `status` 过滤后按本地日聚合条数（与总览其它按日图一致） */
+export type OverviewModelQpsStatusFilter = "all" | "success" | "fail";
+
+export function traceCountByDayForModelQps(
+  traces: TraceRecordRow[],
+  filter: OverviewModelQpsStatusFilter,
+): { day: string; n: number }[] {
+  const list =
+    filter === "all"
+      ? traces
+      : filter === "success"
+        ? traces.filter((t) => String(t.status ?? "").toLowerCase() === "success")
+        : traces.filter((t) => String(t.status ?? "").toLowerCase() !== "success");
+  const traceByDay = new Map<string, number>();
+  for (const t of list) {
+    const k = dayKeyLocal(t.start_time);
+    traceByDay.set(k, (traceByDay.get(k) ?? 0) + 1);
+  }
+  const daysSorted = [...traceByDay.keys()].sort();
+  return daysSorted.map((day) => ({ day, n: traceByDay.get(day)! }));
+}
+
 export async function loadPagedTraces(
   baseUrl: string,
   apiKey: string,

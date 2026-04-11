@@ -221,9 +221,21 @@ export function areaSingleOption(
   rows: { day: string; v: number }[],
   valueLabel: string,
   valueFormatter?: (n: number) => string,
+  yAxisLabelSuffix?: string,
 ): EChartsOption {
   const days = rows.map((r) => r.day);
   const fmt = valueFormatter ?? ((n: number) => String(n));
+  const yAxis: EChartsOption["yAxis"] = yAxisLabelSuffix
+    ? {
+        type: "value",
+        axisLabel: {
+          fontSize: 11,
+          color: MUTED,
+          formatter: (val: number | string) => `${val}${yAxisLabelSuffix}`,
+        },
+        splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
+      }
+    : yAxisValue();
   return {
     grid: GRID,
     tooltip: {
@@ -235,7 +247,7 @@ export function areaSingleOption(
       },
     },
     xAxis: xAxisCategory(days),
-    yAxis: yAxisValue(),
+    yAxis,
     series: [
       {
         type: "line",

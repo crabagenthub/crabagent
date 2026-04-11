@@ -45,6 +45,7 @@ import {
   filterByModel,
   loadPagedSpans,
   loadPagedTraces,
+  traceCountByDayForModelQps,
 } from "@/lib/overview-metrics";
 import { loadSpanRecords } from "@/lib/span-records";
 import { loadTraceRecords } from "@/lib/trace-records";
@@ -223,6 +224,8 @@ export function OverviewDashboard() {
   const [model, setModel] = useState<string>("__all__");
   const [tokenUnit, setTokenUnit] = useState<"k" | "wan">("wan");
   const [tokenChartKind, setTokenChartKind] = useState<"line" | "bar">("line");
+  const [modelQpsRateKind, setModelQpsRateKind] = useState<"qps" | "qpm">("qps");
+  const [modelQpsStatusFilter, setModelQpsStatusFilter] = useState<"all" | "success" | "fail">("all");
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -398,6 +401,23 @@ export function OverviewDashboard() {
     );
   }, [q.data, model]);
 
+  const filteredTracesForModelQps = useMemo(() => {
+    if (!q.data) {
+      return [];
+    }
+    return filterByModel(q.data.traces, q.data.spans, model === "__all__" ? null : model).traces;
+  }, [q.data, model]);
+
+  const modelQpsCountByDay = useMemo(
+    () => traceCountByDayForModelQps(filteredTracesForModelQps, modelQpsStatusFilter),
+    [filteredTracesForModelQps, modelQpsStatusFilter],
+  );
+
+  const modelQpsRows = useMemo(() => {
+    const div = modelQpsRateKind === "qps" ? 86_400 : 1440;
+    return modelQpsCountByDay.map((d) => ({ day: d.day, v: d.n / div }));
+  }, [modelQpsCountByDay, modelQpsRateKind]);
+
   const tokenSeries = useMemo(() => {
     if (!overview?.charts.tokensByDay) {
       return [];
@@ -451,8 +471,10 @@ export function OverviewDashboard() {
         tokenChartKind,
       ),
       modelQps: areaSingleOption(
-        c.traceCountByDay.map((d) => ({ day: d.day, v: d.n / 86_400 })),
-        "QPS",
+        modelQpsRows,
+        t("chartModelQps"),
+        (v) => `${v.toFixed(4)}${modelQpsRateKind === "qps" ? "/s" : "/min"}`,
+        modelQpsRateKind === "qps" ? "/s" : "/min",
       ),
       modelSuccess: areaPercentOption(c.modelSuccessByDay, t("rate")),
       modelTokenRate: lineSingleOption(
@@ -466,7 +488,7 @@ export function OverviewDashboard() {
       ),
       ttft: lineSingleOption(
         c.ttftByDay.map((d) => ({ day: d.day, v: d.ms })),
-        true,
+        false,
         CHART_PRIMARY,
         (v) => `${v.toFixed(0)} ms`,
       ),
@@ -508,7 +530,7 @@ export function OverviewDashboard() {
       ),
       serviceOk: areaPercentOption(c.serviceSuccessByDay, t("rate")),
     };
-  }, [overview, tokenSeries, tokenScaleHint, tokenChartKind, t]);
+  }, [overview, tokenSeries, tokenScaleHint, tokenChartKind, modelQpsRows, modelQpsRateKind, t]);
 
   if (!mounted) {
     return (
@@ -544,9 +566,6 @@ export function OverviewDashboard() {
             <Typography.Title heading={4} className="ca-page-title !m-0">
               {t("statsTitle")}
             </Typography.Title>
-            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 text-sm">
-              {t("statsSubtitle")}
-            </Typography.Paragraph>
           </div>
           <Space size={12} wrap className="items-center">
             <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
@@ -862,9 +881,37 @@ export function OverviewDashboard() {
                 {t("sectionModel")}
               </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-2">
-                <ChartCard title={t("chartModelQps")} hint={t("hintModelQps")}>
+                <ChartCard
+                  title={t("chartModelQps")}
+                  hint={t("hintModelQps")}
+                  rightSlot={
+                    <Space size={6} className="shrink-0">
+                      <Select
+                        size="small"
+                        className="min-w-[5.5rem]"
+                        value={modelQpsRateKind}
+                        onChange={(v) => setModelQpsRateKind(v as "qps" | "qpm")}
+                        triggerProps={{ autoAlignPopupWidth: false }}
+                      >
+                        <Select.Option value="qps">{t("modelQpsUnitQps")}</Select.Option>
+                        <Select.Option value="qpm">{t("modelQpsUnitQpm")}</Select.Option>
+                      </Select>
+                      <Select
+                        size="small"
+                        className="min-w-[5.5rem]"
+                        value={modelQpsStatusFilter}
+                        onChange={(v) => setModelQpsStatusFilter(v as "all" | "success" | "fail")}
+                        triggerProps={{ autoAlignPopupWidth: false }}
+                      >
+                        <Select.Option value="all">{t("modelQpsFilterAll")}</Select.Option>
+                        <Select.Option value="success">{t("modelQpsFilterSuccess")}</Select.Option>
+                        <Select.Option value="fail">{t("modelQpsFilterFail")}</Select.Option>
+                      </Select>
+                    </Space>
+                  }
+                >
                   <div className="h-[240px] w-full min-w-0">
-                    {overview.charts.traceCountByDay.length === 0 ? (
+                    {modelQpsRows.length === 0 ? (
                       <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
                     ) : (
                       <ReactEChart option={echartsOpts!.modelQps} />
@@ -886,24 +933,6 @@ export function OverviewDashboard() {
                     <ReactEChart option={echartsOpts!.modelDur} />
                   </div>
                 </ChartCard>
-              </div>
-            </section>
-
-            <section aria-label={t("sectionLatency")} className="space-y-3">
-              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-                {t("sectionLatency")}
-              </Typography.Title>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ChartCard title={t("chartTtft")} hint={t("hintTtft")}>
-                  <div className="h-[240px] w-full min-w-0">
-                    <ReactEChart option={echartsOpts!.ttft} />
-                  </div>
-                </ChartCard>
-                <ChartCard title={t("chartTpot")} hint={t("hintTpot")}>
-                  <div className="h-[240px] w-full min-w-0">
-                    <ReactEChart option={echartsOpts!.tpot} />
-                  </div>
-                </ChartCard>
                 <ChartCard title={t("chartModelDist")} hint={t("hintModelDist")}>
                   <div className="h-[260px] w-full min-w-0">
                     {overview.charts.modelDistribution.length === 0 ? (
@@ -917,6 +946,24 @@ export function OverviewDashboard() {
                   <div className="flex min-h-[200px] flex-col items-center justify-center gap-2">
                     <span className="text-4xl font-bold tabular-nums text-foreground">{overview.kpis.modelErrorCount}</span>
                     <p className="text-center text-xs text-muted-foreground">{t("modelErrCountHint")}</p>
+                  </div>
+                </ChartCard>
+              </div>
+            </section>
+
+            <section aria-label={t("sectionLatency")} className="space-y-3">
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionLatency")}
+              </Typography.Title>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ChartCard title={t("chartTtft")}>
+                  <div className="h-[240px] w-full min-w-0">
+                    <ReactEChart option={echartsOpts!.ttft} />
+                  </div>
+                </ChartCard>
+                <ChartCard title={t("chartTpot")}>
+                  <div className="h-[240px] w-full min-w-0">
+                    <ReactEChart option={echartsOpts!.tpot} />
                   </div>
                 </ChartCard>
               </div>
@@ -1006,9 +1053,6 @@ export function OverviewDashboard() {
                   </div>
                 </ChartCard>
               </div>
-              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-                {t("sectionServiceCharts")}
-              </Typography.Title>
               <div className="grid gap-4 lg:grid-cols-3">
                 <ChartCard title={t("chartServiceQps")} hint={t("hintServiceQps")}>
                   <div className="h-[220px] w-full min-w-0">
