@@ -1,7 +1,7 @@
 "use client";
 
-import { SectionPlaceholderPage } from "@/components/section-placeholder-page";
+import { AlertsDashboard } from "@/components/alerts-dashboard";
 
 export default function AlertsPage() {
-  return <SectionPlaceholderPage ns="Alerts" variant="alerts" />;
+  return <AlertsDashboard />;
 }

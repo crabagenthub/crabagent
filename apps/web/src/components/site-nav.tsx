@@ -40,7 +40,6 @@ import {
   NavIconAnalytics,
   NavIconDataSecurity,
   NavIconLogs,
-  NavIconMachines,
   NavIconOverview,
   NavIconSettings,
   NavIconResourceAudit,
@@ -415,7 +414,6 @@ export function SiteNav() {
     () => [
       { href: "/settings", label: t("settings"), Icon: NavIconSettings },
       { href: "/alerts", label: t("alerts"), Icon: NavIconAlerts },
-      { href: "/machines", label: t("machines"), Icon: NavIconMachines },
     ],
     [t],
   );
