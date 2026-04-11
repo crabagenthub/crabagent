@@ -75,7 +75,7 @@ type ObserveListUiState = {
   dateRange: ObserveDateRange;
   filterChannel: string;
   filterAgent: string;
-  filterStatus: ObserveListStatusParam | "";
+  filterStatuses: ObserveListStatusParam[];
   sortKey: ObserveListSortParam;
   listOrder: "asc" | "desc";
 };
@@ -89,7 +89,7 @@ function buildDefaultObserveListUiState(pageSize: number): ObserveListUiState {
     dateRange: defaultObserveDateRange(),
     filterChannel: "",
     filterAgent: "",
-    filterStatus: "",
+    filterStatuses: [],
     sortKey: "time",
     listOrder: "desc",
   };
@@ -207,7 +207,7 @@ export default function TracesPage() {
     dateRange,
     filterChannel,
     filterAgent,
-    filterStatus,
+    filterStatuses,
     sortKey,
     listOrder,
   } = currentUi;
@@ -244,8 +244,8 @@ export default function TracesPage() {
     updateCurrentUi((prev) => ({ ...prev, filterAgent: next, pageIndex: 0 }));
   }, [updateCurrentUi]);
 
-  const setFilterStatus = useCallback((next: ObserveListStatusParam | "") => {
-    updateCurrentUi((prev) => ({ ...prev, filterStatus: next, pageIndex: 0 }));
+  const setFilterStatuses = useCallback((next: ObserveListStatusParam[]) => {
+    updateCurrentUi((prev) => ({ ...prev, filterStatuses: next, pageIndex: 0 }));
   }, [updateCurrentUi]);
 
   const handleColumnSort = useCallback((sort: ObserveListSortParam, order: "asc" | "desc") => {
@@ -333,7 +333,7 @@ export default function TracesPage() {
         tracesSinceUntil.untilMs ?? 0,
         tracesUi.filterChannel,
         tracesUi.filterAgent,
-        tracesUi.filterStatus,
+        tracesUi.filterStatuses.slice().sort().join(","),
       ] as const,
     [
       baseUrl,
@@ -343,7 +343,7 @@ export default function TracesPage() {
       tracesSinceUntil.untilMs,
       tracesUi.filterAgent,
       tracesUi.filterChannel,
-      tracesUi.filterStatus,
+      tracesUi.filterStatuses,
       tracesUi.listOrder,
       tracesUi.pageIndex,
       tracesUi.pageSize,
@@ -401,7 +401,7 @@ export default function TracesPage() {
         spansSinceUntil.untilMs ?? 0,
         spansUi.filterChannel,
         spansUi.filterAgent,
-        spansUi.filterStatus,
+        spansUi.filterStatuses.slice().sort().join(","),
       ] as const,
     [
       baseUrl,
@@ -411,7 +411,7 @@ export default function TracesPage() {
       spansSinceUntil.untilMs,
       spansUi.filterAgent,
       spansUi.filterChannel,
-      spansUi.filterStatus,
+      spansUi.filterStatuses,
       spansUi.listOrder,
       spansUi.pageIndex,
       spansUi.pageSize,
@@ -570,7 +570,7 @@ export default function TracesPage() {
         untilMs: tracesSinceUntil.untilMs,
         channel: tracesUi.filterChannel.trim() || undefined,
         agent: tracesUi.filterAgent.trim() || undefined,
-        status: tracesUi.filterStatus || undefined,
+        statuses: tracesUi.filterStatuses.length > 0 ? tracesUi.filterStatuses : undefined,
       }),
     enabled: listEnabled,
     refetchInterval,
@@ -609,7 +609,7 @@ export default function TracesPage() {
         untilMs: spansSinceUntil.untilMs,
         channel: spansUi.filterChannel.trim() || undefined,
         agent: spansUi.filterAgent.trim() || undefined,
-        status: spansUi.filterStatus || undefined,
+        statuses: spansUi.filterStatuses.length > 0 ? spansUi.filterStatuses : undefined,
       }),
     enabled: listEnabled && listKind === "spans",
     refetchInterval,
@@ -869,7 +869,7 @@ export default function TracesPage() {
   const observeFacetFilterCount =
     (filterChannel.trim() ? 1 : 0) +
     (filterAgent.trim() ? 1 : 0) +
-    ((listKind === "traces" || listKind === "spans") && filterStatus ? 1 : 0);
+    ((listKind === "traces" || listKind === "spans") && filterStatuses.length > 0 ? 1 : 0);
   const filterCount =
     (!isObserveDateRangeAll(dateRange) ? 1 : 0) +
     (searchActive ? 1 : 0) +
@@ -1052,8 +1052,8 @@ export default function TracesPage() {
                     agentFilter={filterAgent}
                     agentOptions={agentOptions}
                     onAgentFilterChange={setFilterAgent}
-                    statusFilter={filterStatus}
-                    onStatusFilterChange={setFilterStatus}
+                    statusFilters={filterStatuses}
+                    onStatusFiltersChange={setFilterStatuses}
                     hiddenOptional={tracesColumns.hiddenOptional}
                     showColumnManager={false}
                   />
@@ -1096,8 +1096,8 @@ export default function TracesPage() {
                     agentFilter={filterAgent}
                     agentOptions={agentOptions}
                     onAgentFilterChange={setFilterAgent}
-                    statusFilter={filterStatus}
-                    onStatusFilterChange={setFilterStatus}
+                    statusFilters={filterStatuses}
+                    onStatusFiltersChange={setFilterStatuses}
                     hiddenOptional={spansColumns.hiddenOptional}
                     showColumnManager={false}
                   />

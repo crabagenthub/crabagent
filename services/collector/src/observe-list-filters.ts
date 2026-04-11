@@ -20,6 +20,34 @@ export function parseObserveListStatus(raw: string | undefined): ObserveListStat
   return undefined;
 }
 
+/**
+ * 解析 `status` 查询：支持重复键 `?status=error&status=timeout` 与逗号分隔 `?status=error,timeout`（可混用）。
+ */
+export function parseObserveListStatusesFromSearchParams(sp: URLSearchParams): ObserveListStatus[] | undefined {
+  const raw = sp.getAll("status");
+  const parts: string[] = [];
+  for (const chunk of raw) {
+    for (const piece of chunk.split(",")) {
+      const t = piece.trim().toLowerCase();
+      if (t.length > 0) {
+        parts.push(t);
+      }
+    }
+  }
+  const out: ObserveListStatus[] = [];
+  const seen = new Set<string>();
+  for (const t of parts) {
+    if (seen.has(t)) {
+      continue;
+    }
+    if (t === "running" || t === "success" || t === "error" || t === "timeout") {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /** `alias` = SQLite table alias for `opik_traces`; failed complete traces that look like timeout. */
 export function traceRowTimeoutLikeSqlForAlias(alias: string): string {
   const a = alias.trim() || "t";

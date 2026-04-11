@@ -1,6 +1,6 @@
 import { collectorAuthHeaders } from "@/lib/collector";
 
-/** Matches Collector `parseObserveListStatus` / list query `status` query key. */
+/** Matches Collector list query `status`（可重复键或逗号分隔，多选为 OR）. */
 export type ObserveListStatusParam = "running" | "success" | "error" | "timeout";
 
 export const OBSERVE_LIST_STATUS_OPTIONS: readonly ObserveListStatusParam[] = [

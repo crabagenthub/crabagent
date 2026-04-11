@@ -93,6 +93,7 @@ function opikSchemaDdl(): string {
     CREATE INDEX idx_opik_spans_trace ON opik_spans(trace_id);
     CREATE INDEX idx_opik_spans_parent ON opik_spans(parent_span_id);
     CREATE INDEX idx_opik_spans_type ON opik_spans(span_type);
+    CREATE INDEX idx_opik_spans_type_start ON opik_spans(span_type, start_time_ms DESC);
 
     CREATE TABLE opik_attachments (
       attachment_id TEXT PRIMARY KEY,
@@ -337,6 +338,11 @@ function ensureOpikPlanIndexes(db: Database.Database): void {
         `CREATE INDEX IF NOT EXISTS idx_opik_threads_parent ON opik_threads (workspace_name, project_name, parent_thread_id)`,
       );
     }
+  }
+  if (opikSpansTableExists(db)) {
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_opik_spans_type_start ON opik_spans (span_type, start_time_ms DESC)`,
+    );
   }
 }
 

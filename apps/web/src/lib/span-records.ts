@@ -38,7 +38,7 @@ export type LoadSpanRecordsParams = {
   untilMs?: number;
   channel?: string;
   agent?: string;
-  status?: ObserveListStatusParam;
+  statuses?: ObserveListStatusParam[];
   sort?: ObserveListSortParam;
 };
 
@@ -169,8 +169,10 @@ export async function loadSpanRecords(
   if (params.agent != null && params.agent.trim().length > 0) {
     sp.set("agent", params.agent.trim().slice(0, 200));
   }
-  if (params.status != null && params.status.length > 0) {
-    sp.set("status", params.status);
+  if (params.statuses != null && params.statuses.length > 0) {
+    for (const s of params.statuses) {
+      sp.append("status", s);
+    }
   }
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");

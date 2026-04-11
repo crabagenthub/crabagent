@@ -12,6 +12,9 @@ export const COLLECTOR_API = {
   resourceAuditEvents: "/v1/resource-audit/events",
   resourceAuditStats: "/v1/resource-audit/stats",
   securityAuditEvents: "/v1/security-audit/events",
+  shellExecSummary: "/v1/shell-exec/summary",
+  shellExecList: "/v1/shell-exec/list",
+  shellExecDetail: "/v1/shell-exec/detail",
 } as const;
 
 /** React Query cache key prefixes (not URLs; aligned with {@link COLLECTOR_API}). */
@@ -26,6 +29,9 @@ export const COLLECTOR_QUERY_SCOPE = {
   resourceAuditEvents: "resource-audit-events",
   resourceAuditStats: "resource-audit-stats",
   securityAuditEvents: "security-audit-events",
+  shellExecSummary: "shell-exec-summary",
+  shellExecList: "shell-exec-list",
+  shellExecDetail: "shell-exec-detail",
 } as const;
 
 /** `GET /v1/conversation/:threadId/trace-graph` — encode thread id for path segment. */

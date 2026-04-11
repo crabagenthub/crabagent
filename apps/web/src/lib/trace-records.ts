@@ -56,8 +56,8 @@ export type LoadTraceRecordsParams = {
   untilMs?: number;
   channel?: string;
   agent?: string;
-  /** Sent as query `status`; trace list status bucket. */
-  status?: ObserveListStatusParam;
+  /** 多个 `status` 查询参数，服务端按 OR 过滤 */
+  statuses?: ObserveListStatusParam[];
   /** Primary sort: `time` (default) or `tokens`. */
   sort?: ObserveListSortParam;
 };
@@ -101,8 +101,10 @@ export async function loadTraceRecords(
   if (params.agent != null && params.agent.trim().length > 0) {
     sp.set("agent", params.agent.trim().slice(0, 200));
   }
-  if (params.status != null && params.status.length > 0) {
-    sp.set("status", params.status);
+  if (params.statuses != null && params.statuses.length > 0) {
+    for (const s of params.statuses) {
+      sp.append("status", s);
+    }
   }
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");

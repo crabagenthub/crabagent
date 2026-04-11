@@ -25,11 +25,13 @@ export type ResourceAuditEventRow = {
 
 export type ResourceAuditStatsSummary = {
   total_events: number;
+  distinct_traces: number;
   sum_chars: number | null;
   avg_duration_ms: number | null;
   risk_sensitive_path: number;
   risk_pii_hint: number;
   risk_large_read: number;
+  risk_redundant_read: number;
   risk_any: number;
 };
 
@@ -55,11 +57,13 @@ export type ResourceAuditStats = {
 
 const EMPTY_SUMMARY: ResourceAuditStatsSummary = {
   total_events: 0,
+  distinct_traces: 0,
   sum_chars: null,
   avg_duration_ms: null,
   risk_sensitive_path: 0,
   risk_pii_hint: 0,
   risk_large_read: 0,
+  risk_redundant_read: 0,
   risk_any: 0,
 };
 
@@ -70,6 +74,7 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
   const o = v as Record<string, unknown>;
   return {
     total_events: Number(o.total_events ?? 0),
+    distinct_traces: Number(o.distinct_traces ?? 0),
     sum_chars:
       o.sum_chars != null && o.sum_chars !== "" && Number.isFinite(Number(o.sum_chars))
         ? Number(o.sum_chars)
@@ -81,6 +86,7 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
     risk_sensitive_path: Number(o.risk_sensitive_path ?? 0),
     risk_pii_hint: Number(o.risk_pii_hint ?? 0),
     risk_large_read: Number(o.risk_large_read ?? 0),
+    risk_redundant_read: Number(o.risk_redundant_read ?? 0),
     risk_any: Number(o.risk_any ?? 0),
   };
 }

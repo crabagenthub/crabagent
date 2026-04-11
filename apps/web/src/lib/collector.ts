@@ -3,13 +3,21 @@ const API_KEY_KEY = "crabagent_api_key";
 
 export function loadCollectorUrl(): string {
   if (typeof window === "undefined") {
-    return process.env.NEXT_PUBLIC_COLLECTOR_URL ?? "http://127.0.0.1:8787";
+    return process.env.NEXT_PUBLIC_COLLECTOR_URL?.trim() || "http://127.0.0.1:8787";
   }
-  return (
-    window.localStorage.getItem(URL_KEY) ??
-    process.env.NEXT_PUBLIC_COLLECTOR_URL ??
-    "http://127.0.0.1:8787"
-  );
+  const stored = window.localStorage.getItem(URL_KEY)?.trim();
+  if (stored) {
+    return stored;
+  }
+  const fromEnv = process.env.NEXT_PUBLIC_COLLECTOR_URL?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  /** 开发环境默认走 Next 同源代理，避免浏览器拦截 localhost → 127.0.0.1 的跨站请求（含 Chrome PNA）。 */
+  if (process.env.NODE_ENV === "development") {
+    return `${window.location.origin.replace(/\/+$/, "")}/api/collector`;
+  }
+  return "http://127.0.0.1:8787";
 }
 
 export function saveCollectorUrl(url: string): void {

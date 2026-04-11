@@ -130,8 +130,8 @@ export function SpansDataTable({
   agentFilter = "",
   agentOptions = [],
   onAgentFilterChange,
-  statusFilter = "",
-  onStatusFilterChange,
+  statusFilters = [],
+  onStatusFiltersChange,
   emptyBody,
   hiddenOptional,
   showColumnManager = true,
@@ -147,8 +147,8 @@ export function SpansDataTable({
   agentFilter?: string;
   agentOptions?: string[];
   onAgentFilterChange?: (next: string) => void;
-  statusFilter?: ObserveListStatusParam | "";
-  onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
+  statusFilters?: ObserveListStatusParam[];
+  onStatusFiltersChange?: (next: ObserveListStatusParam[]) => void;
   emptyBody?: ReactNode;
   hiddenOptional?: Set<string>;
   showColumnManager?: boolean;
@@ -209,11 +209,11 @@ export function SpansDataTable({
         render: (_, r) => <SpanIdCell spanId={r.span_id} spanType={r.span_type} />,
       },
       {
-        title: onStatusFilterChange ? (
+        title: onStatusFiltersChange ? (
           <ObserveStatusColumnFilter
             label={t("spansColStatus")}
-            value={statusFilter}
-            onChange={onStatusFilterChange}
+            value={statusFilters}
+            onChange={onStatusFiltersChange}
           />
         ) : (
           <ObserveTableHeaderLabel>{t("spansColStatus")}</ObserveTableHeaderLabel>
@@ -407,8 +407,8 @@ export function SpansDataTable({
       agentFilter,
       agentOptions,
       onAgentFilterChange,
-      statusFilter,
-      onStatusFilterChange,
+      statusFilters,
+      onStatusFiltersChange,
     ],
   );
 

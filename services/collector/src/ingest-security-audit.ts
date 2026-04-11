@@ -334,7 +334,7 @@ function readForwardedFindingsFromMetadata(
   if (findings.length === 0) {
     return null;
   }
-  return summarizeFindings(findings);
+  return { findings, ...summarizeFindings(findings) };
 }
 
 export type IngestSecurityScanMaps = {
@@ -414,7 +414,8 @@ export function scanOpikBatchForSecurityAudit(
     if (sum.hit_count <= 0) {
       const forwarded = readForwardedFindingsFromMetadata(raw.metadata);
       if (forwarded) {
-        sum = forwarded;
+        const { findings: _fwdFindings, ...fwdSum } = forwarded;
+        sum = fwdSum;
       }
     }
     if (sum.hit_count <= 0) {
@@ -445,7 +446,8 @@ export function scanOpikBatchForSecurityAudit(
     if (sum.hit_count <= 0) {
       const forwarded = readForwardedFindingsFromMetadata(raw.metadata);
       if (forwarded) {
-        sum = forwarded;
+        const { findings: _fwdFindings, ...fwdSum } = forwarded;
+        sum = fwdSum;
       }
     }
     if (sum.hit_count <= 0) {

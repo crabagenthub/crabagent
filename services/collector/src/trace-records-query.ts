@@ -24,7 +24,8 @@ export type TraceRecordsListQuery = {
   channel?: string;
   /** Exact match on `opik_threads.agent_name` via thread key. */
   agent?: string;
-  listStatus?: ObserveListStatus;
+  /** 多状态 OR 筛选；空/未传表示不限 */
+  listStatuses?: ObserveListStatus[];
 };
 
 const LIST_PREVIEW_MAX_CHARS = 16_384;
@@ -164,19 +165,27 @@ export function buildTraceRecordsWhere(q: TraceRecordsListQuery): { whereSql: st
     params.push(...subParams);
   }
 
-  const st = q.listStatus;
-  if (st === "running") {
-    whereParts.push("t.is_complete = 0");
-  } else if (st === "success") {
-    whereParts.push("t.is_complete = 1 AND COALESCE(t.success, 0) = 1");
-  } else if (st === "error") {
-    whereParts.push(
-      `t.is_complete = 1 AND COALESCE(t.success, 0) = 0 AND NOT ${TRACE_ROW_TIMEOUT_LIKE_SQL}`,
-    );
-  } else if (st === "timeout") {
-    whereParts.push(
-      `t.is_complete = 1 AND COALESCE(t.success, 0) = 0 AND ${TRACE_ROW_TIMEOUT_LIKE_SQL}`,
-    );
+  const statuses = q.listStatuses;
+  if (statuses && statuses.length > 0) {
+    const parts: string[] = [];
+    for (const st of statuses) {
+      if (st === "running") {
+        parts.push("t.is_complete = 0");
+      } else if (st === "success") {
+        parts.push("t.is_complete = 1 AND COALESCE(t.success, 0) = 1");
+      } else if (st === "error") {
+        parts.push(
+          `t.is_complete = 1 AND COALESCE(t.success, 0) = 0 AND NOT ${TRACE_ROW_TIMEOUT_LIKE_SQL}`,
+        );
+      } else if (st === "timeout") {
+        parts.push(`t.is_complete = 1 AND COALESCE(t.success, 0) = 0 AND ${TRACE_ROW_TIMEOUT_LIKE_SQL}`);
+      }
+    }
+    if (parts.length === 1) {
+      whereParts.push(parts[0]!);
+    } else if (parts.length > 1) {
+      whereParts.push(`(${parts.join(" OR ")})`);
+    }
   }
 
   const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";

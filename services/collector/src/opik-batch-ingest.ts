@@ -758,8 +758,9 @@ function applyOpikBatchInTransaction(db: Database.Database, body: unknown): Opik
       continue;
     }
     const spanTypeRaw = asStr(row.type ?? row.span_type);
+    const spanTypeNorm = (spanTypeRaw ?? "").trim().toLowerCase();
     const spanType =
-      spanTypeRaw && ["general", "tool", "llm", "guardrail"].includes(spanTypeRaw) ? spanTypeRaw : "general";
+      spanTypeNorm && ["general", "tool", "llm", "guardrail"].includes(spanTypeNorm) ? spanTypeNorm : "general";
     if (spanType === "llm") {
       traceIdsWithLlmSpan.add(traceId);
     }

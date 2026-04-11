@@ -214,8 +214,8 @@ export function TracesOpikTable({
   agentFilter = "",
   agentOptions = [],
   onAgentFilterChange,
-  statusFilter = "",
-  onStatusFilterChange,
+  statusFilters = [],
+  onStatusFiltersChange,
   emptyBody,
   hiddenOptional,
   showColumnManager = true,
@@ -231,8 +231,8 @@ export function TracesOpikTable({
   agentFilter?: string;
   agentOptions?: string[];
   onAgentFilterChange?: (next: string) => void;
-  statusFilter?: ObserveListStatusParam | "";
-  onStatusFilterChange?: (next: ObserveListStatusParam | "") => void;
+  statusFilters?: ObserveListStatusParam[];
+  onStatusFiltersChange?: (next: ObserveListStatusParam[]) => void;
   /** 无数据时表体区域内展示（表头仍渲染） */
   emptyBody?: ReactNode;
   hiddenOptional?: Set<string>;
@@ -299,11 +299,11 @@ export function TracesOpikTable({
         ),
       },
       {
-        title: onStatusFilterChange ? (
+        title: onStatusFiltersChange ? (
           <ObserveStatusColumnFilter
             label={t("colStatus")}
-            value={statusFilter}
-            onChange={onStatusFilterChange}
+            value={statusFilters}
+            onChange={onStatusFiltersChange}
           />
         ) : (
           <ObserveTableHeaderLabel>{t("colStatus")}</ObserveTableHeaderLabel>
@@ -546,8 +546,8 @@ export function TracesOpikTable({
       agentFilter,
       agentOptions,
       onAgentFilterChange,
-      statusFilter,
-      onStatusFilterChange,
+      statusFilters,
+      onStatusFiltersChange,
     ],
   );
 

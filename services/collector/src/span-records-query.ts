@@ -17,7 +17,7 @@ export type SpanRecordsListQuery = {
   untilMs?: number;
   channel?: string;
   agent?: string;
-  listStatus?: ObserveListStatus;
+  listStatuses?: ObserveListStatus[];
 };
 
 const PREVIEW = 4096;
@@ -103,17 +103,27 @@ export function buildSpanRecordsWhere(q: SpanRecordsListQuery): { whereSql: stri
     params.push(agent);
   }
 
-  const st = q.listStatus;
-  if (st === "running") {
-    whereParts.push("s.is_complete = 0");
-  } else if (st === "success") {
-    whereParts.push("s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) = ''");
-  } else if (st === "error") {
-    whereParts.push(
-      `s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) <> '' AND NOT ${SPAN_ROW_TIMEOUT_LIKE_SQL}`,
-    );
-  } else if (st === "timeout") {
-    whereParts.push(`s.is_complete = 1 AND ${SPAN_ROW_TIMEOUT_LIKE_SQL}`);
+  const statuses = q.listStatuses;
+  if (statuses && statuses.length > 0) {
+    const parts: string[] = [];
+    for (const st of statuses) {
+      if (st === "running") {
+        parts.push("s.is_complete = 0");
+      } else if (st === "success") {
+        parts.push("s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) = ''");
+      } else if (st === "error") {
+        parts.push(
+          `s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) <> '' AND NOT ${SPAN_ROW_TIMEOUT_LIKE_SQL}`,
+        );
+      } else if (st === "timeout") {
+        parts.push(`s.is_complete = 1 AND ${SPAN_ROW_TIMEOUT_LIKE_SQL}`);
+      }
+    }
+    if (parts.length === 1) {
+      whereParts.push(parts[0]!);
+    } else if (parts.length > 1) {
+      whereParts.push(`(${parts.join(" OR ")})`);
+    }
   }
 
   const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";

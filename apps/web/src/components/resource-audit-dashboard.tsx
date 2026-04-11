@@ -2,6 +2,7 @@
 
 import "@/lib/arco-react19-setup";
 import {
+  Alert,
   Button,
   Card,
   Input,
@@ -11,6 +12,7 @@ import {
   Spin,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "@arco-design/web-react";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
@@ -122,6 +124,22 @@ function flagColor(f: string): string {
     return "arcoblue";
   }
   return "gray";
+}
+
+function ColHintTitle({
+  label,
+  hint,
+}: {
+  label: string;
+  hint: string;
+}) {
+  return (
+    <Tooltip content={hint} position="top">
+      <span className="cursor-help border-b border-dotted border-[#86909C] dark:border-muted-foreground">
+        {label}
+      </span>
+    </Tooltip>
+  );
 }
 
 export function ResourceAuditDashboard() {
@@ -260,7 +278,7 @@ export function ResourceAuditDashboard() {
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
-        title: t("colTime"),
+        title: <ColHintTitle label={t("colTime")} hint={t("colTimeHint")} />,
         dataIndex: "started_at_ms",
         width: 168,
         render: (ms: number) => (
@@ -270,7 +288,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colWorkspace"),
+        title: <ColHintTitle label={t("colWorkspace")} hint={t("colWorkspaceHint")} />,
         dataIndex: "workspace_name",
         width: 100,
         render: (w: string) => (
@@ -280,7 +298,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colUri"),
+        title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
         ellipsis: true,
         render: (uri: string) => (
@@ -290,19 +308,19 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colClass"),
+        title: <ColHintTitle label={t("colClass")} hint={t("colClassHint")} />,
         dataIndex: "semantic_class",
         width: 120,
         render: (c: string) => <span className="text-xs">{classLabel(t, c)}</span>,
       },
       {
-        title: t("colMode"),
+        title: <ColHintTitle label={t("colMode")} hint={t("colModeHint")} />,
         dataIndex: "access_mode",
         width: 88,
         render: (m: string | null) => <span className="text-xs font-mono">{m ?? "—"}</span>,
       },
       {
-        title: t("colChars"),
+        title: <ColHintTitle label={t("colChars")} hint={t("colCharsHint")} />,
         dataIndex: "chars",
         width: 100,
         render: (n: number | null) => (
@@ -310,7 +328,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colDuration"),
+        title: <ColHintTitle label={t("colDuration")} hint={t("colDurationHint")} />,
         dataIndex: "duration_ms",
         width: 96,
         render: (n: number | null) => (
@@ -318,7 +336,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("relevance"),
+        title: <ColHintTitle label={t("relevance")} hint={t("relevanceHint")} />,
         dataIndex: "relevance_max",
         width: 88,
         render: (n: number | null) => (
@@ -326,7 +344,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colTrace"),
+        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
         dataIndex: "trace_id",
         width: 120,
         render: (_: unknown, row: ResourceAuditEventRow) => {
@@ -342,7 +360,7 @@ export function ResourceAuditDashboard() {
         },
       },
       {
-        title: t("colLinkage"),
+        title: <ColHintTitle label={t("colLinkage")} hint={t("colLinkageHint")} />,
         width: 168,
         render: (_: unknown, row: ResourceAuditEventRow) => (
           <Space direction="vertical" size={4}>
@@ -364,7 +382,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colFlags"),
+        title: <ColHintTitle label={t("colFlags")} hint={t("colFlagsHint")} />,
         dataIndex: "risk_flags",
         width: 200,
         render: (flags: string[]) => (
@@ -378,7 +396,7 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: t("colSpanName"),
+        title: <ColHintTitle label={t("colSpanName")} hint={t("colSpanNameHint")} />,
         dataIndex: "span_name",
         width: 120,
         ellipsis: true,
@@ -447,6 +465,7 @@ export function ResourceAuditDashboard() {
       { name: t("flagSensitivePath"), value: s.risk_sensitive_path },
       { name: t("flagPiiHint"), value: s.risk_pii_hint },
       { name: t("flagLargeRead"), value: s.risk_large_read },
+      { name: t("flagRedundantRead"), value: s.risk_redundant_read },
     ];
     if (!rows.some((r) => r.value > 0)) {
       return null;
@@ -538,6 +557,11 @@ export function ResourceAuditDashboard() {
     );
 
   const summary = statsQ.data?.summary;
+  const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
+  const riskInsightPct =
+    summary && summary.total_events > 0 && summary.risk_any > 0
+      ? Math.round((summary.risk_any / summary.total_events) * 1000) / 10
+      : null;
 
   return (
     <AppPageShell variant="overview">
@@ -547,12 +571,23 @@ export function ResourceAuditDashboard() {
             <Typography.Title heading={4} className="ca-page-title !m-0">
               {t("title")}
             </Typography.Title>
-            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 text-sm">
+            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 max-w-3xl text-sm leading-relaxed">
               {t("subtitle")}
             </Typography.Paragraph>
             <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 max-w-3xl text-xs leading-relaxed">
-              {t("valueProps")}
+              {t("positioningLine")}
             </Typography.Paragraph>
+            <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5 text-xs leading-relaxed text-muted-foreground">
+              <li>{t("bulletAggregate")}</li>
+              <li>{t("bulletRiskHeuristics")}</li>
+              <li>{t("bulletSecurityAudit")}</li>
+            </ul>
+            <details className="mt-3 max-w-3xl rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+              <summary className="cursor-pointer select-none font-medium text-foreground">
+                {t("methodologySummary")}
+              </summary>
+              <p className="mt-2 whitespace-pre-line">{t("methodologyBody")}</p>
+            </details>
             <div className="mt-2">
               <LocalizedLink
                 href="/data-security-audit"
@@ -583,13 +618,26 @@ export function ResourceAuditDashboard() {
           <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
             {t("sectionKpi")}
           </Typography.Title>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Typography.Text type="secondary" className="block text-xs">
+            {t("kpiFootnote")}
+          </Typography.Text>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
                 {t("kpiTotalEvents")}
               </Typography.Text>
               <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
                 {summary ? summary.total_events.toLocaleString() : "—"}
+              </div>
+            </Card>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+              <Tooltip content={t("kpiDistinctTracesHint")}>
+                <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
+                  {t("kpiDistinctTraces")}
+                </Typography.Text>
+              </Tooltip>
+              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                {summary ? summary.distinct_traces.toLocaleString() : "—"}
               </div>
             </Card>
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
@@ -601,12 +649,21 @@ export function ResourceAuditDashboard() {
               </div>
             </Card>
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
-              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
-                {t("kpiRiskAny")}
-              </Typography.Text>
+              <Tooltip content={t("kpiRiskAnyHint")}>
+                <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
+                  {t("kpiRiskAny")}
+                </Typography.Text>
+              </Tooltip>
               <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
                 {summary ? summary.risk_any.toLocaleString() : "—"}
               </div>
+              {summary && summary.total_events > 0 ? (
+                <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                  {t("kpiRiskShare", {
+                    pct: String(Math.round((summary.risk_any / summary.total_events) * 1000) / 10),
+                  })}
+                </div>
+              ) : null}
             </Card>
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
@@ -617,16 +674,45 @@ export function ResourceAuditDashboard() {
               </div>
             </Card>
           </div>
+          {riskInsightPct != null ? (
+            <Alert
+              type="warning"
+              className="text-sm"
+              content={t("riskInsightBanner", {
+                pct: String(riskInsightPct),
+                n: String(summary!.risk_any),
+                total: String(summary!.total_events),
+              })}
+            />
+          ) : null}
         </section>
 
-        <section aria-label={t("sectionDashboard")} className="space-y-3">
-          <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-            {t("sectionDashboard")}
-          </Typography.Title>
-          <Typography.Text type="secondary" className="block text-xs">
-            {t("dashboardHint")}
-          </Typography.Text>
-          <div className="grid gap-4 lg:grid-cols-3">
+        {isEmptyRange ? (
+          <Card className="border-dashed shadow-none" title={t("emptyStateTitle")}>
+            <Typography.Paragraph type="secondary" className="!mb-3 text-sm">
+              {traceFromUrl ? t("emptyStateTraceBody") : t("emptyStateBody")}
+            </Typography.Paragraph>
+            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+              <li>{t("emptyChecklistPlugin")}</li>
+              <li>{t("emptyChecklistRange")}</li>
+              <li>{t("emptyChecklistFilters")}</li>
+              <li>{t("emptyChecklistDb")}</li>
+            </ul>
+          </Card>
+        ) : null}
+
+        {!isEmptyRange ? (
+          <section aria-label={t("sectionDashboard")} className="space-y-3">
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+              {t("sectionDashboard")}
+            </Typography.Title>
+            <Typography.Text type="secondary" className="block text-xs">
+              {t("dashboardHint")}
+            </Typography.Text>
+            <Typography.Text type="secondary" className="block text-[11px]">
+              {t("chartSampleNote")}
+            </Typography.Text>
+            <div className="grid gap-4 lg:grid-cols-3">
             <Card title={t("topResources")} bordered className="shadow-sm">
               <Typography.Text type="secondary" className="mb-2 block text-[11px]">
                 {t("topResourcesHint")}
@@ -728,13 +814,19 @@ export function ResourceAuditDashboard() {
               )}
             </Card>
           </div>
-        </section>
+          </section>
+        ) : null}
 
         <section aria-label={t("sectionTable")} className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-              {t("sectionTable")}
-            </Typography.Title>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+            <div>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionTable")}
+              </Typography.Title>
+              <Typography.Text type="secondary" className="mt-1 block max-w-3xl text-xs leading-relaxed">
+                {t("tableIntro")}
+              </Typography.Text>
+            </div>
             <Space wrap className="items-center">
               <Input.Search
                 size="small"

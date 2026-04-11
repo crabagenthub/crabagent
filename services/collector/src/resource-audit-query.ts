@@ -342,11 +342,15 @@ export function queryResourceAuditEvents(db: Database.Database, q: ResourceAudit
 export type ResourceAuditStatsJson = {
   summary: {
     total_events: number;
+    /** 至少涉及的不同 Trace（消息）条数 */
+    distinct_traces: number;
     sum_chars: number | null;
     avg_duration_ms: number | null;
     risk_sensitive_path: number;
     risk_pii_hint: number;
     risk_large_read: number;
+    /** 同 Trace 内同一 URI 出现次数 >3 的访问行数（与流水 redundant_read 标签一致） */
+    risk_redundant_read: number;
     /** 至少命中任一风险启发式的事件数（去重计数行，非标志去重） */
     risk_any: number;
   };
@@ -373,14 +377,18 @@ export function queryResourceAuditStats(db: Database.Database, q: Omit<ResourceA
     CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL) >= ${RESOURCE_AUDIT_LARGE_CHARS}
   )`;
   const anyRiskPred = `(${sensPred} OR ${piiPred} OR ${largePred})`;
+  const uriRepeatSub = `(SELECT COUNT(*) FROM opik_spans s2 WHERE s2.trace_id = s.trace_id AND ${sqlCoalesceResourceUri("s2")} = ${uriExpr} AND ${uriExpr} <> '' AND ${sqlCoalesceResourceUri("s2")} <> '')`;
+  const redundantPred = `(${uriRepeatSub} > 3)`;
 
   const summarySql = `
 SELECT COUNT(*) AS n,
+       COUNT(DISTINCT s.trace_id) AS n_traces,
        SUM(CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL)) AS sum_chars,
        AVG(CAST(s.duration_ms AS REAL)) AS avg_dur,
        SUM(CASE WHEN ${sensPred} THEN 1 ELSE 0 END) AS n_sens,
        SUM(CASE WHEN ${piiPred} THEN 1 ELSE 0 END) AS n_pii,
        SUM(CASE WHEN ${largePred} THEN 1 ELSE 0 END) AS n_large,
+       SUM(CASE WHEN ${redundantPred} THEN 1 ELSE 0 END) AS n_redundant,
        SUM(CASE WHEN ${anyRiskPred} THEN 1 ELSE 0 END) AS n_any_risk
 FROM opik_spans s
 LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
@@ -473,6 +481,7 @@ LIMIT 10
   return {
     summary: {
       total_events: Number(summaryRow?.n ?? 0),
+      distinct_traces: Number(summaryRow?.n_traces ?? 0),
       sum_chars:
         summaryRow?.sum_chars != null && String(summaryRow.sum_chars) !== ""
           ? Number(summaryRow.sum_chars)
@@ -484,6 +493,7 @@ LIMIT 10
       risk_sensitive_path: Number(summaryRow?.n_sens ?? 0),
       risk_pii_hint: Number(summaryRow?.n_pii ?? 0),
       risk_large_read: Number(summaryRow?.n_large ?? 0),
+      risk_redundant_read: Number(summaryRow?.n_redundant ?? 0),
       risk_any: Number(summaryRow?.n_any_risk ?? 0),
     },
     top_resources: topRows.map((r) => ({

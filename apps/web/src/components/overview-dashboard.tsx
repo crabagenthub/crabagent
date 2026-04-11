@@ -7,6 +7,7 @@ import {
   IconArrowRise,
   IconRefresh,
   IconShareExternal,
+  IconBranch
 } from "@arco-design/web-react/icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,9 +82,9 @@ function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
 function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
   const palette =
     tone === "green"
-      ? "bg-[#E8FFEA] text-[#00B42A]"
+      ? "bg-[#E8FFEA] text-[#00815c] border border-[#00815c]"
       : tone === "red"
-        ? "bg-[#FFECE8] text-[#F53F3F]"
+        ? "bg-[#FFECE8] text-[#F53F3F] border border-[#F53F3F]"
         : "bg-[#F2F3F5] text-[#86909C]";
   return (
     <span
@@ -127,13 +128,13 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiC
     >
       <div className="mb-3 flex flex-row items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
-          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+          <Typography.Text className="text-[13px] font-medium  dark:text-muted-foreground">
             {title}
           </Typography.Text>
           {hint ? (
             <TitleHintIcon
               tooltipText={hint}
-              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+              iconClassName="h-3.5 w-3.5 dark:text-muted-foreground"
               className="shrink-0"
             />
           ) : null}
@@ -151,7 +152,7 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiC
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
+            <IconBranch className="size-3.5 shrink-0" aria-hidden />
             {tOv("kpiViewTraces")}
           </LocalizedLink>
         ) : null}

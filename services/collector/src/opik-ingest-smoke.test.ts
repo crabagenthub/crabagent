@@ -84,6 +84,67 @@ describe("Collector opik ingest（染色数据）", () => {
     }
   });
 
+  it("span type 为 TOOL（大写）时应规范为 tool 入库（否则 Shell 分析 WHERE 无法命中）", () => {
+    const dbPath = path.join(
+      os.tmpdir(),
+      `crabagent-ingest-span-type-${Date.now()}-${Math.random().toString(16).slice(2)}.db`,
+    );
+    const db = openDatabase(dbPath);
+    try {
+      const traceId = `smoke-trace-tool-upper-${Date.now()}`;
+      const threadId = "smoke-thread-tool-upper";
+      const spanId = `smoke-span-tool-upper-${Date.now()}`;
+      const now = Date.now();
+      const r = applyOpikBatch(db, {
+        threads: [
+          {
+            thread_id: threadId,
+            workspace_name: "default",
+            project_name: "openclaw",
+            first_seen_ms: now,
+            last_seen_ms: now,
+          },
+        ],
+        traces: [
+          {
+            trace_id: traceId,
+            thread_id: threadId,
+            workspace_name: "default",
+            project_name: "openclaw",
+            name: "turn-shell",
+            created_at_ms: now,
+            is_complete: 1,
+            success: 1,
+          },
+        ],
+        spans: [
+          {
+            span_id: spanId,
+            trace_id: traceId,
+            name: "exec",
+            type: "TOOL",
+            start_time_ms: now,
+            is_complete: 1,
+            input: { params: { command: "echo crabagent_span_type_norm" } },
+            output: { result: { exit_code: 0, stdout: "ok\n" } },
+          },
+        ],
+      });
+      assert.equal(r.skipped.length, 0, `unexpected skip: ${JSON.stringify(r.skipped)}`);
+      const row = db.prepare("SELECT span_type FROM opik_spans WHERE span_id = ?").get(spanId) as
+        | { span_type: string }
+        | undefined;
+      assert.equal(row?.span_type, "tool");
+    } finally {
+      db.close();
+      try {
+        fs.unlinkSync(dbPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
   it("后续仅更新 output 且未带 is_complete 时，不将已完成的 trace 打回 running", () => {
     const dbPath = path.join(os.tmpdir(), `crabagent-ingest-complete-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);
     const db = openDatabase(dbPath);

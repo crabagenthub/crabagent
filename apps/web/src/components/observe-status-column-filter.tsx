@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { Dropdown, Menu } from "@arco-design/web-react";
+import { Checkbox, Dropdown } from "@arco-design/web-react";
 import { IconFilter } from "@arco-design/web-react/icon";
 import { Button } from "@/components/ui/button";
 import { OBSERVE_LIST_STATUS_OPTIONS, type ObserveListStatusParam } from "@/lib/observe-facets";
@@ -13,8 +13,9 @@ import { cn } from "@/lib/utils";
 type Props = {
   /** 表头文案，如「状态」 */
   label: string;
-  value: ObserveListStatusParam | "";
-  onChange: (next: ObserveListStatusParam | "") => void;
+  /** 空数组表示不限（全部） */
+  value: ObserveListStatusParam[];
+  onChange: (next: ObserveListStatusParam[]) => void;
 };
 
 export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
@@ -30,10 +31,20 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
           ? t("filterStatusError")
           : t("filterStatusTimeout");
 
-  const pick = (next: ObserveListStatusParam | "") => {
-    onChange(next);
+  const toggle = (s: ObserveListStatusParam, checked: boolean) => {
+    if (checked) {
+      onChange([...new Set([...value, s])]);
+    } else {
+      onChange(value.filter((x) => x !== s));
+    }
+  };
+
+  const clearAll = () => {
+    onChange([]);
     setOpen(false);
   };
+
+  const active = value.length > 0;
 
   return (
     <div className="flex items-center gap-1">
@@ -44,19 +55,34 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
         popupVisible={open}
         onVisibleChange={setOpen}
         trigger="click"
+        position="bl"
         droplist={
-          <Menu
-            selectedKeys={value ? [value] : ["__all__"]}
-            onClickMenuItem={(key) => {
-              pick(key === "__all__" ? "" : (key as ObserveListStatusParam));
-            }}
-            className="min-w-[9rem]"
+          <div
+            className="min-w-[11rem] rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-md"
+            onMouseDown={(e) => e.preventDefault()}
           >
-            <Menu.Item key="__all__">{t("filterAll")}</Menu.Item>
-            {OBSERVE_LIST_STATUS_OPTIONS.map((s) => (
-              <Menu.Item key={s}>{statusLabel(s)}</Menu.Item>
-            ))}
-          </Menu>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mb-2 h-8 w-full justify-start px-2 text-xs font-normal"
+              onClick={clearAll}
+            >
+              {t("filterAll")}
+            </Button>
+            <div className="space-y-1 border-t border-border pt-2">
+              {OBSERVE_LIST_STATUS_OPTIONS.map((s) => (
+                <Checkbox
+                  key={s}
+                  checked={value.includes(s)}
+                  onChange={(c) => toggle(s, Boolean(c))}
+                  className="!flex !w-full !items-center py-0.5 [&_.arco-checkbox-text]:text-xs"
+                >
+                  {statusLabel(s)}
+                </Checkbox>
+              ))}
+            </div>
+          </div>
         }
       >
         <Button
@@ -65,13 +91,13 @@ export function ObserveStatusColumnFilter({ label, value, onChange }: Props) {
           size="icon-sm"
           className={cn(
             OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            value ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
+            active ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
           )}
           aria-label={t("statusColumnFilterAria")}
           aria-expanded={open}
         >
           <IconFilter
-            className={cn("size-3.5", value ? "text-primary" : "text-neutral-600")}
+            className={cn("size-3.5", active ? "text-primary" : "text-neutral-600")}
             strokeWidth={2}
             aria-hidden
           />

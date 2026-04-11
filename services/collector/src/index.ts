@@ -12,7 +12,7 @@ import {
   resolveCanonicalTraceIdForSpanQuery,
 } from "./semantic-spans-query.js";
 import { queryTraceMessages } from "./trace-messages-query.js";
-import { parseObserveListStatus } from "./observe-list-filters.js";
+import { parseObserveListStatusesFromSearchParams } from "./observe-list-filters.js";
 import {
   countResourceAuditEvents,
   queryResourceAuditEvents,
@@ -25,6 +25,11 @@ import {
   querySecurityAuditEvents,
 } from "./security-audit-query.js";
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
+import {
+  queryShellExecDetail,
+  queryShellExecList,
+  queryShellExecSummary,
+} from "./shell-exec-query.js";
 import { countThreadRecords, queryThreadRecords } from "./thread-records-query.js";
 import { queryThreadTraceEvents } from "./thread-trace-events-query.js";
 import { queryConversationExecutionGraph, queryTraceExecutionGraph } from "./execution-graph-query.js";
@@ -260,7 +265,7 @@ const handleConversationTraces = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
-  const listStatus = parseObserveListStatus(optionalQueryString(c, "status"));
+  const listStatuses = parseObserveListStatusesFromSearchParams(new URL(c.req.url, "http://127.0.0.1").searchParams);
 
   const listQuery = {
     limit,
@@ -275,7 +280,7 @@ const handleConversationTraces = (c: Context) => {
     untilMs,
     channel,
     agent,
-    listStatus,
+    listStatuses,
   };
 
   const items = queryTraceRecords(db, listQuery);
@@ -421,9 +426,9 @@ const handleSpanRecords = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
-  const listStatus = parseObserveListStatus(optionalQueryString(c, "status"));
+  const listStatuses = parseObserveListStatusesFromSearchParams(new URL(c.req.url, "http://127.0.0.1").searchParams);
 
-  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, listStatus };
+  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, listStatuses };
   const items = querySpanRecords(db, listQuery);
   const total = countSpanRecords(db, listQuery);
   return c.json({ items, total });
@@ -432,6 +437,94 @@ const handleSpanRecords = (c: Context) => {
 app.get("/v1/span/list", handleSpanRecords);
 /** @deprecated Use `GET /v1/span/list` */
 app.get("/v1/span-records", handleSpanRecords);
+
+const handleShellExecSummary = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const traceId = optionalQueryString(c, "trace_id");
+  const channel = optionalQueryString(c, "channel");
+  const agent = optionalQueryString(c, "agent");
+  const commandContains = optionalQueryString(c, "command_contains");
+  const minDur = Number(c.req.query("min_duration_ms") ?? "");
+  const maxDur = Number(c.req.query("max_duration_ms") ?? "");
+  const body = queryShellExecSummary(
+    db,
+    {
+      sinceMs,
+      untilMs,
+      traceId: traceId?.trim() || undefined,
+      channel,
+      agent,
+      commandContains,
+      minDurationMs: Number.isFinite(minDur) && minDur >= 0 ? Math.floor(minDur) : undefined,
+      maxDurationMs: Number.isFinite(maxDur) && maxDur >= 0 ? Math.floor(maxDur) : undefined,
+    },
+    path.basename(DB_PATH_LOG),
+  );
+  return c.json(body);
+};
+
+app.get("/v1/shell-exec/summary", handleShellExecSummary);
+
+const handleShellExecList = (c: Context) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const limit = Math.min(Number(c.req.query("limit") ?? "50") || 50, 200);
+  const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
+  const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
+  const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
+  const sinceRaw = Number(c.req.query("since_ms") ?? "");
+  const sinceMs =
+    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
+  const untilRaw = Number(c.req.query("until_ms") ?? "");
+  const untilMs =
+    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const traceId = optionalQueryString(c, "trace_id");
+  const channel = optionalQueryString(c, "channel");
+  const agent = optionalQueryString(c, "agent");
+  const commandContains = optionalQueryString(c, "command_contains");
+  const minDur = Number(c.req.query("min_duration_ms") ?? "");
+  const maxDur = Number(c.req.query("max_duration_ms") ?? "");
+  const { items, total } = queryShellExecList(db, {
+    limit,
+    offset,
+    order,
+    sinceMs,
+    untilMs,
+    traceId: traceId?.trim() || undefined,
+    channel,
+    agent,
+    commandContains,
+    minDurationMs: Number.isFinite(minDur) && minDur >= 0 ? Math.floor(minDur) : undefined,
+    maxDurationMs: Number.isFinite(maxDur) && maxDur >= 0 ? Math.floor(maxDur) : undefined,
+  });
+  return c.json({ items, total });
+};
+
+app.get("/v1/shell-exec/list", handleShellExecList);
+
+app.get("/v1/shell-exec/detail", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const spanId = optionalQueryString(c, "span_id")?.trim() ?? "";
+  if (!spanId) {
+    return c.json({ error: "span_id required" }, 400);
+  }
+  const row = queryShellExecDetail(db, spanId);
+  if (!row) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  return c.json(row);
+});
 
 function parseResourceAuditSemanticClass(raw: string | undefined): ResourceAuditSemanticFilter {
   const s = String(raw ?? "").trim().toLowerCase();

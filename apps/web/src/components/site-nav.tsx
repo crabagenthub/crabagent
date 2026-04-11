@@ -38,8 +38,11 @@ import type { ThemePreference } from "@/lib/theme-storage";
 import {
   NavIconAlerts,
   NavIconAnalytics,
+  NavIconCommandExec,
   NavIconDataSecurity,
   NavIconLogs,
+  NavIconMetrics,
+  NavIconOptimization,
   NavIconOverview,
   NavIconSettings,
   NavIconResourceAudit,
@@ -392,7 +395,9 @@ export function SiteNav() {
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/traces", label: t("traces"), Icon: NavIconTraces },
-      { href: "/analytics", label: t("analytics"), Icon: NavIconAnalytics },
+      { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
+      { href: "/metrics", label: t("metrics"), Icon: NavIconMetrics },
+      { href: "/optimization", label: t("optimization"), Icon: NavIconOptimization },
     ],
     [t],
   );
