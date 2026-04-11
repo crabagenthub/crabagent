@@ -73,7 +73,7 @@ function ResourceFlags({
   );
 }
 
-/** Span 抽屉内：当前选中 Span 的资源审计摘要 + 安全审计入口（与 Trace / 安全页联动） */
+/** Span 抽屉内：当前选中 Span 的访问审计摘要 + 内容审计入口（与 Trace / 安全策略页联动） */
 export function SpanInspectAuditBridge({ baseUrl, apiKey, traceId, spanId, open }: Props) {
   const tTr = useTranslations("Traces");
   const tRa = useTranslations("ResourceAudit");

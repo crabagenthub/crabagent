@@ -1,4 +1,4 @@
-/** 资源访问审计：在 tool span 上写入结构化 metadata.resource / semantic_kind，供 Collector 聚合。 */
+/** 访问审计：在 tool span 上写入结构化 metadata.resource / semantic_kind，供 Collector 聚合。 */
 
 const SNIPPET_MAX = 200;
 

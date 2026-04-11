@@ -45,7 +45,7 @@ import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
-/** Collector 对安全审计列表的 limit 上限 */
+/** Collector 对内容审计列表的 limit 上限 */
 const ANALYTICS_LIMIT = 200;
 
 function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, cat: SecurityHitCategory): string {
