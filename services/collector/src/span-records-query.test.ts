@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mapSpanRecordRow } from "./span-records-query.js";
+import { buildSpanRecordsWhere, mapSpanRecordRow } from "./span-records-query.js";
+
+describe("buildSpanRecordsWhere", () => {
+  it("timeout filter requires non-empty error_info (aligns list_status CASE; avoids success rows whose output mentions timeout)", () => {
+    const { whereSql } = buildSpanRecordsWhere({
+      limit: 10,
+      offset: 0,
+      order: "desc",
+      listStatuses: ["timeout"],
+    });
+    assert.match(whereSql, /error_info_json/);
+    assert.match(whereSql, /<> ''/);
+  });
+
+  it("spanType=llm adds span_type predicate", () => {
+    const { whereSql } = buildSpanRecordsWhere({
+      limit: 10,
+      offset: 0,
+      order: "desc",
+      spanType: "llm",
+    });
+    assert.match(whereSql, /lower\(s\.span_type\)/);
+    assert.match(whereSql, /\?/);
+  });
+});
 
 describe("mapSpanRecordRow", () => {
   it("parses usage_json for prompt/completion/cache alongside total_tokens expr", () => {

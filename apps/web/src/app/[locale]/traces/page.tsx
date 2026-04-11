@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { AppPageShell } from "@/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
@@ -62,10 +62,22 @@ import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadTraceRecords, type TraceRecordRow } from "@/lib/trace-records";
 import { readObserveAutoPull, writeObserveAutoPull } from "@/lib/observe-auto-pull";
+import {
+  normalizeObserveListSpanTypeFromUrl,
+  OBSERVE_FROM_STATS_PARAM,
+  OBSERVE_FROM_STATS_VALUE,
+  OBSERVE_SPAN_TYPE_PARAM,
+  OBSERVE_WINDOW_ALL_PARAM,
+  parseObserveDateRangeFromListUrl,
+  parseObserveListStatusesFromUrl,
+} from "@/lib/observe-list-deep-link";
 import { cn } from "@/lib/utils";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 
 type ListKind = "threads" | "traces" | "spans";
+
+/** 与 Collector `opik_spans.span_type` 一致；执行步骤表头筛选 */
+const OBSERVE_SPAN_TYPE_OPTIONS: readonly string[] = ["general", "tool", "llm", "guardrail"];
 
 type ObserveListUiState = {
   searchDraft: string;
@@ -75,6 +87,8 @@ type ObserveListUiState = {
   dateRange: ObserveDateRange;
   filterChannel: string;
   filterAgent: string;
+  /** 仅执行步骤列表使用；trace/会话始终为 "" */
+  filterSpanType: string;
   filterStatuses: ObserveListStatusParam[];
   sortKey: ObserveListSortParam;
   listOrder: "asc" | "desc";
@@ -89,6 +103,7 @@ function buildDefaultObserveListUiState(pageSize: number): ObserveListUiState {
     dateRange: defaultObserveDateRange(),
     filterChannel: "",
     filterAgent: "",
+    filterSpanType: "",
     filterStatuses: [],
     sortKey: "time",
     listOrder: "desc",
@@ -184,6 +199,62 @@ export default function TracesPage() {
     setSpansUi((prev) => ({ ...prev, pageSize: stored }));
   }, []);
 
+  /**
+   * 统计页深链：从 URL 应用时间窗与状态（不写 localStorage）。
+   * 必须用 useLayoutEffect：若放在 useEffect，会与 React Query 同帧的 passive effect 竞态——
+   * 列表请求会先用空的 filterStatuses 发出，Collector 即返回未按状态过滤的数据（含成功）。
+   */
+  useLayoutEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    const dr = parseObserveDateRangeFromListUrl(searchParams);
+    const kindParam = searchParams.get("kind");
+    const isStatsHandoff = searchParams.get(OBSERVE_FROM_STATS_PARAM) === OBSERVE_FROM_STATS_VALUE;
+
+    if (dr) {
+      setTracesUi((prev) => ({ ...prev, dateRange: dr, pageIndex: 0 }));
+      setThreadsUi((prev) => ({ ...prev, dateRange: dr, pageIndex: 0 }));
+      setSpansUi((prev) => ({ ...prev, dateRange: dr, pageIndex: 0 }));
+    }
+
+    if (kindParam === "spans") {
+      setSpansUi((prev) => {
+        const hasStatus = searchParams.has("status");
+        const hasSpanType = searchParams.has(OBSERVE_SPAN_TYPE_PARAM);
+        if (!hasStatus && !hasSpanType) {
+          return prev;
+        }
+        const next: ObserveListUiState = { ...prev, pageIndex: 0 };
+        if (hasStatus) {
+          next.filterStatuses = parseObserveListStatusesFromUrl(searchParams);
+        }
+        if (hasSpanType) {
+          next.filterSpanType = normalizeObserveListSpanTypeFromUrl(searchParams.get(OBSERVE_SPAN_TYPE_PARAM));
+        }
+        return next;
+      });
+    }
+    if (isStatsHandoff && kindParam === "traces") {
+      setSpansUi((prev) => ({ ...prev, filterStatuses: [], filterSpanType: "", pageIndex: 0 }));
+    }
+  }, [mounted, searchParams]);
+
+  /** 去掉 observe_from（保留 since_ms 等），放 useEffect 避免在 layout 阶段改路由 */
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    const isStatsHandoff = searchParams.get(OBSERVE_FROM_STATS_PARAM) === OBSERVE_FROM_STATS_VALUE;
+    if (!isStatsHandoff) {
+      return;
+    }
+    const p = new URLSearchParams(searchParams.toString());
+    p.delete(OBSERVE_FROM_STATS_PARAM);
+    const qs = p.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }, [mounted, pathname, router, searchParams]);
+
   const setPageSize = useCallback((n: number) => {
     writeStoredPageSize(n);
   }, []);
@@ -207,6 +278,7 @@ export default function TracesPage() {
     dateRange,
     filterChannel,
     filterAgent,
+    filterSpanType,
     filterStatuses,
     sortKey,
     listOrder,
@@ -231,10 +303,38 @@ export default function TracesPage() {
     updateCurrentUi((prev) => ({ ...prev, searchDraft: value }));
   }, [updateCurrentUi]);
 
-  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
-    updateCurrentUi((prev) => ({ ...prev, dateRange: next, pageIndex: 0 }));
-    writeStoredObserveDateRange(next);
-  }, [updateCurrentUi]);
+  const setDateRangePersist = useCallback(
+    (next: ObserveDateRange) => {
+      updateCurrentUi((prev) => ({ ...prev, dateRange: next, pageIndex: 0 }));
+      writeStoredObserveDateRange(next);
+      const p = new URLSearchParams(searchParams.toString());
+      let dirty = false;
+      for (const key of [
+        OBSERVE_FROM_STATS_PARAM,
+        "since_ms",
+        "until_ms",
+        OBSERVE_WINDOW_ALL_PARAM,
+      ] as const) {
+        if (p.has(key)) {
+          p.delete(key);
+          dirty = true;
+        }
+      }
+      if (p.has("status")) {
+        p.delete("status");
+        dirty = true;
+      }
+      if (p.has(OBSERVE_SPAN_TYPE_PARAM)) {
+        p.delete(OBSERVE_SPAN_TYPE_PARAM);
+        dirty = true;
+      }
+      if (dirty) {
+        const qs = p.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname);
+      }
+    },
+    [updateCurrentUi, searchParams, pathname, router],
+  );
 
   const setFilterChannel = useCallback((next: string) => {
     updateCurrentUi((prev) => ({ ...prev, filterChannel: next, pageIndex: 0 }));
@@ -242,6 +342,12 @@ export default function TracesPage() {
 
   const setFilterAgent = useCallback((next: string) => {
     updateCurrentUi((prev) => ({ ...prev, filterAgent: next, pageIndex: 0 }));
+  }, [updateCurrentUi]);
+
+  const setFilterSpanType = useCallback((next: string) => {
+    const v = next.trim().toLowerCase();
+    const ok = v === "" || OBSERVE_SPAN_TYPE_OPTIONS.includes(v);
+    updateCurrentUi((prev) => ({ ...prev, filterSpanType: ok ? v : "", pageIndex: 0 }));
   }, [updateCurrentUi]);
 
   const setFilterStatuses = useCallback((next: ObserveListStatusParam[]) => {
@@ -401,6 +507,7 @@ export default function TracesPage() {
         spansSinceUntil.untilMs ?? 0,
         spansUi.filterChannel,
         spansUi.filterAgent,
+        spansUi.filterSpanType,
         spansUi.filterStatuses.slice().sort().join(","),
       ] as const,
     [
@@ -411,6 +518,7 @@ export default function TracesPage() {
       spansSinceUntil.untilMs,
       spansUi.filterAgent,
       spansUi.filterChannel,
+      spansUi.filterSpanType,
       spansUi.filterStatuses,
       spansUi.listOrder,
       spansUi.pageIndex,
@@ -609,6 +717,7 @@ export default function TracesPage() {
         untilMs: spansSinceUntil.untilMs,
         channel: spansUi.filterChannel.trim() || undefined,
         agent: spansUi.filterAgent.trim() || undefined,
+        spanType: spansUi.filterSpanType.trim() || undefined,
         statuses: spansUi.filterStatuses.length > 0 ? spansUi.filterStatuses : undefined,
       }),
     enabled: listEnabled && listKind === "spans",
@@ -869,6 +978,7 @@ export default function TracesPage() {
   const observeFacetFilterCount =
     (filterChannel.trim() ? 1 : 0) +
     (filterAgent.trim() ? 1 : 0) +
+    (listKind === "spans" && filterSpanType.trim() ? 1 : 0) +
     ((listKind === "traces" || listKind === "spans") && filterStatuses.length > 0 ? 1 : 0);
   const filterCount =
     (!isObserveDateRangeAll(dateRange) ? 1 : 0) +
@@ -1096,6 +1206,9 @@ export default function TracesPage() {
                     agentFilter={filterAgent}
                     agentOptions={agentOptions}
                     onAgentFilterChange={setFilterAgent}
+                    spanTypeFilter={filterSpanType}
+                    spanTypeOptions={[...OBSERVE_SPAN_TYPE_OPTIONS]}
+                    onSpanTypeFilterChange={setFilterSpanType}
                     statusFilters={filterStatuses}
                     onStatusFiltersChange={setFilterStatuses}
                     hiddenOptional={spansColumns.hiddenOptional}

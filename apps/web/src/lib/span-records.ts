@@ -38,6 +38,8 @@ export type LoadSpanRecordsParams = {
   untilMs?: number;
   channel?: string;
   agent?: string;
+  /** 与 Collector `span_type` 一致：general | tool | llm | guardrail */
+  spanType?: string;
   statuses?: ObserveListStatusParam[];
   sort?: ObserveListSortParam;
 };
@@ -168,6 +170,9 @@ export async function loadSpanRecords(
   }
   if (params.agent != null && params.agent.trim().length > 0) {
     sp.set("agent", params.agent.trim().slice(0, 200));
+  }
+  if (params.spanType != null && params.spanType.trim().length > 0) {
+    sp.set("span_type", params.spanType.trim().toLowerCase().slice(0, 32));
   }
   if (params.statuses != null && params.statuses.length > 0) {
     for (const s of params.statuses) {

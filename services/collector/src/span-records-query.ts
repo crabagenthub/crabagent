@@ -3,6 +3,7 @@ import {
   clampFacetFilter,
   SPAN_ROW_TIMEOUT_LIKE_SQL,
   type ObserveListStatus,
+  type ObserveSpanListType,
 } from "./observe-list-filters.js";
 import { SPAN_ROW_TOKEN_INTEGER_EXPR } from "./opik-tokens-sql.js";
 import { parseUsageExtended } from "./semantic-spans-query.js";
@@ -17,10 +18,15 @@ export type SpanRecordsListQuery = {
   untilMs?: number;
   channel?: string;
   agent?: string;
+  /** 与 `opik_spans.span_type` CHECK 一致 */
+  spanType?: ObserveSpanListType;
   listStatuses?: ObserveListStatus[];
 };
 
 const PREVIEW = 4096;
+
+/** 与下方 list_status CASE 一致：先判定「无 error_info => success」，再区分 timeout / error */
+const SPAN_LIST_FAILURE_SQL = `TRIM(COALESCE(s.error_info_json, '')) <> ''`;
 
 const SPAN_SELECT = `
 SELECT s.span_id,
@@ -103,6 +109,12 @@ export function buildSpanRecordsWhere(q: SpanRecordsListQuery): { whereSql: stri
     params.push(agent);
   }
 
+  const stype = q.spanType;
+  if (stype === "general" || stype === "tool" || stype === "llm" || stype === "guardrail") {
+    whereParts.push("lower(s.span_type) = ?");
+    params.push(stype);
+  }
+
   const statuses = q.listStatuses;
   if (statuses && statuses.length > 0) {
     const parts: string[] = [];
@@ -112,11 +124,9 @@ export function buildSpanRecordsWhere(q: SpanRecordsListQuery): { whereSql: stri
       } else if (st === "success") {
         parts.push("s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) = ''");
       } else if (st === "error") {
-        parts.push(
-          `s.is_complete = 1 AND TRIM(COALESCE(s.error_info_json, '')) <> '' AND NOT ${SPAN_ROW_TIMEOUT_LIKE_SQL}`,
-        );
+        parts.push(`s.is_complete = 1 AND ${SPAN_LIST_FAILURE_SQL} AND NOT ${SPAN_ROW_TIMEOUT_LIKE_SQL}`);
       } else if (st === "timeout") {
-        parts.push(`s.is_complete = 1 AND ${SPAN_ROW_TIMEOUT_LIKE_SQL}`);
+        parts.push(`s.is_complete = 1 AND ${SPAN_LIST_FAILURE_SQL} AND ${SPAN_ROW_TIMEOUT_LIKE_SQL}`);
       }
     }
     if (parts.length === 1) {

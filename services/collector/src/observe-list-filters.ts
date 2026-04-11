@@ -23,6 +23,19 @@ export function parseObserveListStatus(raw: string | undefined): ObserveListStat
 /**
  * 解析 `status` 查询：支持重复键 `?status=error&status=timeout` 与逗号分隔 `?status=error,timeout`（可混用）。
  */
+export type ObserveSpanListType = "general" | "tool" | "llm" | "guardrail";
+
+export function parseObserveSpanListType(raw: string | undefined): ObserveSpanListType | undefined {
+  if (raw == null) {
+    return undefined;
+  }
+  const t = raw.trim().toLowerCase();
+  if (t === "general" || t === "tool" || t === "llm" || t === "guardrail") {
+    return t;
+  }
+  return undefined;
+}
+
 export function parseObserveListStatusesFromSearchParams(sp: URLSearchParams): ObserveListStatus[] | undefined {
   const raw = sp.getAll("status");
   const parts: string[] = [];

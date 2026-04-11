@@ -14,7 +14,7 @@ type Props = {
   value: string;
   options: string[];
   onChange: (next: string) => void;
-  ariaLabelKey: "channelColumnFilterAria" | "agentColumnFilterAria";
+  ariaLabelKey: "channelColumnFilterAria" | "agentColumnFilterAria" | "spanTypeColumnFilterAria";
 };
 
 /** Funnel + popover list, same interaction as {@link ObserveStatusColumnFilter}. */

@@ -7,7 +7,6 @@ import {
   IconArrowRise,
   IconRefresh,
   IconShareExternal,
-  IconBranch
 } from "@arco-design/web-react/icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +51,7 @@ import { loadTraceRecords } from "@/lib/trace-records";
 import { cn } from "@/lib/utils";
 import { ActivityTimeline } from "@/components/activity-timeline";
 import { LocalizedLink } from "@/components/localized-link";
+import { buildTracesListDeepLink } from "@/lib/observe-list-deep-link";
 import { loadActivityTimelineData } from "@/lib/activity-timeline-data";
 import { BarChart3, LineChart } from "lucide-react";
 
@@ -82,9 +82,9 @@ function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
 function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
   const palette =
     tone === "green"
-      ? "bg-[#E8FFEA] text-[#00815c] border border-[#00815c]"
+      ? "bg-[#E8FFEA] text-[#00B42A]"
       : tone === "red"
-        ? "bg-[#FFECE8] text-[#F53F3F] border border-[#F53F3F]"
+        ? "bg-[#FFECE8] text-[#F53F3F]"
         : "bg-[#F2F3F5] text-[#86909C]";
   return (
     <span
@@ -103,7 +103,7 @@ function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
 const kpiCardShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
 
-/** 消息列表（Trace）页，与总览同一时间窗需在目标页自行选择或已持久化 */
+/** 消息列表页默认入口（其它 KPI 仍指向列表，由用户在目标页选时间） */
 const OVERVIEW_KPI_TRACES_HREF = "/traces";
 
 type KpiCardProps = {
@@ -113,14 +113,16 @@ type KpiCardProps = {
   suffix?: string;
   mom?: number | null;
   momLabel: string;
-  /** 悬停时显示「查看」，指向 Trace / 消息列表 */
+  /** 可跳转时：悬停显示「查看」；仅「查看」在新标签页打开 */
   tracesHref?: string;
+  hrefAriaLabel?: string;
 };
 
-function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiCardProps) {
+function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref, hrefAriaLabel }: KpiCardProps) {
   const tOv = useTranslations("Overview");
   const momM = momTagMeta(mom ?? null);
-  return (
+
+  const card = (
     <Card
       bordered={false}
       className={cn(kpiCardShellClass, tracesHref ? "group" : null)}
@@ -128,13 +130,13 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiC
     >
       <div className="mb-3 flex flex-row items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
-          <Typography.Text className="text-[13px] font-medium  dark:text-muted-foreground">
+          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
             {title}
           </Typography.Text>
           {hint ? (
             <TitleHintIcon
               tooltipText={hint}
-              iconClassName="h-3.5 w-3.5 dark:text-muted-foreground"
+              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
               className="shrink-0"
             />
           ) : null}
@@ -143,16 +145,17 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiC
           <LocalizedLink
             href={tracesHref}
             prefetch={false}
-            aria-label={tOv("kpiViewTracesAria")}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={hrefAriaLabel ?? tOv("kpiViewTracesAria")}
             className={cn(
               "relative z-[1] inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium",
               "text-primary opacity-0 transition-opacity duration-150",
               "group-hover:opacity-100 focus-visible:opacity-100",
               "hover:underline",
             )}
-            onClick={(e) => e.stopPropagation()}
           >
-            <IconBranch className="size-3.5 shrink-0" aria-hidden />
+            <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
             {tOv("kpiViewTraces")}
           </LocalizedLink>
         ) : null}
@@ -171,6 +174,7 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref }: KpiC
       </div>
     </Card>
   );
+  return card;
 }
 
 type ChartCardProps = {
@@ -241,6 +245,74 @@ export function OverviewDashboard() {
   }, [queryClient]);
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
+
+  const kpiMessagesListHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({ kind: "traces", sinceMs, untilMs, windowAll });
+  }, [dateRange, sinceMs, untilMs]);
+
+  const kpiSpansErrListHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({
+      kind: "spans",
+      sinceMs,
+      untilMs,
+      windowAll,
+      statuses: ["error", "timeout"],
+      spanType: "",
+    });
+  }, [dateRange, sinceMs, untilMs]);
+
+  const kpiModelErrSpansHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({
+      kind: "spans",
+      sinceMs,
+      untilMs,
+      windowAll,
+      statuses: ["error", "timeout"],
+      spanType: "llm",
+    });
+  }, [dateRange, sinceMs, untilMs]);
+
+  /** 统计时间窗 + LLM 步骤、无状态筛选（与模型耗时 / Tokens 等指标口径一致） */
+  const kpiSpansStatsLlmOnlyHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({
+      kind: "spans",
+      sinceMs,
+      untilMs,
+      windowAll,
+      spanType: "llm",
+      clearStatusParam: true,
+    });
+  }, [dateRange, sinceMs, untilMs]);
+
+  /** 统计时间窗 + tool 步骤、无状态筛选（与工具调用次数 / 工具耗时均值口径一致） */
+  const kpiSpansStatsToolOnlyHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({
+      kind: "spans",
+      sinceMs,
+      untilMs,
+      windowAll,
+      spanType: "tool",
+      clearStatusParam: true,
+    });
+  }, [dateRange, sinceMs, untilMs]);
+
+  /** 统计时间窗 + tool 步骤 + error/timeout（与工具调用错误率口径一致） */
+  const kpiToolErrSpansHref = useMemo(() => {
+    const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
+    return buildTracesListDeepLink({
+      kind: "spans",
+      sinceMs,
+      untilMs,
+      windowAll,
+      statuses: ["error", "timeout"],
+      spanType: "tool",
+    });
+  }, [dateRange, sinceMs, untilMs]);
 
   const setDateRangePersist = useCallback((next: ObserveDateRange) => {
     setDateRange(next);
@@ -526,7 +598,8 @@ export function OverviewDashboard() {
                 suffix={t("unitTimes")}
                 mom={model === "__all__" ? overview.kpis.momUsage : null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiMessagesListHref}
+                hrefAriaLabel={t("kpiDeepLinkMessagesAria")}
               />
               <KpiCard
                 title={t("kpiSpanErr")}
@@ -535,7 +608,8 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiSpansErrListHref}
+                hrefAriaLabel={t("kpiDeepLinkSpansErrAria")}
               />
               <KpiCard
                 title={t("kpiModelErr")}
@@ -544,7 +618,8 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiModelErrSpansHref}
+                hrefAriaLabel={t("kpiDeepLinkModelErrAria")}
               />
               <KpiCard
                 title={t("kpiModelDur")}
@@ -553,7 +628,8 @@ export function OverviewDashboard() {
                 suffix="ms"
                 mom={null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiSpansStatsLlmOnlyHref}
+                hrefAriaLabel={t("kpiDeepLinkModelDurAria")}
               />
               <KpiCard
                 title={t("kpiTokens")}
@@ -562,7 +638,8 @@ export function OverviewDashboard() {
                 suffix={t("unitWanTokens")}
                 mom={model === "__all__" ? overview.kpis.momTokens : null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiSpansStatsLlmOnlyHref}
+                hrefAriaLabel={t("kpiDeepLinkModelTokensAria")}
               />
               <KpiCard
                 title={t("kpiToolCalls")}
@@ -571,7 +648,8 @@ export function OverviewDashboard() {
                 suffix={t("unitTimes")}
                 mom={model === "__all__" ? overview.kpis.momToolCalls : null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiSpansStatsToolOnlyHref}
+                hrefAriaLabel={t("kpiDeepLinkToolCallsAria")}
               />
               <KpiCard
                 title={t("kpiToolErr")}
@@ -580,7 +658,8 @@ export function OverviewDashboard() {
                 suffix="%"
                 mom={null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiToolErrSpansHref}
+                hrefAriaLabel={t("kpiDeepLinkToolErrAria")}
               />
               <KpiCard
                 title={t("kpiToolDur")}
@@ -589,7 +668,8 @@ export function OverviewDashboard() {
                 suffix="ms"
                 mom={null}
                 momLabel={t("mom")}
-                tracesHref={OVERVIEW_KPI_TRACES_HREF}
+                tracesHref={kpiSpansStatsToolOnlyHref}
+                hrefAriaLabel={t("kpiDeepLinkToolDurAria")}
               />
             </section>
 
@@ -705,7 +785,7 @@ export function OverviewDashboard() {
                         </>
                       ) : null}
                     </div>
-                    <Space size={8} className="shrink-0 items-center lg:pt-0.5">
+                    <Space size={8} className="shrink-0 flex-wrap items-center lg:pt-0.5">
                       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                         {t("tokenUnitLabel")}
                       </Typography.Text>
@@ -719,51 +799,49 @@ export function OverviewDashboard() {
                         <Radio value="k">{t("unitKTokens")}</Radio>
                         <Radio value="wan">{t("unitWanTokens")}</Radio>
                       </Radio.Group>
+                      <div
+                        className="flex rounded-md border border-solid border-[#E5E6EB] bg-white p-0.5 shadow-sm dark:border-border dark:bg-card"
+                        role="group"
+                        aria-label={`${t("tokenChartLine")} / ${t("tokenChartBar")}`}
+                      >
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex size-8 items-center justify-center rounded transition-colors",
+                            tokenChartKind === "line"
+                              ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
+                              : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
+                          )}
+                          aria-pressed={tokenChartKind === "line"}
+                          aria-label={t("tokenChartLine")}
+                          onClick={() => setTokenChartKind("line")}
+                        >
+                          <LineChart className="size-4" strokeWidth={1.75} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex size-8 items-center justify-center rounded transition-colors",
+                            tokenChartKind === "bar"
+                              ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
+                              : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
+                          )}
+                          aria-pressed={tokenChartKind === "bar"}
+                          aria-label={t("tokenChartBar")}
+                          onClick={() => setTokenChartKind("bar")}
+                        >
+                          <BarChart3 className="size-4" strokeWidth={1.75} aria-hidden />
+                        </button>
+                      </div>
                     </Space>
                   </div>
 
-                  <div className="relative w-full min-w-0">
-                    <div
-                      className="absolute right-0 top-0 z-[2] flex rounded-md border border-solid border-[#E5E6EB] bg-white p-0.5 shadow-sm dark:border-border dark:bg-card"
-                      role="group"
-                      aria-label={t("sectionTokens")}
-                    >
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-8 items-center justify-center rounded transition-colors",
-                          tokenChartKind === "line"
-                            ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
-                            : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
-                        )}
-                        aria-pressed={tokenChartKind === "line"}
-                        aria-label={t("tokenChartLine")}
-                        onClick={() => setTokenChartKind("line")}
-                      >
-                        <LineChart className="size-4" strokeWidth={1.75} aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-8 items-center justify-center rounded transition-colors",
-                          tokenChartKind === "bar"
-                            ? "bg-[#F2F3F5] text-[#1D2129] dark:bg-muted dark:text-foreground"
-                            : "text-[#86909C] hover:bg-[#F7F8FA] dark:text-muted-foreground dark:hover:bg-muted/60",
-                        )}
-                        aria-pressed={tokenChartKind === "bar"}
-                        aria-label={t("tokenChartBar")}
-                        onClick={() => setTokenChartKind("bar")}
-                      >
-                        <BarChart3 className="size-4" strokeWidth={1.75} aria-hidden />
-                      </button>
-                    </div>
-                    <div className="h-[320px] w-full min-w-0 pt-10">
-                      {tokenSeries.length === 0 ? (
-                        <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
-                      ) : (
-                        <ReactEChart key={tokenChartKind} option={echartsOpts!.token} />
-                      )}
-                    </div>
+                  <div className="h-[320px] w-full min-w-0">
+                    {tokenSeries.length === 0 ? (
+                      <p className="py-16 text-center text-sm text-muted-foreground">{t("noChartData")}</p>
+                    ) : (
+                      <ReactEChart key={tokenChartKind} option={echartsOpts!.token} />
+                    )}
                   </div>
                 </div>
               </ChartCard>

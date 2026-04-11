@@ -130,6 +130,9 @@ export function SpansDataTable({
   agentFilter = "",
   agentOptions = [],
   onAgentFilterChange,
+  spanTypeFilter = "",
+  spanTypeOptions = [],
+  onSpanTypeFilterChange,
   statusFilters = [],
   onStatusFiltersChange,
   emptyBody,
@@ -147,6 +150,9 @@ export function SpansDataTable({
   agentFilter?: string;
   agentOptions?: string[];
   onAgentFilterChange?: (next: string) => void;
+  spanTypeFilter?: string;
+  spanTypeOptions?: string[];
+  onSpanTypeFilterChange?: (next: string) => void;
   statusFilters?: ObserveListStatusParam[];
   onStatusFiltersChange?: (next: ObserveListStatusParam[]) => void;
   emptyBody?: ReactNode;
@@ -201,7 +207,21 @@ export function SpansDataTable({
   const allColumns: TableColumnProps<SpanRecordRow>[] = useMemo(
     () => [
       {
-        title: <ObserveTableHeaderLabel>{t("spansColSpanId")}</ObserveTableHeaderLabel>,
+        title:
+          onSpanTypeFilterChange && spanTypeOptions.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <ObserveFacetColumnFilter
+                label={t("spansFilterSpanType")}
+                value={spanTypeFilter}
+                options={spanTypeOptions}
+                onChange={onSpanTypeFilterChange}
+                ariaLabelKey="spanTypeColumnFilterAria"
+              />
+              <ObserveTableHeaderLabel>{t("spansColSpanId")}</ObserveTableHeaderLabel>
+            </div>
+          ) : (
+            <ObserveTableHeaderLabel>{t("spansColSpanId")}</ObserveTableHeaderLabel>
+          ),
         dataIndex: "span_id",
         key: "span_id",
         fixed: "left",
@@ -407,6 +427,9 @@ export function SpansDataTable({
       agentFilter,
       agentOptions,
       onAgentFilterChange,
+      spanTypeFilter,
+      spanTypeOptions,
+      onSpanTypeFilterChange,
       statusFilters,
       onStatusFiltersChange,
     ],

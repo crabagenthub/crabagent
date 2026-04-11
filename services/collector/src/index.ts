@@ -12,7 +12,10 @@ import {
   resolveCanonicalTraceIdForSpanQuery,
 } from "./semantic-spans-query.js";
 import { queryTraceMessages } from "./trace-messages-query.js";
-import { parseObserveListStatusesFromSearchParams } from "./observe-list-filters.js";
+import {
+  parseObserveListStatusesFromSearchParams,
+  parseObserveSpanListType,
+} from "./observe-list-filters.js";
 import {
   countResourceAuditEvents,
   queryResourceAuditEvents,
@@ -426,9 +429,10 @@ const handleSpanRecords = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
+  const spanType = parseObserveSpanListType(optionalQueryString(c, "span_type"));
   const listStatuses = parseObserveListStatusesFromSearchParams(new URL(c.req.url, "http://127.0.0.1").searchParams);
 
-  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, listStatuses };
+  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, spanType, listStatuses };
   const items = querySpanRecords(db, listQuery);
   const total = countSpanRecords(db, listQuery);
   return c.json({ items, total });
