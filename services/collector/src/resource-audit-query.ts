@@ -331,7 +331,6 @@ export type ResourceAuditStatsJson = {
     avg_duration_ms: number | null;
   }[];
   top_tools: { span_name: string; count: number }[];
-  by_access_mode: { access_mode: string; count: number }[];
   by_workspace: { workspace_name: string; count: number }[];
 };
 
@@ -421,18 +420,6 @@ LIMIT 12
 `;
   const toolRows = db.prepare(toolsSql).all(...params) as Record<string, unknown>[];
 
-  const modeSql = `
-SELECT COALESCE(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.access_mode')), ''), '(unknown)') AS mode,
-       COUNT(*) AS cnt
-FROM opik_spans s
-LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
-${whereSql}
-GROUP BY mode
-ORDER BY cnt DESC
-LIMIT 12
-`;
-  const modeRows = db.prepare(modeSql).all(...params) as Record<string, unknown>[];
-
   const wsSql = `
 SELECT COALESCE(NULLIF(TRIM(t.workspace_name), ''), 'default') AS ws,
        COUNT(*) AS cnt
@@ -480,10 +467,6 @@ LIMIT 10
     })),
     top_tools: toolRows.map((r) => ({
       span_name: String(r.tool_name ?? ""),
-      count: Number(r.cnt ?? 0),
-    })),
-    by_access_mode: modeRows.map((r) => ({
-      access_mode: String(r.mode ?? ""),
       count: Number(r.cnt ?? 0),
     })),
     by_workspace: wsRows.map((r) => ({

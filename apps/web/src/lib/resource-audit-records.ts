@@ -49,7 +49,6 @@ export type ResourceAuditStats = {
     avg_duration_ms: number | null;
   }[];
   top_tools: { span_name: string; count: number }[];
-  by_access_mode: { access_mode: string; count: number }[];
   by_workspace: { workspace_name: string; count: number }[];
 };
 
@@ -97,7 +96,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
       class_distribution: [],
       daily_io: [],
       top_tools: [],
-      by_access_mode: [],
       by_workspace: [],
     };
   }
@@ -138,12 +136,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
         count: Number(r.count ?? 0),
       }))
     : [];
-  const by_access_mode = Array.isArray(o.by_access_mode)
-    ? (o.by_access_mode as Record<string, unknown>[]).map((r) => ({
-        access_mode: String(r.access_mode ?? ""),
-        count: Number(r.count ?? 0),
-      }))
-    : [];
   const by_workspace = Array.isArray(o.by_workspace)
     ? (o.by_workspace as Record<string, unknown>[]).map((r) => ({
         workspace_name: String(r.workspace_name ?? ""),
@@ -157,7 +149,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
     class_distribution,
     daily_io,
     top_tools,
-    by_access_mode,
     by_workspace,
   };
 }

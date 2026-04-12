@@ -427,6 +427,19 @@ body {
 }
 
 /**
+ * 分页圆角：访问审计流水、观测页底栏（会话列表 / 消息列表 / 步骤列表共用）。
+ * 页码与上一页下一页选中态背景、每页条数下拉里选项。（「前往」输入框见下方全局规则。）
+ */
+.resource-audit-audit-log-pagination.arco-pagination .arco-pagination-list > .arco-pagination-item,
+.observe-traces-list-pagination.arco-pagination .arco-pagination-list > .arco-pagination-item {
+  border-radius: var(--radius);
+}
+.resource-audit-audit-log-pagination .arco-select-popup .arco-select-option,
+.observe-traces-list-pagination .arco-select-popup .arco-select-option {
+  border-radius: var(--radius);
+}
+
+/**
  * Arco 表单控件全局圆角（与 `--radius` 一致；`arco.css` 默认偏小）
  */
 .arco-input-inner-wrapper,
@@ -437,7 +450,10 @@ body {
 .arco-picker,
 .arco-picker-range,
 .arco-input-number .arco-input-inner-wrapper,
-.arco-cascader-view {
+.arco-cascader-view,
+.arco-pagination .arco-pagination-jumper .arco-input-inner-wrapper,
+.arco-pagination-jumper-input.arco-input .arco-input-inner-wrapper,
+.arco-pagination .arco-pagination-jumper-input {
   border-radius: var(--radius) !important;
 }
 

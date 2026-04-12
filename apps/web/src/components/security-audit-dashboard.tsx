@@ -321,7 +321,6 @@ export function SecurityAuditDashboard() {
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="ca-page-title">{t("title")}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
             {traceFromUrl || spanFromUrl ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
                 {traceFromUrl ? (
@@ -358,11 +357,7 @@ export function SecurityAuditDashboard() {
         </header>
 
         <section aria-label={t("timelineSectionTitle")} className="space-y-3">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-foreground">{t("timelineSectionTitle")}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t("timelineBlurb")}</p>
-          </div>
-          <p className="text-xs text-muted-foreground">{t("chartSampleNote")}</p>
+          <h2 className="text-base font-semibold tracking-tight text-foreground">{t("timelineSectionTitle")}</h2>
           <div className="grid gap-4 lg:grid-cols-3">
             <Card title={t("chartRiskTrend")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
               {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : riskTrendChart}

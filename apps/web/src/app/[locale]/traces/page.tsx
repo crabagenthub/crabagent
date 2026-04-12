@@ -1235,7 +1235,7 @@ export default function TracesPage() {
                 {t("paginationTotalPages", { count: String(totalPages) })}
               </span>
               <ArcoPagination
-                className="mx-0"
+                className={cn("observe-traces-list-pagination", "mx-0")}
                 size="small"
                 current={pageIndex + 1}
                 pageSize={pageSize}

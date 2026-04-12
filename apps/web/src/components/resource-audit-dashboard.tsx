@@ -2,7 +2,6 @@
 
 import "@/lib/arco-react19-setup";
 import {
-  Alert,
   Button,
   Card,
   Input,
@@ -539,30 +538,6 @@ export function ResourceAuditDashboard() {
     );
   }, [statsQ.data?.top_tools, t]);
 
-  const modeBarOpt = useMemo(() => {
-    const modes = statsQ.data?.by_access_mode ?? [];
-    if (!modes.length) {
-      return null;
-    }
-    return resourceHBarOption(
-      modes.map((x) => ({ label: x.access_mode, value: x.count })),
-      t("chartAccessMode"),
-      "#14b8a6",
-    );
-  }, [statsQ.data?.by_access_mode, t]);
-
-  const workspaceBarOpt = useMemo(() => {
-    const ws = statsQ.data?.by_workspace ?? [];
-    if (!ws.length) {
-      return null;
-    }
-    return resourceHBarOption(
-      ws.map((x) => ({ label: x.workspace_name, value: x.count })),
-      t("chartWorkspaces"),
-      "#6366f1",
-    );
-  }, [statsQ.data?.by_workspace, t]);
-
   if (!mounted) {
     return (
       <AppPageShell variant="overview">
@@ -601,10 +576,6 @@ export function ResourceAuditDashboard() {
 
   const summary = statsQ.data?.summary;
   const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
-  const riskInsightPct =
-    summary && summary.total_events > 0 && summary.risk_any > 0
-      ? Math.round((summary.risk_any / summary.total_events) * 1000) / 10
-      : null;
 
   return (
     <AppPageShell variant="overview">
@@ -636,9 +607,6 @@ export function ResourceAuditDashboard() {
           <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
             {t("sectionKpi")}
           </Typography.Title>
-          <Typography.Text type="secondary" className="block text-xs">
-            {t("kpiFootnote")}
-          </Typography.Text>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
@@ -692,17 +660,6 @@ export function ResourceAuditDashboard() {
               </div>
             </Card>
           </div>
-          {riskInsightPct != null ? (
-            <Alert
-              type="warning"
-              className="text-sm"
-              content={t("riskInsightBanner", {
-                pct: String(riskInsightPct),
-                n: String(summary!.risk_any),
-                total: String(summary!.total_events),
-              })}
-            />
-          ) : null}
         </section>
 
         {isEmptyRange ? (
@@ -724,17 +681,8 @@ export function ResourceAuditDashboard() {
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionDashboard")}
             </Typography.Title>
-            <Typography.Text type="secondary" className="block text-xs">
-              {t("dashboardHint")}
-            </Typography.Text>
-            <Typography.Text type="secondary" className="block text-[11px]">
-              {t("chartSampleNote")}
-            </Typography.Text>
             <div className="grid gap-4 lg:grid-cols-3">
             <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
-              <Typography.Text type="secondary" className="mb-2 block text-[11px]">
-                {t("topResourcesHint")}
-              </Typography.Text>
               <ul className="space-y-2 text-sm">
                 {(statsQ.data?.top_resources ?? []).length === 0 ? (
                   <li className="text-muted-foreground">—</li>
@@ -792,41 +740,17 @@ export function ResourceAuditDashboard() {
             )}
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {toolsBarOpt ? (
-                <div className="h-[240px] w-full min-w-0">
-                  <ReactEChart option={toolsBarOpt} />
-                </div>
-              ) : (
-                <Typography.Text type="secondary" className="text-sm">
-                  —
-                </Typography.Text>
-              )}
-            </Card>
-            <Card title={t("chartAccessMode")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {modeBarOpt ? (
-                <div className="h-[240px] w-full min-w-0">
-                  <ReactEChart option={modeBarOpt} />
-                </div>
-              ) : (
-                <Typography.Text type="secondary" className="text-sm">
-                  —
-                </Typography.Text>
-              )}
-            </Card>
-            <Card title={t("chartWorkspaces")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {workspaceBarOpt ? (
-                <div className="h-[240px] w-full min-w-0">
-                  <ReactEChart option={workspaceBarOpt} />
-                </div>
-              ) : (
-                <Typography.Text type="secondary" className="text-sm">
-                  —
-                </Typography.Text>
-              )}
-            </Card>
-          </div>
+          <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+            {toolsBarOpt ? (
+              <div className="h-[240px] w-full min-w-0">
+                <ReactEChart option={toolsBarOpt} />
+              </div>
+            ) : (
+              <Typography.Text type="secondary" className="text-sm">
+                —
+              </Typography.Text>
+            )}
+          </Card>
           </section>
         ) : null}
 
@@ -939,6 +863,7 @@ export function ResourceAuditDashboard() {
                     })}
                   </span>
                   <Pagination
+                    className="resource-audit-audit-log-pagination"
                     size="small"
                     current={page}
                     pageSize={pageSize}
