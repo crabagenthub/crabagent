@@ -48,7 +48,6 @@ import {
 } from "@/lib/observe-table-style";
 import {
   resourceClassPieFromNamed,
-  resourceDailyCharsBarOption,
   resourceDailyIoOption,
   resourceHBarOption,
   resourceRiskBarOption,
@@ -92,6 +91,30 @@ function maskUri(uri: string): string {
     return uri;
   }
   return `...${uri.slice(-MAX_LENGTH)}`;
+}
+
+/** `memory://search?q=…` 中 q 为 encodeURIComponent 结果；展示时解码为可读文本（筛选/复制仍用原始 URI）。 */
+function formatMemorySearchUriForDisplay(uri: string): string {
+  if (!uri) {
+    return uri;
+  }
+  if (!uri.toLowerCase().startsWith("memory://search")) {
+    return uri;
+  }
+  const qm = uri.indexOf("?");
+  if (qm < 0) {
+    return uri;
+  }
+  try {
+    const sp = new URLSearchParams(uri.slice(qm + 1));
+    const q = sp.get("q");
+    if (q === null) {
+      return uri;
+    }
+    return `memory://search?q=${q}`;
+  } catch {
+    return uri;
+  }
 }
 
 function classLabel(
@@ -341,10 +364,12 @@ export function ResourceAuditDashboard() {
         key: "resource_uri",
         fixed: "left",
         width: 280,
-        render: (uri: string) => (
+        render: (uri: string) => {
+          const displayUri = formatMemorySearchUriForDisplay(uri);
+          return (
           <div className="flex items-center gap-1">
-            <Popover content={<div className="max-w-md break-all text-xs">{uri || "—"}</div>}>
-              <span className="text-xs">{maskUri(uri)}</span>
+            <Popover content={<div className="max-w-md break-all text-xs">{displayUri || "—"}</div>}>
+              <span className="text-xs">{maskUri(displayUri)}</span>
             </Popover>
             {uri && (
               <TraceCopyIconButton
@@ -356,7 +381,8 @@ export function ResourceAuditDashboard() {
               />
             )}
           </div>
-        ),
+          );
+        },
       },
       {
         title: <ColHintTitle label={t("colClass")} hint={t("colClassHint")} />,
@@ -400,14 +426,6 @@ export function ResourceAuditDashboard() {
         width: 100,
         render: (n: number | null) => (
           <span className="tabular-nums text-xs">{n != null ? n.toLocaleString() : "—"}</span>
-        ),
-      },
-      {
-        title: <ColHintTitle label={t("relevance")} hint={t("relevanceHint")} />,
-        dataIndex: "relevance_max",
-        width: 88,
-        render: (n: number | null) => (
-          <span className="tabular-nums text-xs">{n != null ? n.toFixed(3) : "—"}</span>
         ),
       },
       {
@@ -477,28 +495,9 @@ export function ResourceAuditDashboard() {
     }));
   }, [statsQ.data?.daily_io]);
 
-  const dailyCharsRows = useMemo(() => {
-    const io = statsQ.data?.daily_io;
-    if (!io?.length) {
-      return null;
-    }
-    const rows = io
-      .filter((d) => d.day && d.sum_chars != null && d.sum_chars > 0)
-      .map((d) => ({
-        day: d.day.length >= 10 ? d.day.slice(5) : d.day,
-        chars: Math.round(Number(d.sum_chars)),
-      }));
-    return rows.length ? rows : null;
-  }, [statsQ.data?.daily_io]);
-
   const dailyOpt = useMemo(
     () => (dailyRows ? resourceDailyIoOption(dailyRows, t("seriesEvents"), t("seriesAvgMs")) : null),
     [dailyRows, t],
-  );
-
-  const dailyCharsOpt = useMemo(
-    () => (dailyCharsRows ? resourceDailyCharsBarOption(dailyCharsRows, t("seriesDailyChars")) : null),
-    [dailyCharsRows, t],
   );
 
   const classPieOpt = useMemo(() => {
@@ -593,17 +592,6 @@ export function ResourceAuditDashboard() {
     dailyRows && dailyOpt ? (
       <div className="h-[220px] w-full min-w-0">
         <ReactEChart option={dailyOpt} />
-      </div>
-    ) : (
-      <Typography.Text type="secondary" className="text-sm">
-        —
-      </Typography.Text>
-    );
-
-  const dailyCharsChart =
-    dailyCharsOpt != null ? (
-      <div className="h-[200px] w-full min-w-0">
-        <ReactEChart option={dailyCharsOpt} />
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
@@ -759,7 +747,7 @@ export function ResourceAuditDashboard() {
                         onClick={() => filterByResourceUri(r.uri)}
                       >
                         <Typography.Text ellipsis className="text-xs font-medium text-primary">
-                          {maskUri(r.uri)}
+                          {maskUri(formatMemorySearchUriForDisplay(r.uri))}
                         </Typography.Text>
                         <span className="text-[11px] text-muted-foreground">
                           {r.count}×
@@ -792,22 +780,17 @@ export function ResourceAuditDashboard() {
             </Card>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card title={t("chartDailyCharsTitle")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyCharsChart}
-            </Card>
-            <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {riskBarOpt ? (
-                <div className="h-[200px] w-full min-w-0">
-                  <ReactEChart option={riskBarOpt} />
-                </div>
-              ) : (
-                <Typography.Text type="secondary" className="text-sm">
-                  {t("emptyRiskChart")}
-                </Typography.Text>
-              )}
-            </Card>
-          </div>
+          <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+            {riskBarOpt ? (
+              <div className="h-[200px] w-full min-w-0">
+                <ReactEChart option={riskBarOpt} />
+              </div>
+            ) : (
+              <Typography.Text type="secondary" className="text-sm">
+                {t("emptyRiskChart")}
+              </Typography.Text>
+            )}
+          </Card>
 
           <div className="grid gap-4 lg:grid-cols-3">
             <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>

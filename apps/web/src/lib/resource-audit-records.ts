@@ -18,7 +18,6 @@ export type ResourceAuditEventRow = {
   chars: number | null;
   snippet: string | null;
   semantic_class: string;
-  relevance_max: number | null;
   uri_repeat_count: number;
   risk_flags: string[];
 };
@@ -48,7 +47,6 @@ export type ResourceAuditStats = {
     day: string;
     event_count: number;
     avg_duration_ms: number | null;
-    sum_chars: number | null;
   }[];
   top_tools: { span_name: string; count: number }[];
   by_access_mode: { access_mode: string; count: number }[];
@@ -132,10 +130,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
           r.avg_duration_ms != null && r.avg_duration_ms !== "" && Number.isFinite(Number(r.avg_duration_ms))
             ? Number(r.avg_duration_ms)
             : null,
-        sum_chars:
-          r.sum_chars != null && r.sum_chars !== "" && Number.isFinite(Number(r.sum_chars))
-            ? Number(r.sum_chars)
-            : null,
       }))
     : [];
   const top_tools = Array.isArray(o.top_tools)
@@ -203,10 +197,6 @@ function normalizeEvent(r: Record<string, unknown>): ResourceAuditEventRow {
       r.chars != null && r.chars !== "" && Number.isFinite(Number(r.chars)) ? Number(r.chars) : null,
     snippet: r.snippet != null ? String(r.snippet) : null,
     semantic_class: String(r.semantic_class ?? ""),
-    relevance_max:
-      r.relevance_max != null && r.relevance_max !== "" && Number.isFinite(Number(r.relevance_max))
-        ? Number(r.relevance_max)
-        : null,
     uri_repeat_count: Number(r.uri_repeat_count ?? 0) || 0,
     risk_flags,
   };

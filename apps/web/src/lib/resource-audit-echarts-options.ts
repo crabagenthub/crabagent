@@ -58,37 +58,6 @@ export function resourceDailyIoOption(
   };
 }
 
-export function resourceDailyCharsBarOption(
-  rows: { day: string; chars: number }[],
-  labelChars: string,
-): EChartsOption {
-  return {
-    grid: { left: 4, right: 10, top: 28, bottom: 4, containLabel: true },
-    tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
-    legend: { top: 0, textStyle: { fontSize: 11, color: MUTED } },
-    xAxis: {
-      type: "category",
-      data: rows.map((r) => r.day),
-      axisLabel: { fontSize: 11, color: MUTED },
-      axisLine: { lineStyle: { color: MUTED } },
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { fontSize: 11, color: MUTED },
-      splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
-    },
-    series: [
-      {
-        name: labelChars,
-        type: "bar",
-        data: rows.map((r) => r.chars),
-        itemStyle: { color: "#6366f1", borderRadius: [3, 3, 0, 0] },
-        barMaxWidth: 22,
-      },
-    ],
-  };
-}
-
 export function resourceClassPieFromNamed(items: { name: string; value: number }[]): EChartsOption {
   const data: NamedPct[] = items.map((d) => ({ name: d.name, value: d.value, pct: 0 }));
   return pieSimpleOption(data);

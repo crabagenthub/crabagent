@@ -35,6 +35,68 @@ describe("enrichToolSpanResourceAudit", () => {
     assert.equal(res.access_mode, "read");
   });
 
+  it("write chars = UTF-8–normalized character count of params.content (not bytes in success message)", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "write",
+      input: {
+        params: {
+          path: "/Users/lucbine/Documents/AI学习小卫士/healthy_study_guardian/设计文档.md",
+          content: "# short",
+        },
+      },
+      output: {
+        result:
+          "Successfully wrote 5158 bytes to /Users/lucbine/Documents/AI学习小卫士/healthy_study_guardian/设计文档.md",
+      },
+    };
+    enrichToolSpanResourceAudit(span);
+    const res = (span.metadata as Record<string, unknown>).resource as Record<string, unknown>;
+    assert.equal(res.chars, 7);
+  });
+
+  it("write counts one Unicode character for CJK (not UTF-8 byte length)", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "write",
+      input: { params: { path: "/a.md", content: "中" } },
+      output: { result: { ok: true } },
+    };
+    enrichToolSpanResourceAudit(span);
+    const res = (span.metadata as Record<string, unknown>).resource as Record<string, unknown>;
+    assert.equal(res.chars, 1);
+  });
+
+  it("write returns 0 chars when only byte success message and no payload in params", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "write",
+      input: { params: { path: "/a.md" } },
+      output: {
+        result: "Successfully wrote 5158 bytes to /a.md",
+      },
+    };
+    enrichToolSpanResourceAudit(span);
+    const res = (span.metadata as Record<string, unknown>).resource as Record<string, unknown>;
+    assert.equal(res.chars, 0);
+  });
+
+  it("write yields 0 chars for Agent-style byte success message when params lack payload", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "write",
+      input: { params: { path: "/设计文档.md" } },
+      output: {
+        result: {
+          content: [{ type: "text", text: "Successfully wrote 7716 bytes to /设计文档.md" }],
+        },
+      },
+    };
+    enrichToolSpanResourceAudit(span);
+    const res = (span.metadata as Record<string, unknown>).resource as Record<string, unknown>;
+    assert.equal(res.chars, 0);
+  });
+
   it("tags memory_search as MEMORY with top_k", () => {
     const span: Record<string, unknown> = {
       type: "tool",

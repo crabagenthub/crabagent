@@ -192,38 +192,9 @@ export type ResourceAuditEventJson = {
   chars: number | null;
   snippet: string | null;
   semantic_class: string;
-  relevance_max: number | null;
   uri_repeat_count: number;
   risk_flags: string[];
 };
-
-function maxScoreFromOutput(out: Record<string, unknown>): number | null {
-  const tk = out.top_k ?? out.topK ?? out.hits ?? out.results;
-  if (!Array.isArray(tk)) {
-    return null;
-  }
-  let best: number | null = null;
-  for (const item of tk) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) {
-      continue;
-    }
-    const o = item as Record<string, unknown>;
-    const s =
-      typeof o.score === "number"
-        ? o.score
-        : typeof o.relevance === "number"
-          ? o.relevance
-          : typeof o.distance === "number"
-            ? o.distance
-            : null;
-    if (s != null && Number.isFinite(s)) {
-      if (best == null || s > best) {
-        best = s;
-      }
-    }
-  }
-  return best;
-}
 
 function numFromUnknown(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) {
@@ -259,7 +230,6 @@ export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAudit
       : typeof output.snippet === "string"
         ? output.snippet
         : null;
-  const relevance_max = maxScoreFromOutput(output);
   const uriRepeat = Number(r.uri_repeat_count ?? 0) || 0;
 
   const risk_flags: string[] = [];
@@ -292,7 +262,6 @@ export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAudit
     chars,
     snippet: snippet && snippet.length > 500 ? `${snippet.slice(0, 499)}…` : snippet,
     semantic_class,
-    relevance_max,
     uri_repeat_count: uriRepeat,
     risk_flags: uniq,
   };
@@ -360,7 +329,6 @@ export type ResourceAuditStatsJson = {
     day: string;
     event_count: number;
     avg_duration_ms: number | null;
-    sum_chars: number | null;
   }[];
   top_tools: { span_name: string; count: number }[];
   by_access_mode: { access_mode: string; count: number }[];
@@ -429,8 +397,7 @@ GROUP BY semantic_class
   const dailySql = `
 SELECT strftime('%Y-%m-%d', datetime(CAST(COALESCE(s.start_time_ms, t.created_at_ms, 0) AS REAL) / 1000, 'unixepoch')) AS day,
        COUNT(*) AS n,
-       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur,
-       SUM(CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL)) AS sum_chars
+       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur
 FROM opik_spans s
 LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
 ${whereSql}
@@ -510,7 +477,6 @@ LIMIT 10
       day: String(r.day ?? ""),
       event_count: Number(r.n ?? 0),
       avg_duration_ms: r.avg_dur != null && String(r.avg_dur) !== "" ? Number(r.avg_dur) : null,
-      sum_chars: r.sum_chars != null && String(r.sum_chars) !== "" ? Number(r.sum_chars) : null,
     })),
     top_tools: toolRows.map((r) => ({
       span_name: String(r.tool_name ?? ""),
