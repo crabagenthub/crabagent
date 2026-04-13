@@ -24,7 +24,7 @@ import { IconEdit, IconDelete } from "@arco-design/web-react/icon";
 import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
-import { TraceCopyIconButton } from "@/components/trace-copy-icon-button";
+import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/observe-table-style";
 import { formatShortId } from "@/lib/utils";
 

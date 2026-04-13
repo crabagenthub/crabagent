@@ -1,4 +1,4 @@
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import { eventRunId } from "@/lib/trace-event-run-id";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";

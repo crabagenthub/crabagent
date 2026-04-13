@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { CommandAnalysisDashboard } from "@/components/command-analysis-dashboard";
+import { CommandAnalysisDashboard } from "@/features/audit/command-exec/command-analysis-dashboard";
 
 export default function CommandAnalysisPage() {
   return (

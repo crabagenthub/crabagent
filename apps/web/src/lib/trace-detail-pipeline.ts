@@ -1,4 +1,4 @@
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 
 /** Typical OpenClaw pipeline stages we surface in the detail summary (order matters for display). */
 export const PIPELINE_TYPE_ORDER: string[] = [

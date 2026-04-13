@@ -1,5 +1,5 @@
 import { collectorAuthHeaders } from "@/lib/collector";
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 
 /**
  * `/v1/traces/:threadId/events` 按会话树 scope 返回主 thread + 子代理 thread 的 trace；

@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import { aggregateLlmOutputTokenEntries } from "./span-token-display";
 import {
   buildConversationTurnWindowEvents,

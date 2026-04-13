@@ -7,7 +7,7 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { MessageHint } from "@/components/message-hint";
 import { AppPageShell } from "@/components/app-page-shell";
 import { TokenWasteHeatmap } from "@/components/token-waste-heatmap";
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import {
   buildTokenWasteRowForThread,

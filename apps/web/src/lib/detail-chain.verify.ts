@@ -2,7 +2,7 @@
  * Verifies detail slicing includes the full pipeline for a clicked message.
  * Run from repo: pnpm verify:detail-chain
  */
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import { buildDetailEventList, buildUserTurnList } from "./user-turn-list";
 import { pipelineCoverageFromEvents } from "./trace-detail-pipeline";
 

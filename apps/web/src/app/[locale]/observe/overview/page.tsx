@@ -1,6 +1,6 @@
 "use client";
 
-import { OverviewDashboard } from "@/components/overview-dashboard";
+import { OverviewDashboard } from "@/features/observe/statistics/overview-dashboard";
 
 export default function ObserveOverviewPage() {
   return <OverviewDashboard />;

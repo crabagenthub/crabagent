@@ -1,4 +1,4 @@
-import type { TraceTimelineEvent } from "@/components/trace-timeline-tree";
+import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { usageFromTracePayload } from "@/lib/trace-payload-usage";
 import type { TurnWindowMetrics } from "@/lib/user-turn-list";

@@ -5,16 +5,16 @@ import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { AppPageShell } from "@/components/app-page-shell";
+import { AppPageShell } from "@/shared/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { ListEmptyState } from "@/components/list-empty-state";
-import { MessageHint } from "@/components/message-hint";
-import { ObserveListKindSwitcher } from "@/components/observe-list-kind-switcher";
-import { ObserveListToolbar } from "@/components/observe-list-toolbar";
+import { MessageHint } from "@/shared/components/message-hint";
+import { ObserveListKindSwitcher } from "@/features/observe/traces/components/observe-list-kind-switcher";
+import { ObserveListToolbar } from "@/features/observe/traces/components/observe-list-toolbar";
 import {
   ObserveTableColumnManager,
   useObserveTableColumnVisibility,
-} from "@/components/observe-table-column-manager";
+} from "@/features/observe/traces/components/observe-table-column-manager";
 import {
   defaultObserveDateRange,
   isObserveDateRangeAll,
@@ -28,21 +28,21 @@ import {
   SPANS_DEFAULT_HIDDEN_OPTIONAL,
   SPANS_OPTIONAL_KEYS,
   SpansDataTable,
-} from "@/components/spans-data-table";
-import { ThreadConversationDrawer } from "@/components/thread-conversation-drawer";
-import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/components/threads-opik-table";
-import { Card, CardContent } from "@/components/ui/card";
+} from "@/features/observe/traces/components/spans-data-table";
+import { ThreadConversationDrawer } from "@/features/observe/traces/components/thread-conversation-drawer";
+import { OBSERVE_THREADS_TABLE_ID, THREADS_OPTIONAL_KEYS, ThreadsOpikTable } from "@/features/observe/traces/components/threads-opik-table";
+import { Card, CardContent } from "@/shared/ui/card";
 import ArcoPagination from "@arco-design/web-react/es/Pagination";
 import ArcoSwitch from "@arco-design/web-react/es/Switch";
 
 import "@/lib/arco-react19-setup";
-import { TraceRecordInspectDialog } from "@/components/trace-record-inspect-dialog";
+import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import {
   OBSERVE_TRACES_TABLE_ID,
   TRACES_DEFAULT_HIDDEN_OPTIONAL,
   TRACES_OPTIONAL_KEYS,
   TracesOpikTable,
-} from "@/components/traces-opik-table";
+} from "@/features/observe/traces/components/traces-opik-table";
 import { loadCollectorUrl, loadApiKey } from "@/lib/collector";
 import {
   loadObserveFacets,
