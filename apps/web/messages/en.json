@@ -582,7 +582,7 @@
     "emptySlowest": "No duration data."
   },
   "ResourceAudit": {
-    "title": "Access audit",
+    "title": "Resource access audit",
     "subtitle": "Make file touches, memory/RAG retrieval, and other tool I/O explicit: who accessed what, when, in which mode, and at what volume.",
     "positioningLine": "Use this view for data-governance and ops workflows: spot sensitive-path access, unusually large reads, and repetitive access within a single message.",
     "bulletAggregate": "Aggregate by resource URI, workspace, and tool (span name). Prefix filters and full-text search help zoom from row-level detail to path-level review.",
@@ -620,6 +620,7 @@
     "emptyChecklistDb": "Confirm the db= path in the Collector startup log points at the instance receiving traffic.",
     "sectionDashboard": "Dashboard",
     "topResources": "Top resources",
+    "topResourceDuration": "Top resource latency",
     "classDist": "Access type mix",
     "dailyTrend": "Daily events & avg duration",
     "chartRiskHits": "Risk heuristic breakdown",

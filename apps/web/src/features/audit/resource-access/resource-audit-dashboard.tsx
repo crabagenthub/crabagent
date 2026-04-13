@@ -216,6 +216,13 @@ function ColHintTitle({
   );
 }
 
+function topRankColorClass(rank: number): string {
+  if (rank <= 3) {
+    return "text-[#F53F3F]";
+  }
+  return "text-[#FF7D00]";
+}
+
 export function ResourceAuditDashboard() {
   const t = useTranslations("ResourceAudit");
   const queryClient = useQueryClient();
@@ -538,6 +545,15 @@ export function ResourceAuditDashboard() {
     );
   }, [statsQ.data?.top_tools, t]);
 
+  const topResourceDurationRows = useMemo(() => {
+    const rows = (statsQ.data?.top_resources ?? [])
+      .filter((r) => r.avg_duration_ms != null && Number.isFinite(r.avg_duration_ms))
+      .map((r) => ({ uri: r.uri, avgMs: Number(r.avg_duration_ms) }))
+      .sort((a, b) => b.avgMs - a.avgMs)
+      .slice(0, 10);
+    return rows;
+  }, [statsQ.data?.top_resources]);
+
   if (!mounted) {
     return (
       <AppPageShell variant="overview">
@@ -681,25 +697,80 @@ export function ResourceAuditDashboard() {
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionDashboard")}
             </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
             <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
-              <ul className="space-y-2 text-sm">
+              <ul className="space-y-1.5">
                 {(statsQ.data?.top_resources ?? []).length === 0 ? (
-                  <li className="text-muted-foreground">—</li>
+                  <li className="text-sm text-muted-foreground">—</li>
                 ) : (
-                  statsQ.data!.top_resources.map((r) => (
-                    <li key={r.uri} className="border-b border-border/60 pb-2 last:border-0">
+                  statsQ.data!.top_resources.map((r, idx) => (
+                    <li key={r.uri} className="last:border-0">
                       <button
                         type="button"
-                        className="flex w-full min-w-0 flex-col gap-0.5 rounded text-left transition-colors hover:bg-muted/40"
+                        className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
                         onClick={() => filterByResourceUri(r.uri)}
                       >
-                        <Typography.Text ellipsis className="text-xs font-medium text-primary">
-                          {maskUri(formatMemorySearchUriForDisplay(r.uri))}
-                        </Typography.Text>
-                        <span className="text-[11px] text-muted-foreground">
-                          {r.count}×
-                          {r.sum_chars != null ? ` · ${Math.round(r.sum_chars).toLocaleString()} chars` : ""}
+                        <span
+                          className={cn(
+                            "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                            topRankColorClass(idx + 1),
+                          )}
+                        >
+                          {idx + 1}
+                        </span>
+                        <Popover
+                          content={
+                            <div className="max-w-md break-all text-xs">
+                              {formatMemorySearchUriForDisplay(r.uri) || "—"}
+                            </div>
+                          }
+                        >
+                          <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                            {maskUri(formatMemorySearchUriForDisplay(r.uri))}
+                          </Typography.Text>
+                        </Popover>
+                        <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                          {Math.round(r.count).toLocaleString()}
+                        </span>
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </Card>
+            <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
+              <ul className="space-y-1.5">
+                {topResourceDurationRows.length === 0 ? (
+                  <li className="text-sm text-muted-foreground">—</li>
+                ) : (
+                  topResourceDurationRows.map((r, idx) => (
+                    <li key={`${r.uri}-${idx}`} className="last:border-0">
+                      <button
+                        type="button"
+                        className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                        onClick={() => filterByResourceUri(r.uri)}
+                      >
+                        <span
+                          className={cn(
+                            "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                            topRankColorClass(idx + 1),
+                          )}
+                        >
+                          {idx + 1}
+                        </span>
+                        <Popover
+                          content={
+                            <div className="max-w-md break-all text-xs">
+                              {formatMemorySearchUriForDisplay(r.uri) || "—"}
+                            </div>
+                          }
+                        >
+                          <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                            {maskUri(formatMemorySearchUriForDisplay(r.uri))}
+                          </Typography.Text>
+                        </Popover>
+                        <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                          {`${Math.round(r.avgMs)} ms`}
                         </span>
                       </button>
                     </li>
