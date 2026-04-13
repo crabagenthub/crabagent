@@ -47,6 +47,8 @@ import { cn, formatShortId } from "@/lib/utils";
 const PAGE_SIZE = 50;
 /** Collector 对内容审计列表的 limit 上限 */
 const ANALYTICS_LIMIT = 200;
+const cardShellClass =
+  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
 
 function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, cat: SecurityHitCategory): string {
   switch (cat) {
@@ -359,13 +361,13 @@ export function SecurityAuditDashboard() {
         <section aria-label={t("timelineSectionTitle")} className="space-y-3">
           <h2 className="text-base font-semibold tracking-tight text-foreground">{t("timelineSectionTitle")}</h2>
           <div className="grid gap-4 lg:grid-cols-3">
-            <Card title={t("chartRiskTrend")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartRiskTrend")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
               {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : riskTrendChart}
             </Card>
-            <Card title={t("chartHitTypes")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartHitTypes")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
               {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : hitTypeChart}
             </Card>
-            <Card title={t("chartTopSources")} bordered className="shadow-sm" bodyStyle={{ paddingBottom: 8 }}>
+            <Card title={t("chartTopSources")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
               {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : sourcesChart}
               <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
                 {t("sourceFootnote")}
