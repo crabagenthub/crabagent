@@ -648,15 +648,14 @@ export function InterceptorPoliciesManager({
               label={requiredLabel(t("policyName"))}
               field="name"
               rules={[{ required: true }]}
-              className="policy-modal-field-full"
+              className="policy-modal-field-full policy-modal-name-field"
             >
               <Input placeholder="例如：拦截手机号" />
             </Form.Item>
-            <Form.Item label={t("policyDescription")} field="description" className="policy-modal-field-full">
+            <Form.Item label={t("policyDescription")} field="description" className="policy-modal-field-full policy-modal-desc-field">
               <Input.TextArea placeholder="可选描述" autoSize={{ minRows: 2, maxRows: 6 }} />
             </Form.Item>
 
-            <div className="policy-modal-section">
               <Form.Item
                 label={t("detectionKind")}
                 field="detection_kind"
@@ -670,7 +669,6 @@ export function InterceptorPoliciesManager({
                   </Radio>
                 </Radio.Group>
               </Form.Item>
-            </div>
 
             {detectionKind === "regex" ? (
               <Form.Item
@@ -693,7 +691,6 @@ export function InterceptorPoliciesManager({
                 label={t("policyDisposition")}
                 field="policy_action"
                 initialValue="mask"
-                extra={t("policyDispositionHint")}
                 className="policy-modal-disposition-inline"
               >
                 <Radio.Group className="custom-radio-card-group custom-radio-card-group--grid">

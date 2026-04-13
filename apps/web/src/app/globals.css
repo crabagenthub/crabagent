@@ -480,6 +480,22 @@ body {
 .policy-edit-modal .arco-input-number .arco-input-inner-wrapper {
   border-radius: var(--radius) !important;
 }
+.policy-edit-modal .policy-modal-name-field .arco-input-wrapper,
+.policy-edit-modal .policy-modal-name-field .arco-input-inner-wrapper,
+.policy-edit-modal .policy-modal-name-field .arco-input,
+.policy-edit-modal .policy-modal-pattern-field .arco-input-wrapper,
+.policy-edit-modal .policy-modal-pattern-field .arco-input-inner-wrapper,
+.policy-edit-modal .policy-modal-pattern-field .arco-input,
+.policy-edit-modal .policy-modal-desc-field .arco-textarea-wrapper,
+.policy-edit-modal .policy-modal-desc-field .arco-textarea-wrapper .arco-textarea,
+.policy-edit-modal .policy-modal-desc-field .arco-textarea,
+.policy-edit-modal .policy-modal-desc-field textarea,
+.policy-edit-modal .policy-modal-desc-field .arco-textarea-inner {
+  border-radius: 12px !important;
+}
+.policy-edit-modal .policy-modal-desc-field .arco-textarea-wrapper {
+  overflow: hidden;
+}
 .policy-edit-modal .arco-modal-footer {
   padding: 10px 28px 22px;
   border-top: 0;
