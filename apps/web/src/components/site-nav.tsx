@@ -387,17 +387,11 @@ export function SiteNav() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" || pathname === "" : pathname === href || pathname.startsWith(`${href}/`);
 
-  const workspaceItems: NavDef[] = useMemo(
-    () => [{ href: "/overview", label: t("overview"), Icon: NavIconOverview }],
-    [t],
-  );
-
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/traces", label: t("traces"), Icon: NavIconTraces },
       { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
-      { href: "/metrics", label: t("metrics"), Icon: NavIconMetrics },
-      { href: "/optimization", label: t("optimization"), Icon: NavIconOptimization },
+      { href: "/observe/overview", label: t("metrics"), Icon: NavIconMetrics },
     ],
     [t],
   );
@@ -467,13 +461,12 @@ export function SiteNav() {
 
   const groups: { title: string; items: NavDef[] }[] = useMemo(
     () => [
-      { title: t("groupMain"), items: workspaceItems },
       { title: t("groupObserve"), items: observeItems },
       { title: t("groupAudit"), items: auditItems },
       { title: t("groupSecurity"), items: securityItems },
       { title: t("groupSettings"), items: settingsItems },
     ],
-    [t, workspaceItems, observeItems, auditItems, settingsItems, securityItems],
+    [t, observeItems, auditItems, settingsItems, securityItems],
   );
 
   return (

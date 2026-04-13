@@ -2,6 +2,6 @@
 
 import { OverviewDashboard } from "@/components/overview-dashboard";
 
-export default function OverviewPage() {
+export default function ObserveOverviewPage() {
   return <OverviewDashboard />;
 }

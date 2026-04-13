@@ -30,10 +30,10 @@ export function AppBreadcrumb() {
       return [{ label: tHome("title") }];
     }
 
-    if (p === "/overview") {
+    if (p === "/observe/overview") {
       return [
-        { label: tNav("groupMain") },
-        { label: tNav("overview") },
+        { label: tNav("groupObserve") },
+        { label: tNav("metrics") },
       ];
     }
 
