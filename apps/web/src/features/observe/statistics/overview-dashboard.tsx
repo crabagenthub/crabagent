@@ -104,6 +104,9 @@ function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
 const kpiCardShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
 
+const kpiMetricGradientClass =
+  "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
+
 /** 消息列表页默认入口（其它 KPI 仍指向列表，由用户在目标页选时间） */
 const OVERVIEW_KPI_TRACES_HREF = "/traces";
 
@@ -126,7 +129,7 @@ function KpiCard({ title, hint, value, suffix, mom, momLabel, tracesHref, hrefAr
   const card = (
     <Card
       bordered={false}
-      className={cn(kpiCardShellClass, tracesHref ? "group" : null)}
+      className={cn(kpiCardShellClass, kpiMetricGradientClass, tracesHref ? "group" : null)}
       bodyStyle={{ padding: "16px" }}
     >
       <div className="mb-3 flex flex-row items-start justify-between gap-2">

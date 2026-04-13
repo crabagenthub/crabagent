@@ -64,6 +64,9 @@ import { cn, formatShortId } from "@/lib/utils";
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-border dark:bg-card dark:shadow-sm";
 
+const kpiMetricCardClass =
+  "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
+
 function fmtCompactNumber(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) {
     return "—";
@@ -545,14 +548,13 @@ export function ResourceAuditDashboard() {
     );
   }, [statsQ.data?.top_tools, t]);
 
-  const topResourceDurationRows = useMemo(() => {
-    const rows = (statsQ.data?.top_resources ?? [])
-      .filter((r) => r.avg_duration_ms != null && Number.isFinite(r.avg_duration_ms))
-      .map((r) => ({ uri: r.uri, avgMs: Number(r.avg_duration_ms) }))
-      .sort((a, b) => b.avgMs - a.avgMs)
+  const topDurationEventRows = useMemo(() => {
+    const rows = (eventsQ.data?.items ?? [])
+      .filter((r) => r.duration_ms != null && Number.isFinite(r.duration_ms))
+      .sort((a, b) => Number(b.duration_ms) - Number(a.duration_ms))
       .slice(0, 10);
     return rows;
-  }, [statsQ.data?.top_resources]);
+  }, [eventsQ.data?.items]);
 
   if (!mounted) {
     return (
@@ -624,7 +626,7 @@ export function ResourceAuditDashboard() {
             {t("sectionKpi")}
           </Typography.Title>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
                 {t("kpiTotalEvents")}
               </Typography.Text>
@@ -632,7 +634,7 @@ export function ResourceAuditDashboard() {
                 {summary ? summary.total_events.toLocaleString() : "—"}
               </div>
             </Card>
-            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Tooltip content={t("kpiDistinctTracesHint")}>
                 <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
                   {t("kpiDistinctTraces")}
@@ -642,7 +644,7 @@ export function ResourceAuditDashboard() {
                 {summary ? summary.distinct_traces.toLocaleString() : "—"}
               </div>
             </Card>
-            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
                 {t("kpiSumChars")}
               </Typography.Text>
@@ -650,7 +652,7 @@ export function ResourceAuditDashboard() {
                 {summary ? fmtCompactNumber(summary.sum_chars) : "—"}
               </div>
             </Card>
-            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Tooltip content={t("kpiRiskAnyHint")}>
                 <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
                   {t("kpiRiskAny")}
@@ -667,7 +669,7 @@ export function ResourceAuditDashboard() {
                 </div>
               ) : null}
             </Card>
-            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "16px" }}>
+            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
                 {t("kpiAvgDuration")}
               </Typography.Text>
@@ -705,11 +707,7 @@ export function ResourceAuditDashboard() {
                 ) : (
                   statsQ.data!.top_resources.map((r, idx) => (
                     <li key={r.uri} className="last:border-0">
-                      <button
-                        type="button"
-                        className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                        onClick={() => filterByResourceUri(r.uri)}
-                      >
+                      <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                         <span
                           className={cn(
                             "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
@@ -732,7 +730,7 @@ export function ResourceAuditDashboard() {
                         <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
                           {Math.round(r.count).toLocaleString()}
                         </span>
-                      </button>
+                      </div>
                     </li>
                   ))
                 )}
@@ -740,15 +738,15 @@ export function ResourceAuditDashboard() {
             </Card>
             <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
               <ul className="space-y-1.5">
-                {topResourceDurationRows.length === 0 ? (
+                {topDurationEventRows.length === 0 ? (
                   <li className="text-sm text-muted-foreground">—</li>
                 ) : (
-                  topResourceDurationRows.map((r, idx) => (
-                    <li key={`${r.uri}-${idx}`} className="last:border-0">
+                  topDurationEventRows.map((r, idx) => (
+                    <li key={`${r.span_id}-${idx}`} className="last:border-0">
                       <button
                         type="button"
                         className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                        onClick={() => filterByResourceUri(r.uri)}
+                        onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(r))}
                       >
                         <span
                           className={cn(
@@ -761,16 +759,16 @@ export function ResourceAuditDashboard() {
                         <Popover
                           content={
                             <div className="max-w-md break-all text-xs">
-                              {formatMemorySearchUriForDisplay(r.uri) || "—"}
+                              {formatMemorySearchUriForDisplay(r.resource_uri) || "—"}
                             </div>
                           }
                         >
                           <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                            {maskUri(formatMemorySearchUriForDisplay(r.uri))}
+                            {maskUri(formatMemorySearchUriForDisplay(r.resource_uri))}
                           </Typography.Text>
                         </Popover>
                         <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                          {`${Math.round(r.avgMs)} ms`}
+                          {`${Math.round(Number(r.duration_ms ?? 0))} ms`}
                         </span>
                       </button>
                     </li>

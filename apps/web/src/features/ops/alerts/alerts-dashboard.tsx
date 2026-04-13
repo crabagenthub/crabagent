@@ -83,6 +83,23 @@ const TEMPLATES: TemplateDef[] = [
   },
 ];
 
+function templateCardGradientClass(id: string): string {
+  switch (id) {
+    case "error_spike":
+      return "border-[#d9d6ff] bg-gradient-to-br from-[#f5f3ff] via-[#f8f7ff] to-[#eef2ff]";
+    case "high_cost":
+      return "border-[#d3e8ff] bg-gradient-to-br from-[#eef7ff] via-[#f5fbff] to-[#e9f3ff]";
+    case "slow":
+      return "border-[#d8e2ff] bg-gradient-to-br from-[#f1f4ff] via-[#f7f9ff] to-[#edf3ff]";
+    case "pii":
+      return "border-[#e3dbff] bg-gradient-to-br from-[#f7f2ff] via-[#faf7ff] to-[#f1ecff]";
+    case "agent_offline":
+      return "border-[#ddd9ff] bg-gradient-to-br from-[#f4f3ff] via-[#f9f8ff] to-[#eeedff]";
+    default:
+      return "border-[#E5E6EB] bg-white";
+  }
+}
+
 function templateTitle(t: ReturnType<typeof useTranslations<"Alerts">>, id: string): string {
   switch (id) {
     case "error_spike":
@@ -446,7 +463,16 @@ export function AlertsDashboard() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {TEMPLATES.map((tpl) => (
-              <Card key={tpl.id} bordered={false} className={cn(cardShellClass, "flex flex-col")} bodyStyle={{ padding: "16px" }}>
+              <Card
+                key={tpl.id}
+                bordered={false}
+                className={cn(
+                  cardShellClass,
+                  "flex flex-col border border-solid",
+                  templateCardGradientClass(tpl.id),
+                )}
+                bodyStyle={{ padding: "16px" }}
+              >
                 <Typography.Text bold className="text-sm text-[#1D2129] dark:text-foreground">
                   {templateTitle(t, tpl.id)}
                 </Typography.Text>

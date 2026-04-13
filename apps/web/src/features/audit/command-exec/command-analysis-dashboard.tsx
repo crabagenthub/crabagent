@@ -53,6 +53,9 @@ import type { EChartsOption } from "echarts";
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-border dark:bg-card dark:shadow-sm";
 
+const kpiMetricCardClass =
+  "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
+
 function shellTrendOption(
   rows: { day: string; total: number; failed: number }[],
   t: (k: string) => string,
@@ -536,7 +539,7 @@ export function CommandAnalysisDashboard() {
             { label: t("kpiSuccess"), value: s?.totals.success },
             { label: t("kpiFailed"), value: s?.totals.failed },
           ].map((k) => (
-            <Card key={k.label} bordered={false} className={kpiShellClass} bodyStyle={{ padding: "14px 16px" }}>
+            <Card key={k.label} bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "14px 16px" }}>
               <div className="text-xs text-muted-foreground">{k.label}</div>
               <div className="mt-1 text-2xl font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
                 {summaryQuery.isLoading ? <Spin size={20} /> : (k.value ?? 0).toLocaleString()}

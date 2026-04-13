@@ -491,15 +491,19 @@ body {
 }
 .policy-modal-form .arco-form-item-label-col {
   padding-bottom: 6px;
+  text-align: left;
 }
 .policy-modal-form .arco-form-item-label,
 .policy-modal-form .arco-form-label-item {
   display: inline-flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
   gap: 4px;
   font-size: 13px;
   font-weight: 600;
   color: #374151;
+  text-align: left;
+  width: 100%;
 }
 .policy-modal-form .arco-form-item-symbol {
   display: inline-flex !important;

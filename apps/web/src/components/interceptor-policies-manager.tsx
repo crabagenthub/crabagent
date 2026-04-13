@@ -40,6 +40,15 @@ const DISPOSITION_RADIO_OPTIONS = [
   { value: "alert_only", labelKey: "policyActionAlertOnly", exampleKey: "policyActionExampleAlertOnly" },
 ] as const;
 
+function requiredLabel(label: string) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span>{label}</span>
+      <span className="text-[rgb(var(--danger-6))]">*</span>
+    </span>
+  );
+}
+
 interface InterceptionPolicy {
   id: string;
   name: string;
@@ -619,6 +628,7 @@ export function InterceptorPoliciesManager({
             form={form}
             layout="vertical"
             className="policy-modal-form"
+            requiredSymbol={false}
             onValuesChange={(changed, all) => {
               const next = (all as { detection_kind?: string }).detection_kind;
               const resolved = next === "model" ? "model" : "regex";
@@ -634,7 +644,12 @@ export function InterceptorPoliciesManager({
               }
             }}
           >
-            <Form.Item label={t("policyName")} field="name" rules={[{ required: true }]} className="policy-modal-field-full">
+            <Form.Item
+              label={requiredLabel(t("policyName"))}
+              field="name"
+              rules={[{ required: true }]}
+              className="policy-modal-field-full"
+            >
               <Input placeholder="例如：拦截手机号" />
             </Form.Item>
             <Form.Item label={t("policyDescription")} field="description" className="policy-modal-field-full">
@@ -659,7 +674,7 @@ export function InterceptorPoliciesManager({
 
             {detectionKind === "regex" ? (
               <Form.Item
-                label={t("policyPattern")}
+                label={requiredLabel(t("policyPattern"))}
                 field="pattern"
                 rules={[{ required: true, message: t("policyPatternRequired") }]}
                 extra={t("policyPatternExtra")}
