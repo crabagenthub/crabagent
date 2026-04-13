@@ -79,6 +79,14 @@ export const SHELL_TOOL_WHERE_SQL = `(
   )
 )`;
 
+/** 用于时间窗与排序：span 无 start_time 时用对应 trace 的 created_at_ms。 */
+const TRACE_CREATED_AT_MS_SUBSQL =
+  "(SELECT t.created_at_ms FROM opik_traces t WHERE t.trace_id = s.trace_id LIMIT 1)";
+
+const SHELL_THREAD_TH_JOIN_ON = `th.thread_id = t.thread_id
+ AND th.workspace_name = t.workspace_name
+ AND th.project_name = t.project_name`;
+
 export type ShellExecBaseQuery = {
   sinceMs?: number;
   untilMs?: number;
@@ -95,11 +103,11 @@ function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[
   const params: unknown[] = [];
 
   if (q.sinceMs != null && Number.isFinite(q.sinceMs) && q.sinceMs > 0) {
-    parts.push(`COALESCE(s.start_time_ms, t.created_at_ms, 0) >= ?`);
+    parts.push(`COALESCE(s.start_time_ms, ${TRACE_CREATED_AT_MS_SUBSQL}, 0) >= ?`);
     params.push(Math.floor(q.sinceMs));
   }
   if (q.untilMs != null && Number.isFinite(q.untilMs) && q.untilMs > 0) {
-    parts.push(`COALESCE(s.start_time_ms, t.created_at_ms, 0) <= ?`);
+    parts.push(`COALESCE(s.start_time_ms, ${TRACE_CREATED_AT_MS_SUBSQL}, 0) <= ?`);
     params.push(Math.floor(q.untilMs));
   }
   if (q.traceId?.trim()) {
@@ -108,12 +116,20 @@ function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[
   }
   const channel = clampFacetFilter(q.channel);
   if (channel) {
-    parts.push(`th.channel_name = ?`);
+    parts.push(
+      `EXISTS (SELECT 1 FROM opik_traces t
+        INNER JOIN opik_threads th ON ${SHELL_THREAD_TH_JOIN_ON}
+        WHERE t.trace_id = s.trace_id AND th.channel_name = ?)`,
+    );
     params.push(channel);
   }
   const agent = clampFacetFilter(q.agent);
   if (agent) {
-    parts.push(`th.agent_name = ?`);
+    parts.push(
+      `EXISTS (SELECT 1 FROM opik_traces t
+        INNER JOIN opik_threads th ON ${SHELL_THREAD_TH_JOIN_ON}
+        WHERE t.trace_id = s.trace_id AND th.agent_name = ?)`,
+    );
     params.push(agent);
   }
   const cc = q.commandContains?.trim();
@@ -136,6 +152,10 @@ function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[
   return { sql: parts.join(" AND "), params };
 }
 
+/**
+ * 列表/摘要：仅 `opik_spans` 物理列 + NULL占位。避免 SELECT 列表里大量相关子查询在部分 SQLite 版本上导致整句结果集为空
+ *（与 `COUNT(*) WHERE SHELL_TOOL_WHERE` 不一致）。渠道/智能体列在表格中可为空；详情见 {@link SHELL_SELECT_ROW_DETAIL}。
+ */
 const SHELL_SELECT_ROW = `
 SELECT s.span_id,
        s.trace_id,
@@ -149,16 +169,41 @@ SELECT s.span_id,
        s.output_json,
        s.error_info_json,
        s.metadata_json,
-       th.metadata_json AS thread_metadata_json,
-       COALESCE(NULLIF(TRIM(t.thread_id), ''), t.trace_id) AS thread_key,
-       th.agent_name,
-       th.channel_name
+       CAST(NULL AS TEXT) AS thread_metadata_json,
+       s.trace_id AS thread_key,
+       CAST(NULL AS TEXT) AS agent_name,
+       CAST(NULL AS TEXT) AS channel_name
 FROM opik_spans s
-LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
-LEFT JOIN opik_threads th
-  ON th.thread_id = t.thread_id
- AND th.workspace_name = t.workspace_name
- AND th.project_name = t.project_name
+`;
+
+/** 单条详情：行数极少，可安全使用标量子查询补 thread 元数据。 */
+const SHELL_SELECT_ROW_DETAIL = `
+SELECT s.span_id,
+       s.trace_id,
+       s.parent_span_id,
+       s.name,
+       s.span_type,
+       s.start_time_ms,
+       s.end_time_ms,
+       s.duration_ms,
+       s.input_json,
+       s.output_json,
+       s.error_info_json,
+       s.metadata_json,
+       (SELECT th.metadata_json FROM opik_traces t
+          LEFT JOIN opik_threads th ON ${SHELL_THREAD_TH_JOIN_ON}
+        WHERE t.trace_id = s.trace_id LIMIT 1) AS thread_metadata_json,
+       COALESCE(
+         NULLIF(TRIM((SELECT t.thread_id FROM opik_traces t WHERE t.trace_id = s.trace_id LIMIT 1)), ''),
+         s.trace_id
+       ) AS thread_key,
+       (SELECT th.agent_name FROM opik_traces t
+          LEFT JOIN opik_threads th ON ${SHELL_THREAD_TH_JOIN_ON}
+        WHERE t.trace_id = s.trace_id LIMIT 1) AS agent_name,
+       (SELECT th.channel_name FROM opik_traces t
+          LEFT JOIN opik_threads th ON ${SHELL_THREAD_TH_JOIN_ON}
+        WHERE t.trace_id = s.trace_id LIMIT 1) AS channel_name
+FROM opik_spans s
 `;
 
 export type ShellExecListQuery = ShellExecBaseQuery & {
@@ -167,38 +212,94 @@ export type ShellExecListQuery = ShellExecBaseQuery & {
   order: "asc" | "desc";
 };
 
-export function buildShellExecListSql(q: ShellExecListQuery): { sql: string; params: unknown[] } {
-  const { sql: whereSql, params: wp } = buildShellWhere(q);
-  const dir = q.order === "asc" ? "ASC" : "DESC";
-  const sql = `${SHELL_SELECT_ROW}
-WHERE ${whereSql}
-ORDER BY (s.start_time_ms IS NULL) ASC, COALESCE(s.start_time_ms, t.created_at_ms, 0) ${dir}, s.span_id ${dir}
-LIMIT ? OFFSET ?`;
-  return { sql, params: [...wp, q.limit, q.offset] };
-}
-
 export function buildShellExecCountSql(q: ShellExecBaseQuery): { sql: string; params: unknown[] } {
   const { sql: whereSql, params: wp } = buildShellWhere(q);
-  const sql = `SELECT COUNT(*) AS c FROM opik_spans s
-LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
-LEFT JOIN opik_threads th
-  ON th.thread_id = t.thread_id
- AND th.workspace_name = t.workspace_name
- AND th.project_name = t.project_name
-WHERE ${whereSql}`;
+  const sql = `SELECT COUNT(*) AS c FROM opik_spans s WHERE ${whereSql}`;
   return { sql, params: wp };
 }
 
 /** 摘要扫描上限（避免全表 JSON 解析拖垮服务）。 */
 const SUMMARY_SCAN_CAP = 8000;
 
-export function buildShellExecScanSql(q: ShellExecBaseQuery, cap: number): { sql: string; params: unknown[] } {
-  const { sql: whereSql, params: wp } = buildShellWhere(q);
-  const sql = `${SHELL_SELECT_ROW}
-WHERE ${whereSql}
-ORDER BY COALESCE(s.start_time_ms, t.created_at_ms, 0) DESC
-LIMIT ?`;
-  return { sql, params: [...wp, cap] };
+/** 列表在内存排序的最大匹配条数；超过则退回 SQL LIMIT/OFFSET（仅 id 列）。 */
+const SHELL_LIST_JS_SORT_MAX = 50_000;
+
+type ShellIdRow = { span_id: string; start_time_ms: number | null };
+
+function normalizeShellIdRows(
+  raw: { span_id: unknown; start_time_ms: unknown }[],
+): ShellIdRow[] {
+  return raw
+    .map((r) => ({
+      span_id: String(r.span_id ?? ""),
+      start_time_ms:
+        r.start_time_ms != null && Number.isFinite(Number(r.start_time_ms)) ? Number(r.start_time_ms) : null,
+    }))
+    .filter((r) => r.span_id.length > 0);
+}
+
+/** 摘要用：在 WHERE 命中的 span 中取最多 cap 条 id（先轻量列，避免宽 SELECT+ORDER BY+LIMIT 在部分 SQLite 上返回空行）。 */
+function fetchShellSpanIdRowsForSummary(
+  db: Database.Database,
+  whereSql: string,
+  wp: unknown[],
+  cap: number,
+): ShellIdRow[] {
+  const cntRow = db.prepare(`SELECT COUNT(*) AS c FROM opik_spans s WHERE ${whereSql}`).get(...wp) as { c: number };
+  const cnt = Number(cntRow?.c ?? 0) || 0;
+  if (cnt === 0) {
+    return [];
+  }
+  if (cnt <= cap) {
+    const raw = db.prepare(`SELECT s.span_id, s.start_time_ms FROM opik_spans s WHERE ${whereSql}`).all(...wp) as {
+      span_id: unknown;
+      start_time_ms: unknown;
+    }[];
+    return normalizeShellIdRows(raw);
+  }
+  let raw = db
+    .prepare(
+      `SELECT s.span_id, s.start_time_ms FROM opik_spans s WHERE ${whereSql} ORDER BY s.start_time_ms DESC, s.span_id DESC LIMIT ?`,
+    )
+    .all(...wp, cap) as { span_id: unknown; start_time_ms: unknown }[];
+  if (raw.length === 0) {
+    raw = db.prepare(`SELECT s.span_id, s.start_time_ms FROM opik_spans s WHERE ${whereSql} LIMIT ?`).all(...wp, cap) as typeof raw;
+  }
+  return normalizeShellIdRows(raw);
+}
+
+function sortShellIdRows(rows: ShellIdRow[], order: "asc" | "desc"): void {
+  const dir = order === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    const ta = a.start_time_ms ?? 0;
+    const tb = b.start_time_ms ?? 0;
+    if (ta !== tb) {
+      return (ta - tb) * dir;
+    }
+    return a.span_id.localeCompare(b.span_id) * dir;
+  });
+}
+
+/** 低于常见 SQLITE_MAX_VARIABLE_NUMBER（999），预留余量。 */
+const SHELL_IN_CHUNK = 900;
+
+function fetchShellRowsBySpanIds(db: Database.Database, ids: readonly string[]): Record<string, unknown>[] {
+  if (ids.length === 0) {
+    return [];
+  }
+  const byId = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < ids.length; i += SHELL_IN_CHUNK) {
+    const chunk = ids.slice(i, i + SHELL_IN_CHUNK);
+    const ph = chunk.map(() => "?").join(", ");
+    const fetched = db.prepare(`${SHELL_SELECT_ROW} WHERE s.span_id IN (${ph})`).all(...chunk) as Record<
+      string,
+      unknown
+    >[];
+    for (const r of fetched) {
+      byId.set(String(r.span_id ?? ""), r);
+    }
+  }
+  return ids.map((id) => byId.get(id)).filter((x): x is Record<string, unknown> => x != null);
 }
 
 /** 全库快照（不受时间窗影响），用于区分「连错库 / 时间窗过窄 / 规则不匹配」。 */
@@ -509,12 +610,26 @@ export function queryShellExecSummary(
   q: ShellExecBaseQuery,
   dbBasename: string,
 ): ShellExecSummaryResponse {
-  const { sql, params } = buildShellExecScanSql(q, SUMMARY_SCAN_CAP + 1);
-  const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-  const capped = rows.length > SUMMARY_SCAN_CAP;
-  const slice = capped ? rows.slice(0, SUMMARY_SCAN_CAP) : rows;
-  const summary = computeShellSummaryFromRows(slice, { capped });
   const db_snapshot = queryShellExecDbSnapshot(db, dbBasename);
+  const { sql: whereSql, params: wp } = buildShellWhere(q);
+  const cap = SUMMARY_SCAN_CAP + 1;
+  let idRows: ShellIdRow[] = [];
+  try {
+    idRows = fetchShellSpanIdRowsForSummary(db, whereSql, wp, cap);
+  } catch {
+    idRows = [];
+  }
+  sortShellIdRows(idRows, "desc");
+  const capped = idRows.length > SUMMARY_SCAN_CAP;
+  const fetchIds = idRows.slice(0, SUMMARY_SCAN_CAP).map((r) => r.span_id);
+  let rows: Record<string, unknown>[] = [];
+  try {
+    rows = fetchShellRowsBySpanIds(db, fetchIds);
+  } catch {
+    rows = [];
+  }
+  const slice = rows;
+  const summary = computeShellSummaryFromRows(slice, { capped });
 
   if (summary.chain_preview?.trace_id) {
     const tid = summary.chain_preview.trace_id;
@@ -538,8 +653,38 @@ export function queryShellExecList(db: Database.Database, q: ShellExecListQuery)
   items: Record<string, unknown>[];
   total: number;
 } {
-  const { sql, params } = buildShellExecListSql(q);
-  const raw = db.prepare(sql).all(...params) as Record<string, unknown>[];
+  const { sql: whereSql, params: wp } = buildShellWhere(q);
+  const { sql: csql, params: cparams } = buildShellExecCountSql(q);
+  const total = Number((db.prepare(csql).get(...cparams) as { c: number } | undefined)?.c ?? 0) || 0;
+
+  let pageIds: string[] = [];
+  if (total > 0) {
+    if (total <= SHELL_LIST_JS_SORT_MAX) {
+      const raw = db.prepare(`SELECT s.span_id, s.start_time_ms FROM opik_spans s WHERE ${whereSql}`).all(...wp) as {
+        span_id: unknown;
+        start_time_ms: unknown;
+      }[];
+      const idRows = normalizeShellIdRows(raw);
+      sortShellIdRows(idRows, q.order);
+      const allIds = idRows.map((r) => r.span_id);
+      pageIds = allIds.slice(q.offset, q.offset + q.limit);
+    } else {
+      const dir = q.order === "asc" ? "ASC" : "DESC";
+      let idRaw = db
+        .prepare(
+          `SELECT s.span_id FROM opik_spans s WHERE ${whereSql} ORDER BY s.start_time_ms ${dir}, s.span_id ${dir} LIMIT ? OFFSET ?`,
+        )
+        .all(...wp, q.limit, q.offset) as { span_id: unknown }[];
+      if (idRaw.length === 0) {
+        idRaw = db
+          .prepare(`SELECT s.span_id FROM opik_spans s WHERE ${whereSql} LIMIT ? OFFSET ?`)
+          .all(...wp, q.limit, q.offset) as { span_id: unknown }[];
+      }
+      pageIds = idRaw.map((r) => String(r.span_id ?? "")).filter((id) => id.length > 0);
+    }
+  }
+
+  const raw = fetchShellRowsBySpanIds(db, pageIds);
   const items = raw.map((row) => {
     const parsed = parseShellSpanRow({
       input_json: row.input_json != null ? String(row.input_json) : null,
@@ -550,9 +695,6 @@ export function queryShellExecList(db: Database.Database, q: ShellExecListQuery)
     });
     return { ...row, parsed: toParsedShellSpanLite(parsed) };
   });
-  const { sql: csql, params: cparams } = buildShellExecCountSql(q);
-  const crow = db.prepare(csql).get(...cparams) as { c: number } | undefined;
-  const total = crow?.c ?? 0;
   return { items, total };
 }
 
@@ -563,7 +705,7 @@ export function queryShellExecDetail(db: Database.Database, spanId: string): Rec
   }
   const row = db
     .prepare(
-      `${SHELL_SELECT_ROW}
+      `${SHELL_SELECT_ROW_DETAIL}
 WHERE s.span_id = ? AND ${SHELL_TOOL_WHERE_SQL}`,
     )
     .get(id) as Record<string, unknown> | undefined;

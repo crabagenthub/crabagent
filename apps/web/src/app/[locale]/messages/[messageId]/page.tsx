@@ -146,6 +146,7 @@ function MessageDetailContent() {
       "rounded px-2.5 py-1 text-xs font-medium transition-colors",
       active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
     );
+  const messageDetailsLabel = t.has("messageDetails") ? t("messageDetails") : t("stepDetails");
 
   if (!mounted) {
     return (
@@ -208,7 +209,7 @@ function MessageDetailContent() {
 
         {spanView === "execution" ? (
           <section
-            aria-label={t("messageDetails")}
+            aria-label={messageDetailsLabel}
             className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-neutral-50/60"
           >
             <div className="shrink-0 border-b border-border px-3 py-2.5">
@@ -245,7 +246,7 @@ function MessageDetailContent() {
             />
           </section>
         ) : (
-        <section aria-label={t("messageDetails")} className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-col gap-4 lg:flex-row lg:items-stretch">
+        <section aria-label={messageDetailsLabel} className="flex min-h-[min(520px,calc(100dvh-14rem))] flex-col gap-4 lg:flex-row lg:items-stretch">
           {/* Left — execution steps */}
           <aside
             className="flex max-h-52 min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-neutral-50/60 lg:max-h-none lg:w-72 lg:min-h-0 lg:shrink-0 xl:w-80"

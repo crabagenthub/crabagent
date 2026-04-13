@@ -390,7 +390,6 @@ export function SiteNav() {
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/traces", label: t("traces"), Icon: NavIconTraces },
-      { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
       { href: "/observe/overview", label: t("metrics"), Icon: NavIconMetrics },
     ],
     [t],
@@ -400,6 +399,7 @@ export function SiteNav() {
     () => [
       { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
       { href: "/data-security-audit", label: t("dataSecurityAudit"), Icon: NavIconDataSecurity },
+      { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
     ],
     [t],
   );

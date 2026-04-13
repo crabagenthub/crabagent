@@ -20,7 +20,7 @@
     "localeZhCN": "中文",
     "overview": "Overview",
     "traces": "Trace",
-    "metrics": "Metrics",
+    "metrics": "Statistics",
     "optimization": "Optimization",
     "logs": "Logs",
     "analytics": "Analytics",
@@ -50,9 +50,9 @@
     "themeDark": "Dark",
     "themeSystem": "Match system",
     "breadcrumbAria": "Breadcrumb",
-    "resourceAudit": "Access audit",
+    "resourceAudit": "Resource access",
     "dataSecurityAudit": "Content audit",
-    "commandAnalysis": "Command analysis"
+    "commandAnalysis": "Command execution"
   },
   "Overview": {
     "title": "Overview",
@@ -430,6 +430,7 @@
   "Messages": {
     "loading": "Loading…",
     "backToList": "Back to messages",
+    "messageDetails": "Message details",
     "status": "Status",
     "success": "Success",
     "error": "Error",

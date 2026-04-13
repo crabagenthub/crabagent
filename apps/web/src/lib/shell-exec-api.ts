@@ -122,11 +122,13 @@ export async function loadShellExecSummary(
   appendShellParams(sp, q);
   const res = await fetch(`${b}${COLLECTOR_API.shellExecSummary}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
+    cache: "no-store",
   });
+  const body = (await res.json()) as ShellExecSummary;
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
-  return (await res.json()) as ShellExecSummary;
+  return body;
 }
 
 export async function loadShellExecList(
@@ -142,6 +144,7 @@ export async function loadShellExecList(
   sp.set("order", q.order);
   const res = await fetch(`${b}${COLLECTOR_API.shellExecList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
+    cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
@@ -160,6 +163,7 @@ export async function loadShellExecDetail(
   sp.set("span_id", spanId.trim());
   const res = await fetch(`${b}${COLLECTOR_API.shellExecDetail}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
+    cache: "no-store",
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);

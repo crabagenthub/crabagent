@@ -78,6 +78,16 @@ function optionalQueryString(c: KeyCtx, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+/** 缺省查询键勿用 `Number("")`，否则会得到 0 并误触发 `max_duration_ms <= 0` 等过滤。 */
+function optionalNonNegativeIntQuery(c: KeyCtx, key: string): number | undefined {
+  const raw = c.req.query(key);
+  if (raw == null || String(raw).trim() === "") {
+    return undefined;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}
+
 function parseObserveListSort(raw: string | undefined): "time" | "tokens" {
   const s = String(raw ?? "time").trim().toLowerCase();
   return s === "tokens" ? "tokens" : "time";
@@ -456,8 +466,8 @@ const handleShellExecSummary = (c: Context) => {
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
   const commandContains = optionalQueryString(c, "command_contains");
-  const minDur = Number(c.req.query("min_duration_ms") ?? "");
-  const maxDur = Number(c.req.query("max_duration_ms") ?? "");
+  const minDurationMs = optionalNonNegativeIntQuery(c, "min_duration_ms");
+  const maxDurationMs = optionalNonNegativeIntQuery(c, "max_duration_ms");
   const body = queryShellExecSummary(
     db,
     {
@@ -467,8 +477,8 @@ const handleShellExecSummary = (c: Context) => {
       channel,
       agent,
       commandContains,
-      minDurationMs: Number.isFinite(minDur) && minDur >= 0 ? Math.floor(minDur) : undefined,
-      maxDurationMs: Number.isFinite(maxDur) && maxDur >= 0 ? Math.floor(maxDur) : undefined,
+      minDurationMs,
+      maxDurationMs,
     },
     path.basename(DB_PATH_LOG),
   );
@@ -495,8 +505,8 @@ const handleShellExecList = (c: Context) => {
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
   const commandContains = optionalQueryString(c, "command_contains");
-  const minDur = Number(c.req.query("min_duration_ms") ?? "");
-  const maxDur = Number(c.req.query("max_duration_ms") ?? "");
+  const minDurationMs = optionalNonNegativeIntQuery(c, "min_duration_ms");
+  const maxDurationMs = optionalNonNegativeIntQuery(c, "max_duration_ms");
   const { items, total } = queryShellExecList(db, {
     limit,
     offset,
@@ -507,8 +517,8 @@ const handleShellExecList = (c: Context) => {
     channel,
     agent,
     commandContains,
-    minDurationMs: Number.isFinite(minDur) && minDur >= 0 ? Math.floor(minDur) : undefined,
-    maxDurationMs: Number.isFinite(maxDur) && maxDur >= 0 ? Math.floor(maxDur) : undefined,
+    minDurationMs,
+    maxDurationMs,
   });
   return c.json({ items, total });
 };

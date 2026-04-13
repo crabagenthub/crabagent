@@ -19,8 +19,8 @@
     "localeEn": "English",
     "localeZhCN": "中文",
     "overview": "总览",
-    "traces": "Trace",
-    "metrics": "指标",
+    "traces": "链路追踪",
+    "metrics": "统计指标",
     "optimization": "优化",
     "logs": "日志",
     "analytics": "分析",
@@ -50,9 +50,9 @@
     "themeDark": "深色",
     "themeSystem": "跟随系统",
     "breadcrumbAria": "面包屑导航",
-    "resourceAudit": "访问审计",
+    "resourceAudit": "资源访问",
     "dataSecurityAudit": "内容审计",
-    "commandAnalysis": "指令执行分析"
+    "commandAnalysis": "指令执行"
   },
   "Overview": {
     "title": "总览",
@@ -430,6 +430,7 @@
   "Messages": {
     "loading": "正在加载…",
     "backToList": "返回消息列表",
+    "messageDetails": "消息详情",
     "status": "状态",
     "success": "成功",
     "error": "错误",
