@@ -79,7 +79,7 @@ export type CrabagentTracePluginConfig = {
    */
   redactBeforeCollectorPost: boolean;
   /**
-   * 在 `message_received` 阶段命中 `abort_run` / `block_message` 后，尝试短路后续流程（多 hook 兜底）。
+   * 在 `message_received` 阶段命中 `abort_run` 后，尝试短路后续流程（多 hook 兜底）。
    * 环境变量：`CRABAGENT_POLICY_HARD_BLOCK=0|false|no` 可关闭。
    */
   hardBlockOnInboundMatch: boolean;

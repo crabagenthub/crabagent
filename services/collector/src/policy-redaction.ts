@@ -1,9 +1,9 @@
 import type { CrabagentDb } from "./db.js";
 import { Redactor, type RedactionRule } from "./redactor.js";
-import { queryAllPolicies } from "./policy-query.js";
+import { compareInterceptionPoliciesByRedactionOrder, queryAllPolicies } from "./policy-query.js";
 
 export function buildRedactorFromPolicies(db: CrabagentDb): Redactor {
-  const policies = queryAllPolicies(db);
+  const policies = queryAllPolicies(db).slice().sort(compareInterceptionPoliciesByRedactionOrder);
   const rules: RedactionRule[] = [];
   for (const p of policies) {
     let targets: string[] = [];
@@ -33,7 +33,6 @@ export function buildRedactorFromPolicies(db: CrabagentDb): Redactor {
       enabled: p.enabled === 1,
       severity: p.severity ?? undefined,
       policyAction: p.policy_action ?? undefined,
-      interceptMode: p.intercept_mode ?? undefined,
     });
   }
   return new Redactor(rules);

@@ -505,6 +505,10 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+.policy-modal-scroll {
+  scrollbar-gutter: stable;
+  padding-right: 10px;
+}
 .policy-modal-form .arco-form-item-label-col {
   padding-bottom: 6px;
   text-align: left;
@@ -532,18 +536,18 @@ body {
   display: block;
   vertical-align: middle !important;
 }
-.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) {
+.policy-edit-modal .policy-modal-form .arco-form-item {
   display: grid;
   grid-template-columns: 108px minmax(0, 1fr);
   column-gap: 12px;
   align-items: start;
 }
-.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col {
+.policy-edit-modal .policy-modal-form .arco-form-item .arco-form-item-label-col {
   grid-column: 1;
   margin-bottom: 0;
   padding-top: 7px;
 }
-.policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-wrapper-col {
+.policy-edit-modal .policy-modal-form .arco-form-item .arco-form-item-wrapper-col {
   grid-column: 2;
   min-width: 0;
 }
@@ -557,22 +561,19 @@ body {
 .policy-edit-modal .policy-modal-form .policy-modal-enabled-row .arco-switch {
   margin-top: 2px;
 }
-.policy-modal-section {
-  margin: 0;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fafbff;
+.policy-edit-modal .policy-modal-form .policy-modal-targets-field .arco-select-multiple .arco-select-view-tag,
+.policy-edit-modal .policy-modal-form .policy-modal-targets-field .arco-select-multiple .arco-tag {
+  border-radius: 9999px;
 }
 @media (max-width: 640px) {
-  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) {
+  .policy-edit-modal .policy-modal-form .arco-form-item {
     grid-template-columns: minmax(0, 1fr);
   }
-  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col,
-  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-wrapper-col {
+  .policy-edit-modal .policy-modal-form .arco-form-item .arco-form-item-label-col,
+  .policy-edit-modal .policy-modal-form .arco-form-item .arco-form-item-wrapper-col {
     grid-column: 1;
   }
-  .policy-edit-modal .policy-modal-form .arco-form-item:not(.policy-modal-disposition-inline) .arco-form-item-label-col {
+  .policy-edit-modal .policy-modal-form .arco-form-item .arco-form-item-label-col {
     padding-top: 0;
   }
   .policy-edit-modal .arco-modal-header {
@@ -652,40 +653,6 @@ body[arco-theme="dark"] .custom-radio-card-group .arco-radio {
 body[arco-theme="dark"] .custom-radio-card-group .arco-radio.arco-radio-checked {
   border-color: rgb(167 139 250 / 0.7);
   background: rgb(88 28 135 / 0.25);
-}
-
-/** 策略弹框：处置方式 — 左侧标题与右侧选项区同一行对齐 */
-.policy-modal-form .policy-modal-disposition-inline.arco-form-item {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  column-gap: 0.75rem;
-  align-items: start;
-}
-.policy-modal-form .policy-modal-disposition-inline .arco-form-item-label {
-  grid-column: 1;
-  grid-row: 1;
-  margin-bottom: 0 !important;
-  padding-top: 0.5rem;
-  line-height: 1.375;
-}
-.policy-modal-form .policy-modal-disposition-inline .arco-form-item-wrapper {
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 0;
-}
-@media (max-width: 520px) {
-  .policy-modal-form .policy-modal-disposition-inline.arco-form-item {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .policy-modal-form .policy-modal-disposition-inline .arco-form-item-label {
-    grid-column: 1;
-    grid-row: 1;
-    padding-top: 0;
-  }
-  .policy-modal-form .policy-modal-disposition-inline .arco-form-item-wrapper {
-    grid-column: 1;
-    grid-row: 2;
-  }
 }
 
 body[arco-theme="dark"] {

@@ -7,7 +7,6 @@ export type SecurityAuditFinding = {
   policy_name: string;
   match_count: number;
   policy_action: string;
-  intercept_mode: string;
   redact_type: string;
 };
 
@@ -51,7 +50,6 @@ export function parseSecurityAuditFindings(raw: string | null | undefined): Secu
         policy_name: String(o.policy_name ?? ""),
         match_count: Number(o.match_count ?? 0) || 0,
         policy_action: String(o.policy_action ?? ""),
-        intercept_mode: String(o.intercept_mode ?? ""),
         redact_type: String(o.redact_type ?? ""),
       };
     });

@@ -28,6 +28,7 @@ import {
 import { pickLlmOutputUsage } from "./llm-output-usage.js";
 import { appendOutboxFile, drainOutboxFile, ensureDirForFile } from "./outbox.js";
 import type { RedactionRule } from "./redactor.js";
+import { sortRulesByPolicyPriority } from "./policy-priority.js";
 import { compileRules, deepSanitizeStrings } from "./vault-pipeline.js";
 import { EncryptedVaultStore } from "./vault-store.js";
 import {
@@ -243,13 +244,10 @@ export default definePluginEntry({
         if (!r.enabled) {
           continue;
         }
-        const action = String((r as { policyAction?: unknown }).policyAction ?? "mask")
+        const action = String((r as { policyAction?: unknown }).policyAction ?? "data_mask")
           .trim()
           .toLowerCase();
-        const mode = String((r as { interceptMode?: unknown }).interceptMode ?? "enforce")
-          .trim()
-          .toLowerCase();
-        if ((action !== "abort_run" && action !== "block_message") || mode === "observe") {
+        if (action !== "abort_run") {
           continue;
         }
         const re = compiledRegexByRuleId.get(r.id);
@@ -421,12 +419,12 @@ export default definePluginEntry({
               enabled: p.enabled === 1 || p.enabled === true,
               severity: typeof p.severity === "string" ? p.severity : undefined,
               policyAction: typeof p.policy_action === "string" ? p.policy_action : undefined,
-              interceptMode: typeof p.intercept_mode === "string" ? p.intercept_mode : undefined,
             });
           }
-          cachedRedactionRules = rules;
-          rebuildCompiledPolicyCaches(rules);
-          getRuntime().updateRedactionRules(rules);
+          const sortedRules = sortRulesByPolicyPriority(rules);
+          cachedRedactionRules = sortedRules;
+          rebuildCompiledPolicyCaches(sortedRules);
+          getRuntime().updateRedactionRules(sortedRules);
           void reportPolicyPullToCollector(pulledAtMs);
         }
       } catch (err) {
@@ -604,6 +602,52 @@ export default definePluginEntry({
       agentName: ctx.agentName,
     });
 
+    const applyInputGuardForText = (text: string): string => {
+      const guardRules = (cachedRedactionRules as import("./vault-pipeline.js").ExtendedRedactionRule[]).filter(
+        (r) =>
+          r.enabled &&
+          String(r.policyAction ?? "")
+            .trim()
+            .toLowerCase() === "input_guard",
+      );
+      if (guardRules.length <= 0 || !text.trim()) {
+        return text;
+      }
+      const out = deepSanitizeStrings(
+        text,
+        guardRules,
+        { vault: null, vaultEnabled: false },
+        compiledRegexByRuleId,
+      );
+      return typeof out.value === "string" ? out.value : text;
+    };
+
+    const sanitizeToolOutput = (value: unknown): unknown => {
+      const rules = (cachedRedactionRules as import("./vault-pipeline.js").ExtendedRedactionRule[]).filter((r) => {
+        if (!r.enabled) {
+          return false;
+        }
+        const targets = Array.isArray(r.targets) ? r.targets : [];
+        if (!targets.includes("tool_output")) {
+          return false;
+        }
+        const action = String(r.policyAction ?? "data_mask")
+          .trim()
+          .toLowerCase();
+        return action !== "audit_only";
+      });
+      if (rules.length <= 0) {
+        return value;
+      }
+      const out = deepSanitizeStrings(
+        value,
+        rules,
+        { vault: getVaultStore(), vaultEnabled: false },
+        compiledRegexByRuleId,
+      );
+      return out.value;
+    };
+
     const hardBlockContribution = (replyText: string, source: string, policyIds: string[], policyNames: string[]) => ({
       block: true,
       reply: replyText,
@@ -714,6 +758,11 @@ export default definePluginEntry({
           promptPreview: p.slice(0, TRACE_PROMPT_PREVIEW_MAX_CHARS),
         },
       });
+      const rewritten = applyInputGuardForText(p);
+      if (rewritten !== p) {
+        return { ...event, prompt: rewritten };
+      }
+      return undefined;
     });
 
     (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_prompt_build", (ev: unknown, c: unknown) => {
@@ -729,6 +778,11 @@ export default definePluginEntry({
           historyMessageCount: Array.isArray(event.messages) ? event.messages.length : 0,
         },
       });
+      const rewritten = applyInputGuardForText(p);
+      if (rewritten !== p) {
+        return { ...event, prompt: rewritten };
+      }
+      return undefined;
     });
 
     (api as { on: (name: string, fn: (...args: unknown[]) => unknown) => void }).on("before_agent_start", (ev: unknown, c: unknown) => {
@@ -925,11 +979,12 @@ export default definePluginEntry({
     api.on("after_tool_call", (ev: unknown, c: unknown) => {
       const event = ev as AfterToolEvent;
       const ctx = c as AgentCtx;
+      const sanitizedResult = sanitizeToolOutput((event as Record<string, unknown>).result);
       getRuntime().onAfterTool(effectiveSk(ctx), {
         toolCallId: event.toolCallId,
         error: event.error,
         durationMs: event.durationMs,
-        result: (event as Record<string, unknown>).result,
+        result: sanitizedResult,
       });
     });
 

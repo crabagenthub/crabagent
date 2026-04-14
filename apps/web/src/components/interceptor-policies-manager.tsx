@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TableProps } from "@arco-design/web-react";
@@ -20,7 +21,7 @@ import {
   Tooltip,
   Popover,
 } from "@arco-design/web-react";
-import { IconEdit, IconDelete } from "@arco-design/web-react/icon";
+import { IconEdit, IconDelete, IconQuestionCircleFill } from "@arco-design/web-react/icon";
 import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -34,13 +35,13 @@ const Option = Select.Option;
 
 /** 策略弹框「处置方式」选项与举例文案 key（对应 DataSecurity.*） */
 const DISPOSITION_RADIO_OPTIONS = [
-  { value: "mask", labelKey: "policyActionMask", exampleKey: "policyActionExampleMask" },
-  { value: "block_message", labelKey: "policyActionBlockMessage", exampleKey: "policyActionExampleBlockMessage" },
+  { value: "data_mask", labelKey: "policyActionDataMask", exampleKey: "policyActionExampleDataMask" },
   { value: "abort_run", labelKey: "policyActionAbortRun", exampleKey: "policyActionExampleAbortRun" },
-  { value: "alert_only", labelKey: "policyActionAlertOnly", exampleKey: "policyActionExampleAlertOnly" },
+  { value: "input_guard", labelKey: "policyActionInputGuard", exampleKey: "policyActionExampleInputGuard" },
+  { value: "audit_only", labelKey: "policyActionAuditOnly", exampleKey: "policyActionExampleAuditOnly" },
 ] as const;
 
-function requiredLabel(label: string) {
+function requiredLabel(label: ReactNode) {
   return (
     <span className="inline-flex items-center gap-1">
       <span>{label}</span>
@@ -59,7 +60,6 @@ interface InterceptionPolicy {
   enabled: number;
   severity?: string | null;
   policy_action?: string | null;
-  intercept_mode?: string | null;
   detection_kind?: string | null;
   created_at_ms?: number | null;
   updated_at_ms: number;
@@ -109,8 +109,7 @@ export function InterceptorPoliciesManager({
       description: templatePolicy.description ?? "",
       pattern: templatePolicy.pattern ?? "",
       severity: tp?.severity ?? "high",
-      policy_action: tp?.policy_action ?? "mask",
-      intercept_mode: tp?.intercept_mode ?? "enforce",
+      policy_action: tp?.policy_action ?? "data_mask",
       detection_kind: "regex",
       targets: templatePolicy.targets ?? ["prompt", "assistantTexts"],
       enabled: templatePolicy.enabled !== 0,
@@ -263,8 +262,7 @@ export function InterceptorPoliciesManager({
         enabled: policy.enabled === 1,
         targets: JSON.parse(policy.targets_json || "[]"),
         severity: policy.severity ?? "high",
-        policy_action: policy.policy_action ?? "mask",
-        intercept_mode: policy.intercept_mode ?? "enforce",
+        policy_action: policy.policy_action ?? "data_mask",
         detection_kind: policy.detection_kind === "model" ? "model" : (policy.detection_kind ?? "regex"),
       });
       setIsModalVisible(true);
@@ -293,7 +291,6 @@ export function InterceptorPoliciesManager({
         detection_kind?: string;
         severity?: string;
         policy_action?: string;
-        intercept_mode?: string;
         targets?: string[];
         enabled?: boolean;
       };
@@ -305,7 +302,6 @@ export function InterceptorPoliciesManager({
         pattern: dk === "regex" ? String(v.pattern ?? "").trim() : "",
         severity: v.severity,
         policy_action: v.policy_action,
-        intercept_mode: v.intercept_mode,
         enabled: v.enabled ? 1 : 0,
         targets_json: JSON.stringify(v.targets || []),
         detection_kind: dk,
@@ -314,13 +310,6 @@ export function InterceptorPoliciesManager({
     } catch {
       // Validation error
     }
-  };
-
-  const actionForcesEnforce = (action: unknown): boolean => {
-    const a = String(action ?? "")
-      .trim()
-      .toLowerCase();
-    return a === "block_message" || a === "abort_run";
   };
 
   const handleCloseModal = useCallback(() => {
@@ -453,43 +442,21 @@ export function InterceptorPoliciesManager({
         key: "policy_action",
         width: 120,
         render: (action: string | null | undefined) => {
-          const a = action ?? "mask";
+          const a = action ?? "data_mask";
           const labelKey =
-            a === "hash"
-              ? "policyActionHash"
-              : a === "vault_token"
-                ? "policyActionVaultToken"
-                : a === "pseudonymize"
-                  ? "policyActionPseudonymize"
-                  : a === "block_message"
-                    ? "policyActionBlockMessage"
-                    : a === "abort_run"
-                      ? "policyActionAbortRun"
-                      : a === "alert_only"
-                        ? "policyActionAlertOnly"
-                        : "policyActionMask";
+            a === "abort_run"
+              ? "policyActionAbortRun"
+              : a === "input_guard"
+                ? "policyActionInputGuard"
+                : a === "audit_only"
+                  ? "policyActionAuditOnly"
+                  : "policyActionDataMask";
           return (
             <span
               className="block max-w-[10rem] truncate text-xs text-neutral-800 dark:text-neutral-200"
               title={t(labelKey)}
             >
               {t(labelKey)}
-            </span>
-          );
-        },
-      },
-      {
-        title: <ObserveTableHeaderLabel>{t("policyInterceptMode")}</ObserveTableHeaderLabel>,
-        dataIndex: "intercept_mode",
-        key: "intercept_mode",
-        width: 108,
-        render: (mode: string | null | undefined) => {
-          const m = mode ?? "enforce";
-          const enforce = m === "enforce";
-          const label = enforce ? t("policyModeEnforce") : t("policyModeObserve");
-          return (
-            <span className="block max-w-[9rem] truncate text-xs text-neutral-800 dark:text-neutral-200" title={label}>
-              {label}
             </span>
           );
         },
@@ -623,7 +590,7 @@ export function InterceptorPoliciesManager({
         style={{ width: 760, maxWidth: "calc(100vw - 2rem)" }}
         maskClosable={false}
       >
-        <div className="policy-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-1 [-webkit-overflow-scrolling:touch]">
+        <div className="policy-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-3 [-webkit-overflow-scrolling:touch]">
           <Form
             form={form}
             layout="vertical"
@@ -635,12 +602,6 @@ export function InterceptorPoliciesManager({
               setDetectionKind(resolved);
               if (Object.prototype.hasOwnProperty.call(changed, "detection_kind") && changed.detection_kind === "model") {
                 form.setFieldValue("pattern", "");
-              }
-              if (
-                Object.prototype.hasOwnProperty.call(changed, "policy_action") &&
-                actionForcesEnforce((all as { policy_action?: string }).policy_action)
-              ) {
-                form.setFieldValue("intercept_mode", "enforce");
               }
             }}
           >
@@ -672,10 +633,18 @@ export function InterceptorPoliciesManager({
 
             {detectionKind === "regex" ? (
               <Form.Item
-                label={requiredLabel(t("policyPattern"))}
+                label={requiredLabel(
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{t("policyPattern")}</span>
+                    <Tooltip content="用于匹配敏感信息的正则，如 1[3-9]\\d{9}">
+                      <span className="inline-flex cursor-help items-center text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300">
+                        <IconQuestionCircleFill className="text-[13px]" />
+                      </span>
+                    </Tooltip>
+                  </span>,
+                )}
                 field="pattern"
                 rules={[{ required: true, message: t("policyPatternRequired") }]}
-                extra={t("policyPatternExtra")}
                 className="policy-modal-field-full policy-modal-pattern-field"
               >
                 <Input placeholder="RegExp pattern" />
@@ -686,27 +655,49 @@ export function InterceptorPoliciesManager({
               </div>
             )}
 
-            <div className="policy-modal-section">
-              <Form.Item
-                label={t("policyDisposition")}
-                field="policy_action"
-                initialValue="mask"
-                className="policy-modal-disposition-inline"
-              >
-                <Radio.Group className="custom-radio-card-group custom-radio-card-group--grid">
-                  {DISPOSITION_RADIO_OPTIONS.map((opt) => (
-                    <Radio key={opt.value} value={opt.value}>
-                      <span className="w-full min-w-0">
-                        <span className="font-medium text-neutral-800 dark:text-neutral-100">{t(opt.labelKey)}</span>
-                        <span className="mt-0.5 block text-xs font-normal leading-snug text-neutral-500 dark:text-neutral-400">
-                          {t(opt.exampleKey)}
-                        </span>
+            <Form.Item
+              label={t("policyDisposition")}
+              field="policy_action"
+              initialValue="data_mask"
+              className="policy-modal-disposition-inline"
+            >
+              <Radio.Group className="custom-radio-card-group custom-radio-card-group--grid">
+                {DISPOSITION_RADIO_OPTIONS.map((opt) => (
+                  <Radio key={opt.value} value={opt.value}>
+                    <span className="w-full min-w-0">
+                      <span className="font-medium text-neutral-800 dark:text-neutral-100">{t(opt.labelKey)}</span>
+                      <span className="mt-0.5 block text-xs font-normal leading-snug text-neutral-500 dark:text-neutral-400">
+                        {t(opt.exampleKey)}
                       </span>
-                    </Radio>
-                  ))}
-                </Radio.Group>
-              </Form.Item>
-            </div>
+                    </span>
+                  </Radio>
+                ))}
+              </Radio.Group>
+            </Form.Item>
+
+            <Form.Item
+              label={
+                <span className="inline-flex items-center gap-1.5">
+                  <span>{t("policyTargets")}</span>
+                  <Tooltip content="指定哪些字段需要进行脱敏处理">
+                    <span className="inline-flex cursor-help items-center text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300">
+                      <IconQuestionCircleFill className="text-[13px]" />
+                    </span>
+                  </Tooltip>
+                </span>
+              }
+              field="targets"
+              initialValue={["prompt", "assistantTexts"]}
+              className="policy-modal-targets-field"
+            >
+              <Select mode="multiple" placeholder="选择字段">
+                <Option value="prompt">用户 Prompt</Option>
+                <Option value="assistantTexts">模型输出 (Assistant)</Option>
+                <Option value="tool_params">工具调用参数</Option>
+                <Option value="tool_output">{t("policyTargetToolOutput")}</Option>
+                <Option value="metadata">元数据 (Metadata)</Option>
+              </Select>
+            </Form.Item>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
               <Form.Item label={t("policySeverity")} field="severity" initialValue="high" className="!mb-0">
@@ -715,26 +706,6 @@ export function InterceptorPoliciesManager({
                   <Option value="high">{t("policySeverityHigh")}</Option>
                   <Option value="critical">{t("policySeverityCritical")}</Option>
                 </Select>
-              </Form.Item>
-              <Form.Item shouldUpdate noStyle>
-                {() => {
-                  const lockObserve = actionForcesEnforce(form.getFieldValue("policy_action"));
-                  return (
-                    <Form.Item
-                      label={t("policyInterceptMode")}
-                      field="intercept_mode"
-                      initialValue="enforce"
-                      className="!mb-0"
-                    >
-                      <Radio.Group className="custom-radio-card-group custom-radio-card-group--horizontal">
-                        <Radio value="enforce">{t("policyModeEnforce")}</Radio>
-                        <Radio value="observe" disabled={lockObserve}>
-                          {t("policyModeObserve")}
-                        </Radio>
-                      </Radio.Group>
-                    </Form.Item>
-                  );
-                }}
               </Form.Item>
               <Form.Item
                 label={t("policyEnabled")}
@@ -746,20 +717,6 @@ export function InterceptorPoliciesManager({
                 <Switch />
               </Form.Item>
             </div>
-
-            <Form.Item
-              label={t("policyTargets")}
-              field="targets"
-              initialValue={["prompt", "assistantTexts"]}
-              extra="指定哪些字段需要进行脱敏处理"
-            >
-              <Select mode="multiple" placeholder="选择字段">
-                <Option value="prompt">用户 Prompt</Option>
-                <Option value="assistantTexts">模型输出 (Assistant)</Option>
-                <Option value="tool_params">工具调用参数</Option>
-                <Option value="metadata">元数据 (Metadata)</Option>
-              </Select>
-            </Form.Item>
           </Form>
         </div>
       </Modal>

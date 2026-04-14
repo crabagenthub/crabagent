@@ -29,8 +29,8 @@ export function classifySecurityFindingCategory(f: SecurityAuditFinding): Securi
 
 export type SecurityAuditTrendRow = {
   date: string;
-  enforcedHits: number;
-  observeHits: number;
+  actionHits: number;
+  auditHits: number;
 };
 
 export type SecurityAuditHitTypeSlice = {
@@ -50,15 +50,15 @@ function dayKeyLocal(ms: number): string {
 
 /** 将事件按本地日历日聚合，按命中数累计「强制执行 / 观察」趋势（代理风险态势）。 */
 export function buildSecurityAuditRiskTrend(rows: SecurityAuditEventRow[]): SecurityAuditTrendRow[] {
-  const map = new Map<string, { enforcedHits: number; observeHits: number }>();
+  const map = new Map<string, { actionHits: number; auditHits: number }>();
   for (const row of rows) {
     const day = dayKeyLocal(row.created_at_ms);
-    const cur = map.get(day) ?? { enforcedHits: 0, observeHits: 0 };
+    const cur = map.get(day) ?? { actionHits: 0, auditHits: 0 };
     const hits = Math.max(0, row.hit_count || 0);
     if (row.intercepted === 1) {
-      cur.enforcedHits += hits;
+      cur.actionHits += hits;
     } else {
-      cur.observeHits += hits;
+      cur.auditHits += hits;
     }
     map.set(day, cur);
   }

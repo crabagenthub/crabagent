@@ -57,12 +57,13 @@ import {
   type ResourceAuditEventRow,
   type ResourceAuditSemanticClassParam,
 } from "@/lib/resource-audit-records";
+import { loadTraceRecords, traceRecordAgentName, traceRecordChannel } from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
 const kpiShellClass =
-  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
+  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
 
 const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
@@ -193,8 +194,8 @@ function resourceAuditEventToSpanRecord(row: ResourceAuditEventRow): SpanRecordR
     thread_key: row.thread_key,
     workspace_name: row.workspace_name,
     project_name: row.project_name,
-    agent_name: null,
-    channel_name: null,
+    agent_name: row.agent_name,
+    channel_name: row.channel_name,
     total_tokens: 0,
     prompt_tokens: 0,
     completion_tokens: 0,
@@ -322,6 +323,21 @@ export function ResourceAuditDashboard() {
     staleTime: 20_000,
   });
 
+  const traceMetaQ = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.traceList, baseUrl, apiKey, "resource-audit-trace-meta", sinceMs ?? 0, untilMs ?? 0, traceFromUrl],
+    queryFn: () =>
+      loadTraceRecords(baseUrl, apiKey, {
+        limit: 5000,
+        offset: 0,
+        order: "desc",
+        sinceMs: sinceMs ?? undefined,
+        untilMs: untilMs ?? undefined,
+        search: traceFromUrl || undefined,
+      }),
+    enabled,
+    staleTime: 20_000,
+  });
+
   const applySearch = useCallback(() => {
     setSearch(searchDraft);
     setPage(1);
@@ -364,6 +380,17 @@ export function ResourceAuditDashboard() {
     () => (eventsQ.data?.items ?? []).map(resourceAuditEventToSpanRecord),
     [eventsQ.data?.items],
   );
+
+  const traceMetaById = useMemo(() => {
+    const m = new Map<string, { agent: string | null; channel: string | null }>();
+    for (const row of traceMetaQ.data?.items ?? []) {
+      m.set(row.trace_id, {
+        agent: traceRecordAgentName(row),
+        channel: traceRecordChannel(row),
+      });
+    }
+    return m;
+  }, [traceMetaQ.data?.items]);
 
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
@@ -430,6 +457,26 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
+        title: <ColHintTitle label={t("colAgent")} hint={t("colAgentHint")} />,
+        dataIndex: "agent_name",
+        width: 120,
+        render: (name: string | null, row: ResourceAuditEventRow) => (
+          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+            {name?.trim() || traceMetaById.get(row.trace_id)?.agent?.trim() || "—"}
+          </Typography.Text>
+        ),
+      },
+      {
+        title: <ColHintTitle label={t("colChannel")} hint={t("colChannelHint")} />,
+        dataIndex: "channel_name",
+        width: 120,
+        render: (name: string | null, row: ResourceAuditEventRow) => (
+          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+            {name?.trim() || traceMetaById.get(row.trace_id)?.channel?.trim() || "—"}
+          </Typography.Text>
+        ),
+      },
+      {
         title: <ColHintTitle label={t("colChars")} hint={t("colCharsHint")} />,
         dataIndex: "chars",
         width: 100,
@@ -489,7 +536,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, setTraceFilterUrl],
+    [t, setTraceFilterUrl, traceMetaById],
   );
 
   const dailyRows = useMemo(() => {

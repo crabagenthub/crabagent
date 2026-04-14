@@ -33,6 +33,11 @@ export type ConversationTimelineItem =
       footerGroupRole?: "assistant" | "tool";
       /** 合并 subagent 时可打开的子会话 thread key（与主会话不同时）。 */
       subagentSessionThreadKey?: string | null;
+      /**
+       * 同 trace 的 `llm_input.payload.user_turn.security_intercept_blocked.reply`（入站中止策略等）；
+       * 有值时在助手气泡中优先展示，避免仅见占位或空输出。
+       */
+      securityInterceptBlockedReply?: string | null;
     }
   | { kind: "collapsed"; events: TraceTimelineEvent[]; key: string };
 
@@ -301,6 +306,40 @@ function memoryRefsFromEvents(events: TraceTimelineEvent[]): MemoryRefSnippet[] 
   return out;
 }
 
+/** 与 `mergePendingWithInboundMirror` 写入的 `user_turn.security_intercept_blocked` 对齐（snake_case）。 */
+export function securityInterceptBlockedReplyFromEvents(
+  allEvents: TraceTimelineEvent[],
+  traceRootId: string | null,
+): string | null {
+  const tr = traceRootId?.trim();
+  if (!tr) {
+    return null;
+  }
+  for (const e of allEvents) {
+    if (normType(e) !== "llm_input") {
+      continue;
+    }
+    const er = typeof e.trace_root_id === "string" ? e.trace_root_id.trim() : "";
+    if (er !== tr) {
+      continue;
+    }
+    const p = payloadOf(e);
+    const ut = p.user_turn;
+    if (!ut || typeof ut !== "object" || Array.isArray(ut)) {
+      continue;
+    }
+    const block = (ut as Record<string, unknown>).security_intercept_blocked;
+    if (!block || typeof block !== "object" || Array.isArray(block)) {
+      continue;
+    }
+    const reply = (block as Record<string, unknown>).reply;
+    if (typeof reply === "string" && reply.trim()) {
+      return reply.trim();
+    }
+  }
+  return null;
+}
+
 function eventKey(e: TraceTimelineEvent, i: number): string {
   if (typeof e.event_id === "string" && e.event_id.trim()) {
     return e.event_id.trim();
@@ -427,6 +466,7 @@ export function buildConversationTimeline(
         modelLabel: messagesOnly ? modelLabel : undefined,
         footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pOut) : undefined,
         subagentSessionThreadKey: subKey,
+        securityInterceptBlockedReply: securityInterceptBlockedReplyFromEvents(events, traceRootId),
       });
       return;
     }
@@ -487,6 +527,7 @@ export function buildConversationTimeline(
           modelLabel: messagesOnly ? modelLabelEnd : undefined,
           footerGroupRole: messagesOnly ? footerGroupRoleFromLlmLikePayload(pEnd) : undefined,
           subagentSessionThreadKey: subKeyEnd,
+          securityInterceptBlockedReply: securityInterceptBlockedReplyFromEvents(events, traceRootId),
         });
         return;
       }

@@ -5,7 +5,11 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { CrabagentDb } from "./db.js";
-import { queryAllPolicies, type InterceptionPolicy } from "./policy-query.js";
+import {
+  compareInterceptionPoliciesByRedactionOrder,
+  queryAllPolicies,
+  type InterceptionPolicy,
+} from "./policy-query.js";
 
 /**
  * 与 `PRAGMA table_info` 对齐：旧库可能含 `timestamp_ms` 等额外 NOT NULL 列，须按实际列集 INSERT。
@@ -139,7 +143,6 @@ export type SecurityAuditFinding = {
   policy_name: string;
   match_count: number;
   policy_action: string;
-  intercept_mode: string;
   redact_type: string;
 };
 
@@ -168,9 +171,10 @@ type CompiledRule = {
 
 function compilePolicies(policies: InterceptionPolicy[]): CompiledRule[] {
   const out: CompiledRule[] = [];
+  const sorted = policies.slice().sort(compareInterceptionPoliciesByRedactionOrder);
   const _modelTimeoutMs = Number(process.env.CRABAGENT_MODEL_DETECT_TIMEOUT_MS?.trim() ?? "");
   void _modelTimeoutMs; // P4：模型检测 worker 硬超时（毫秒），当前未接线路径
-  for (const p of policies) {
+  for (const p of sorted) {
     /** SQLite / 历史行可能为 null；仅显式 0 视为关闭 */
     if (Number(p.enabled) === 0) {
       continue;
@@ -246,8 +250,7 @@ function scanText(rules: CompiledRule[], text: string): SecurityAuditFinding[] {
       policy_id: policy.id,
       policy_name: policy.name ?? policy.id,
       match_count: n,
-      policy_action: policy.policy_action ?? "mask",
-      intercept_mode: policy.intercept_mode ?? "enforce",
+      policy_action: policy.policy_action ?? "data_mask",
       redact_type: policy.redact_type,
     });
   }
@@ -267,17 +270,12 @@ function summarizeFindings(findings: SecurityAuditFinding[]): {
   let enforceHit = false;
   let observeHit = false;
   for (const f of findings) {
-    const mode = (f.intercept_mode ?? "enforce").toLowerCase();
-    const alertOnly = (f.policy_action ?? "").toLowerCase() === "alert_only";
-    if (mode === "observe") {
+    const action = (f.policy_action ?? "data_mask").toLowerCase();
+    if (action === "audit_only") {
       observeHit = true;
       continue;
     }
-    if (!alertOnly) {
-      enforceHit = true;
-    } else {
-      observeHit = true;
-    }
+    enforceHit = true;
   }
   const intercepted = enforceHit ? 1 : 0;
   const observe_only = observeHit && !enforceHit ? 1 : 0;
@@ -325,8 +323,7 @@ function readForwardedFindingsFromMetadata(
         policy_id: String(o.policy_id ?? ""),
         policy_name: String(o.policy_name ?? ""),
         match_count: matchCount > 0 ? Math.floor(matchCount) : 0,
-        policy_action: String(o.policy_action ?? "mask"),
-        intercept_mode: String(o.intercept_mode ?? "enforce"),
+        policy_action: String(o.policy_action ?? "data_mask"),
         redact_type: redactType,
       } satisfies SecurityAuditFinding;
     })

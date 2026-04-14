@@ -7,6 +7,8 @@ export type ResourceAuditEventRow = {
   span_id: string;
   trace_id: string;
   thread_key: string;
+  agent_name: string | null;
+  channel_name: string | null;
   workspace_name: string;
   project_name: string;
   span_name: string;
@@ -169,10 +171,14 @@ export type LoadResourceAuditEventsParams = {
 function normalizeEvent(r: Record<string, unknown>): ResourceAuditEventRow {
   const flags = r.risk_flags;
   const risk_flags = Array.isArray(flags) ? flags.map((x) => String(x)) : [];
+  const rawAgent = r.agent_name ?? r.agent;
+  const rawChannel = r.channel_name ?? r.channel;
   return {
     span_id: String(r.span_id ?? ""),
     trace_id: String(r.trace_id ?? ""),
     thread_key: String(r.thread_key ?? ""),
+    agent_name: rawAgent != null && String(rawAgent).trim() !== "" ? String(rawAgent) : null,
+    channel_name: rawChannel != null && String(rawChannel).trim() !== "" ? String(rawChannel) : null,
     workspace_name: String(r.workspace_name ?? ""),
     project_name: String(r.project_name ?? ""),
     span_name: String(r.span_name ?? ""),

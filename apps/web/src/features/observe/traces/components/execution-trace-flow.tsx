@@ -346,6 +346,8 @@ export type ExecutionTraceFlowProps = {
   onSelectSpan?: (spanId: string) => void;
 };
 
+export type ExecutionTraceFlowVariant = ExecutionTraceFlowProps["variant"];
+
 function ExecutionTraceFlowInner({
   variant,
   baseUrl,

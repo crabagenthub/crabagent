@@ -48,7 +48,7 @@ const PAGE_SIZE = 50;
 /** Collector 对内容审计列表的 limit 上限 */
 const ANALYTICS_LIMIT = 200;
 const cardShellClass =
-  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow,border-color] duration-200 ease-out hover:border-[#C9CDD4] hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:border-muted-foreground/25 dark:hover:shadow-md";
+  "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
 
 function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, cat: SecurityHitCategory): string {
   switch (cat) {
@@ -175,7 +175,7 @@ export function SecurityAuditDashboard() {
   );
 
   const riskTrendOpt = useMemo(
-    () => securityTrendBarOption(trendData, t("seriesEnforced"), t("seriesObserve")),
+    () => securityTrendBarOption(trendData, t("seriesAction"), t("seriesAuditOnly")),
     [trendData, t],
   );
 

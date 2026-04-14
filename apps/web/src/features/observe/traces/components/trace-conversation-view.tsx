@@ -398,6 +398,7 @@ function AssistantBubble({
   turnMetaBelowBubble,
   subagentSessionThreadKey,
   onOpenSubagentSession,
+  securityInterceptBlockedReply,
 }: {
   text: string;
   thinking: string | null;
@@ -416,10 +417,16 @@ function AssistantBubble({
   /** 合并 subagent 且可解析出子会话 thread key 时，供「查看子会话」使用。 */
   subagentSessionThreadKey?: string | null;
   onOpenSubagentSession?: ((childThreadKey: string) => void) | null;
+  /** 命中入站中止策略时：`user_turn.security_intercept_blocked.reply`，优先于模型输出正文展示。 */
+  securityInterceptBlockedReply?: string | null;
 }) {
   const t = useTranslations("Traces");
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const displayText =
+    typeof securityInterceptBlockedReply === "string" && securityInterceptBlockedReply.trim()
+      ? securityInterceptBlockedReply.trim()
+      : text;
 
   const traceHref = useMemo(() => {
     const base = `/traces?thread=${encodeURIComponent(threadKey)}`;
@@ -428,7 +435,7 @@ function AssistantBubble({
   }, [threadKey, msgId]);
 
   const showTraceLink = threadKey.trim().length > 0;
-  const canCopy = text.trim().length > 0;
+  const canCopy = displayText.trim().length > 0;
   const splitAsyncUserStyleSystemInput = Boolean(
     mergedReplyKind && systemInputText && systemInputText.trim().length > 0,
   );
@@ -438,8 +445,8 @@ function AssistantBubble({
 
   const assistantRichBody =
     memoryRefs.length > 0 ? (
-      text.trim() ? (
-        <SimpleMarkdownBlocks text={text} memoryRefs={memoryRefs} compact={compact} />
+      displayText.trim() ? (
+        <SimpleMarkdownBlocks text={displayText} memoryRefs={memoryRefs} compact={compact} />
       ) : (
         <p className={compact ? "text-xs" : "text-sm"}>—</p>
       )
@@ -479,7 +486,7 @@ function AssistantBubble({
                 aria-label={t("detailCopy")}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(text.trim());
+                    await navigator.clipboard.writeText(displayText.trim());
                     setCopied(true);
                     toast.success(t("copySuccessToast"));
                     window.setTimeout(() => setCopied(false), 1200);
@@ -558,7 +565,7 @@ function AssistantBubble({
         >
           {assistantRichBody as ReactNode}
         </MessageContent>
-      ) : text.trim() ? (
+      ) : displayText.trim() ? (
         <MessageContent
           markdown
           className={cn(
@@ -568,7 +575,7 @@ function AssistantBubble({
             bubblePad,
           )}
         >
-          {text.trim()}
+          {displayText.trim()}
         </MessageContent>
       ) : (
         <MessageContent
@@ -693,6 +700,7 @@ function ConversationTimelineBlocks({
                 memoryRefs={item.memoryRefs}
                 threadKey={threadKey}
                 msgId={msgId}
+                securityInterceptBlockedReply={item.securityInterceptBlockedReply ?? null}
                 onViewSteps={
                   onViewSteps
                     ? () => {

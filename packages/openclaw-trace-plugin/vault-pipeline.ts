@@ -1,20 +1,17 @@
 import type { RedactionRule } from "./redactor.js";
 import { Redactor } from "./redactor.js";
+import { sortRulesByPolicyPriority } from "./policy-priority.js";
 import type { EncryptedVaultStore } from "./vault-store.js";
 
 export type PolicyAction =
-  | "mask"
-  | "hash"
-  | "vault_token"
-  | "pseudonymize"
-  | "block_message"
+  | "data_mask"
   | "abort_run"
-  | "alert_only";
+  | "input_guard"
+  | "audit_only";
 
 export type ExtendedRedactionRule = RedactionRule & {
   severity?: "low" | "high" | "critical";
   policyAction?: PolicyAction;
-  interceptMode?: "enforce" | "observe";
 };
 
 export type SanitizeOutcome = {
@@ -28,51 +25,26 @@ export type SanitizeOutcome = {
   shadowHits: number;
 };
 
-const PSEUDO = ["张三", "李四", "王五", "赵六", "某甲", "某乙"];
-
-function pickPseudonym(ruleId: string): string {
-  let h = 0;
-  for (let i = 0; i < ruleId.length; i++) {
-    h = (h * 31 + ruleId.charCodeAt(i)) | 0;
-  }
-  return PSEUDO[Math.abs(h) % PSEUDO.length]!;
-}
-
 function applyReplace(
   match: string,
   rule: ExtendedRedactionRule,
   vault: EncryptedVaultStore | null,
   vaultEnabled: boolean,
 ): string {
-  const action = rule.policyAction ?? (rule.redactType === "hash" ? "hash" : rule.redactType === "block" ? "block_message" : "mask");
+  const action = rule.policyAction ?? (rule.redactType === "block" ? "abort_run" : "data_mask");
   switch (action) {
-    case "vault_token":
+    case "abort_run":
+    case "input_guard":
+      return "[REDACTED_POLICY]";
+    case "audit_only":
+      return match;
+    case "data_mask":
+    default:
       if (vaultEnabled && vault) {
         return vault.putPlaintext(rule.name || "pii", match);
       }
       return new Redactor([rule]).redactString(match);
-    case "pseudonymize":
-      return pickPseudonym(rule.id);
-    case "hash":
-      return `[HASH:${simpleHash(match)}]`;
-    case "block_message":
-    case "abort_run":
-      return "[REDACTED_POLICY]";
-    case "alert_only":
-      return match;
-    case "mask":
-    default:
-      return new Redactor([rule]).redactString(match);
   }
-}
-
-function simpleHash(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16);
 }
 
 export function compileRules(rules: ExtendedRedactionRule[]): Map<string, RegExp> {
@@ -112,8 +84,8 @@ export function processTextSegment(
     if (!re) {
       continue;
     }
-    const action = rule.policyAction ?? "mask";
-    if (action === "block_message" || action === "abort_run") {
+    const action = rule.policyAction ?? "data_mask";
+    if (action === "abort_run") {
       re.lastIndex = 0;
       if (re.test(out)) {
         block = true;
@@ -124,15 +96,7 @@ export function processTextSegment(
       re.lastIndex = 0;
       continue;
     }
-    const mode = rule.interceptMode ?? "enforce";
-    if (mode === "observe") {
-      const m = out.match(re);
-      if (m) {
-        shadowHits += m.length;
-      }
-      continue;
-    }
-    if (action === "alert_only") {
+    if (action === "audit_only") {
       const m = out.match(re);
       if (m) {
         shadowHits += m.length;
@@ -157,7 +121,8 @@ export function deepSanitizeStrings(
   opts: { vault: EncryptedVaultStore | null; vaultEnabled: boolean },
   precompiledRegexById?: Map<string, RegExp>,
 ): SanitizeOutcome {
-  const regexById = precompiledRegexById ?? compileRules(rules);
+  const orderedRules = sortRulesByPolicyPriority(rules);
+  const regexById = precompiledRegexById ?? compileRules(orderedRules);
   let shadowHits = 0;
   let replacements = 0;
   let block = false;
@@ -167,7 +132,7 @@ export function deepSanitizeStrings(
       return v;
     }
     if (typeof v === "string") {
-      const r = processTextSegment(v, rules, regexById, opts);
+      const r = processTextSegment(v, orderedRules, regexById, opts);
       shadowHits += r.shadowHits;
       replacements += r.replacements;
       if (r.block) {

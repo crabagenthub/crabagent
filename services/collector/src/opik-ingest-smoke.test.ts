@@ -504,7 +504,7 @@ describe("Collector opik ingest（染色数据）", () => {
         `INSERT INTO interception_policies (
           id, name, description, pattern, redact_type, targets_json, enabled,
           severity, policy_action, intercept_mode, detection_kind, created_at_ms, updated_at_ms
-        ) VALUES (?, 'digits', '', ?, 'mask', '[]', 1, 'high', 'mask', 'enforce', 'regex', ?, ?)`,
+        ) VALUES (?, 'digits', '', ?, 'mask', '[]', 1, 'high', 'data_mask', 'enforce', 'regex', ?, ?)`,
       ).run(policyId, "ZZZ_SENSITIVE_TOKEN_ZZZ", ts, ts);
 
       const tick = Date.now();

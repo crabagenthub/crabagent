@@ -1,3 +1,5 @@
+import { sortRulesByPolicyPriority } from "./policy-priority.js";
+
 export type RedactionType = "mask" | "hash" | "block";
 
 export interface RedactionRule {
@@ -11,8 +13,6 @@ export interface RedactionRule {
   severity?: string;
   /** 策略动作（与 redactType 并存时优先语义以本字段为准，见 vault-pipeline） */
   policyAction?: string;
-  /** enforce：改写；observe：仅影子计数 */
-  interceptMode?: string;
 }
 
 export type RedactionAuditFinding = {
@@ -20,7 +20,6 @@ export type RedactionAuditFinding = {
   policy_name: string;
   match_count: number;
   policy_action: string;
-  intercept_mode: string;
   redact_type: RedactionType;
 };
 
@@ -50,7 +49,7 @@ export class Redactor {
   }
 
   updateRules(rules: RedactionRule[]) {
-    this.rules = rules.filter((r) => r.enabled);
+    this.rules = sortRulesByPolicyPriority(rules.filter((r) => r.enabled));
     this.regexCache.clear();
     for (const rule of this.rules) {
       try {
@@ -149,13 +148,12 @@ export class Redactor {
       if (n <= 0) {
         continue;
       }
-      const action = (rule.policyAction ?? rule.redactType ?? "mask").toLowerCase();
+      const action = (rule.policyAction ?? "data_mask").toLowerCase();
       findings.push({
         policy_id: rule.id,
         policy_name: rule.name ?? rule.id,
         match_count: n,
         policy_action: action,
-        intercept_mode: (rule.interceptMode ?? "enforce").toLowerCase(),
         redact_type: rule.redactType,
       });
     }
@@ -167,11 +165,7 @@ export class Redactor {
     let enforceHit = false;
     let observeHit = false;
     for (const f of findings) {
-      if (f.intercept_mode === "observe") {
-        observeHit = true;
-        continue;
-      }
-      if (f.policy_action === "alert_only") {
+      if (f.policy_action === "audit_only") {
         observeHit = true;
         continue;
       }

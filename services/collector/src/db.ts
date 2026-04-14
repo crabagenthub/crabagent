@@ -140,7 +140,7 @@ function opikSchemaDdl(): string {
       targets_json TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
       severity TEXT DEFAULT 'high',
-      policy_action TEXT DEFAULT 'mask',
+      policy_action TEXT DEFAULT 'data_mask',
       intercept_mode TEXT DEFAULT 'enforce',
       detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
@@ -407,7 +407,7 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
       targets_json TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
       severity TEXT DEFAULT 'high',
-      policy_action TEXT DEFAULT 'mask',
+      policy_action TEXT DEFAULT 'data_mask',
       intercept_mode TEXT DEFAULT 'enforce',
       detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
@@ -529,7 +529,7 @@ function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void
     db.exec(`ALTER TABLE interception_policies ADD COLUMN severity TEXT DEFAULT 'high'`);
   }
   if (!names.has("policy_action")) {
-    db.exec(`ALTER TABLE interception_policies ADD COLUMN policy_action TEXT DEFAULT 'mask'`);
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN policy_action TEXT DEFAULT 'data_mask'`);
   }
   if (!names.has("intercept_mode")) {
     db.exec(`ALTER TABLE interception_policies ADD COLUMN intercept_mode TEXT DEFAULT 'enforce'`);

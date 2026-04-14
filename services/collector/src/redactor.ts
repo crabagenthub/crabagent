@@ -1,3 +1,8 @@
+import {
+  effectivePolicyActionForPriority,
+  policyActionPriorityRank,
+} from "./policy-query.js";
+
 export type RedactionType = "mask" | "hash" | "block";
 
 export interface RedactionRule {
@@ -12,6 +17,12 @@ export interface RedactionRule {
   interceptMode?: string;
 }
 
+function isAuditOnlyAction(action: string | undefined): boolean {
+  return String(action ?? "")
+    .trim()
+    .toLowerCase() === "audit_only";
+}
+
 export class Redactor {
   private rules: RedactionRule[] = [];
   private regexCache: Map<string, RegExp> = new Map();
@@ -21,7 +32,21 @@ export class Redactor {
   }
 
   updateRules(rules: RedactionRule[]) {
-    this.rules = rules.filter((r) => r.enabled);
+    this.rules = rules
+      .filter((r) => r.enabled)
+      .slice()
+      .sort((a, b) => {
+        const ra = policyActionPriorityRank(
+          effectivePolicyActionForPriority(a.policyAction, a.redactType),
+        );
+        const rb = policyActionPriorityRank(
+          effectivePolicyActionForPriority(b.policyAction, b.redactType),
+        );
+        if (rb !== ra) {
+          return rb - ra;
+        }
+        return a.id.localeCompare(b.id);
+      });
     this.regexCache.clear();
     for (const rule of this.rules) {
       try {
@@ -54,10 +79,7 @@ export class Redactor {
   redactString(text: string): string {
     let result = text;
     for (const rule of this.rules) {
-      if (rule.interceptMode === "observe") {
-        continue;
-      }
-      if (rule.policyAction === "alert_only") {
+      if (isAuditOnlyAction(rule.policyAction)) {
         continue;
       }
       const regex = this.regexCache.get(rule.id);

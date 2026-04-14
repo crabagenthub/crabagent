@@ -151,7 +151,6 @@ type DataSecurityTemplatePolicy = {
   enabled: number;
   severity?: "low" | "high" | "critical";
   policy_action?: string;
-  intercept_mode?: "enforce" | "observe";
 };
 
 export default function DataSecurityPage() {
@@ -177,8 +176,7 @@ export default function DataSecurityPage() {
       targets: ["prompt", "assistantTexts"],
       enabled: 1,
       severity: "high",
-      policy_action: "mask",
-      intercept_mode: "enforce",
+      policy_action: "data_mask",
     });
   }, []);
 
@@ -192,8 +190,7 @@ export default function DataSecurityPage() {
         targets: template.targets,
         enabled: 1,
         severity: "high",
-        policy_action: template.redactType === "block" ? "block_message" : template.redactType,
-        intercept_mode: "enforce",
+        policy_action: template.redactType === "block" ? "abort_run" : "data_mask",
       });
       setActiveTab("policies");
     },

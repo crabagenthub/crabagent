@@ -24,32 +24,72 @@ export interface InterceptionPolicy {
 
 /** 由 `policy_action` 派生 Collector `Redactor` 使用的 `redact_type`（单一真源为处置方式）。 */
 export function deriveRedactTypeFromPolicyAction(action: string | null | undefined): RedactionType {
-  const a = String(action ?? "mask")
+  const a = String(action ?? "data_mask")
     .trim()
     .toLowerCase();
-  if (a === "hash") {
-    return "hash";
-  }
-  if (a === "block_message" || a === "abort_run") {
+  if (a === "abort_run") {
     return "block";
+  }
+  if (a === "input_guard") {
+    return "block";
+  }
+  if (a === "audit_only") {
+    return "mask";
   }
   return "mask";
 }
 
-function deriveInterceptModeFromPolicyAction(
-  action: string | null | undefined,
-  mode: string | null | undefined,
-): "enforce" | "observe" {
-  const a = String(action ?? "mask")
+/**
+ * 多策略同时命中时的执行优先级（数值越大越先处理）：
+ * 中止运行 > 输入防护 > 数据脱敏 > 审计。
+ */
+export function effectivePolicyActionForPriority(
+  policyAction: string | null | undefined,
+  redactType: string | null | undefined,
+): string {
+  const pa = String(policyAction ?? "")
     .trim()
     .toLowerCase();
-  if (a === "block_message" || a === "abort_run") {
-    return "enforce";
+  if (pa) {
+    return pa;
   }
-  const m = String(mode ?? "enforce")
+  const rt = String(redactType ?? "")
     .trim()
     .toLowerCase();
-  return m === "observe" ? "observe" : "enforce";
+  return rt === "block" ? "abort_run" : "data_mask";
+}
+
+export function policyActionPriorityRank(action: string | null | undefined): number {
+  const a = String(action ?? "data_mask")
+    .trim()
+    .toLowerCase();
+  if (a === "abort_run") {
+    return 4;
+  }
+  if (a === "input_guard") {
+    return 3;
+  }
+  if (a === "audit_only") {
+    return 1;
+  }
+  return 2;
+}
+
+export function compareInterceptionPoliciesByRedactionOrder(
+  a: Pick<InterceptionPolicy, "policy_action" | "redact_type" | "updated_at_ms" | "id">,
+  b: Pick<InterceptionPolicy, "policy_action" | "redact_type" | "updated_at_ms" | "id">,
+): number {
+  const ra = policyActionPriorityRank(effectivePolicyActionForPriority(a.policy_action, a.redact_type));
+  const rb = policyActionPriorityRank(effectivePolicyActionForPriority(b.policy_action, b.redact_type));
+  if (rb !== ra) {
+    return rb - ra;
+  }
+  const ua = Number(a.updated_at_ms) || 0;
+  const ub = Number(b.updated_at_ms) || 0;
+  if (ub !== ua) {
+    return ub - ua;
+  }
+  return String(a.id).localeCompare(String(b.id));
 }
 
 function normalizeDetectionKind(raw: string | null | undefined): "regex" | "model" {
@@ -94,9 +134,8 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     );
   }
 
-  const policyAction = policy.policy_action ?? "mask";
+  const policyAction = policy.policy_action ?? "data_mask";
   const redactType = deriveRedactTypeFromPolicyAction(policyAction);
-  const interceptMode = deriveInterceptModeFromPolicyAction(policyAction, policy.intercept_mode);
   const detectionKind = normalizeDetectionKind(policy.detection_kind ?? undefined);
 
   db.prepare(
@@ -116,7 +155,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
       enabled = excluded.enabled,
       severity = COALESCE(excluded.severity, interception_policies.severity),
       policy_action = COALESCE(excluded.policy_action, interception_policies.policy_action),
-      intercept_mode = COALESCE(excluded.intercept_mode, interception_policies.intercept_mode),
+      intercept_mode = interception_policies.intercept_mode,
       detection_kind = COALESCE(excluded.detection_kind, interception_policies.detection_kind),
       updated_at_ms = excluded.updated_at_ms
   `,
@@ -130,7 +169,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     policy.enabled ?? 1,
     policy.severity ?? "high",
     policyAction,
-    interceptMode,
+    null,
     detectionKind,
     now,
     now,

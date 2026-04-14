@@ -11,8 +11,8 @@ const MUTED = "#64748b";
 
 export function securityTrendBarOption(
   rows: SecurityAuditTrendRow[],
-  enforcedLabel: string,
-  observeLabel: string,
+  actionLabel: string,
+  auditLabel: string,
 ): EChartsOption {
   return {
     grid: { left: 4, right: 8, top: 8, bottom: 32, containLabel: true },
@@ -33,17 +33,17 @@ export function securityTrendBarOption(
     },
     series: [
       {
-        name: enforcedLabel,
+        name: actionLabel,
         type: "bar",
         stack: "hits",
-        data: rows.map((r) => r.enforcedHits),
+        data: rows.map((r) => r.actionHits),
         itemStyle: { color: "#ea580c" },
       },
       {
-        name: observeLabel,
+        name: auditLabel,
         type: "bar",
         stack: "hits",
-        data: rows.map((r) => r.observeHits),
+        data: rows.map((r) => r.auditHits),
         itemStyle: { color: "#94a3b8" },
       },
     ],
