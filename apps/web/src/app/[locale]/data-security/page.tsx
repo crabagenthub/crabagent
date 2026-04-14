@@ -44,7 +44,7 @@ const POLICY_TEMPLATES: PolicyTemplate[] = [
     id: "email",
     nameKey: "templateNameEmail",
     summaryKey: "templateSummaryEmail",
-    pattern: "\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}\\b",
+    pattern: "(?<!://)(?<![\\w.-]:\\S{0,50})\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+\\.(?:[a-zA-Z]{2,})\\b(?!:\\d)",
     example: "user@example.com",
     targets: ["prompt", "assistantTexts", "tool_params"],
     redactType: "hash",
