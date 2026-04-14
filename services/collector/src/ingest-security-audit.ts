@@ -169,6 +169,16 @@ type CompiledRule = {
   regex: RegExp;
 };
 
+function compilePolicyPattern(pattern: string): RegExp {
+  let source = String(pattern ?? "").trim();
+  let flags = "g";
+  if (source.startsWith("(?i)")) {
+    source = source.slice(4);
+    flags += "i";
+  }
+  return new RegExp(source, flags);
+}
+
 function compilePolicies(policies: InterceptionPolicy[]): CompiledRule[] {
   const out: CompiledRule[] = [];
   const sorted = policies.slice().sort(compareInterceptionPoliciesByRedactionOrder);
@@ -188,7 +198,7 @@ function compilePolicies(policies: InterceptionPolicy[]): CompiledRule[] {
       continue;
     }
     try {
-      out.push({ policy: p, regex: new RegExp(pat, "g") });
+      out.push({ policy: p, regex: compilePolicyPattern(pat) });
     } catch {
       console.error(`[ingest-security-audit] invalid policy pattern id=${p.id}`);
     }

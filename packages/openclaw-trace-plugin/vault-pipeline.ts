@@ -2,6 +2,7 @@ import type { RedactionRule } from "./redactor.js";
 import { Redactor } from "./redactor.js";
 import { sortRulesByPolicyPriority } from "./policy-priority.js";
 import type { EncryptedVaultStore } from "./vault-store.js";
+import { normalizePolicyPatternForJsRegExp } from "./policy-pattern-normalize.js";
 
 export type PolicyAction =
   | "data_mask"
@@ -54,7 +55,8 @@ export function compileRules(rules: ExtendedRedactionRule[]): Map<string, RegExp
       continue;
     }
     try {
-      m.set(r.id, new RegExp(r.pattern, "g"));
+      const { source, flags } = normalizePolicyPatternForJsRegExp(r.pattern);
+      m.set(r.id, new RegExp(source, flags));
     } catch {
       /* skip */
     }
@@ -84,7 +86,7 @@ export function processTextSegment(
     if (!re) {
       continue;
     }
-    const action = rule.policyAction ?? "data_mask";
+    const action = rule.policyAction ?? (rule.redactType === "block" ? "abort_run" : "data_mask");
     if (action === "abort_run") {
       re.lastIndex = 0;
       if (re.test(out)) {

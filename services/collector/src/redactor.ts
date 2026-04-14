@@ -23,6 +23,16 @@ function isAuditOnlyAction(action: string | undefined): boolean {
     .toLowerCase() === "audit_only";
 }
 
+function compilePolicyPattern(pattern: string): RegExp {
+  let source = String(pattern ?? "").trim();
+  let flags = "g";
+  if (source.startsWith("(?i)")) {
+    source = source.slice(4);
+    flags += "i";
+  }
+  return new RegExp(source, flags);
+}
+
 export class Redactor {
   private rules: RedactionRule[] = [];
   private regexCache: Map<string, RegExp> = new Map();
@@ -50,7 +60,7 @@ export class Redactor {
     this.regexCache.clear();
     for (const rule of this.rules) {
       try {
-        this.regexCache.set(rule.id, new RegExp(rule.pattern, "g"));
+        this.regexCache.set(rule.id, compilePolicyPattern(rule.pattern));
       } catch (err) {
         console.error(`[Redactor] Invalid pattern for rule ${rule.id}: ${rule.pattern}`, err);
       }

@@ -89,7 +89,7 @@ const POLICY_TEMPLATES: PolicyTemplate[] = [
     id: "dbConnection",
     nameKey: "templateNameDbConnection",
     summaryKey: "templateSummaryDbConnection",
-    pattern: `\\b(?:mongodb(?:\\+srv)?:\\/\\/[^"']+|postgres(?:ql)?:\\/\\/[^"']+|mysql:host=\\S+|redis:\\/\\/\\S+|jdbc:[^\\s]+)\\b`,
+    pattern: `\\b(?:mongodb(?:\\+srv)?:\\/\\/[^"']+|postgres(?:ql)?:\\/\\/[^"']+|mysql(?:\\+[a-zA-Z0-9]+)?:\\/\\/\\S+|mysql:host=\\S+|redis:\\/\\/\\S+|jdbc:[^\\s]+)\\b`,
     example: "mongodb://user:pass@host:27017/db",
     targets: ["prompt", "assistantTexts", "tool_params", "metadata"],
     redactType: "block",

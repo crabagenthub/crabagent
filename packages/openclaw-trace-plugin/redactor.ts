@@ -1,4 +1,5 @@
 import { sortRulesByPolicyPriority } from "./policy-priority.js";
+import { normalizePolicyPatternForJsRegExp } from "./policy-pattern-normalize.js";
 
 export type RedactionType = "mask" | "hash" | "block";
 
@@ -53,7 +54,8 @@ export class Redactor {
     this.regexCache.clear();
     for (const rule of this.rules) {
       try {
-        this.regexCache.set(rule.id, new RegExp(rule.pattern, "g"));
+        const { source, flags } = normalizePolicyPatternForJsRegExp(rule.pattern);
+        this.regexCache.set(rule.id, new RegExp(source, flags));
       } catch (err) {
         console.error(`[Redactor] Invalid pattern for rule ${rule.id}: ${rule.pattern}`, err);
       }

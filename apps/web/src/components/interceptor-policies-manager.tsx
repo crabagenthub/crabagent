@@ -636,7 +636,13 @@ export function InterceptorPoliciesManager({
                 label={requiredLabel(
                   <span className="inline-flex items-center gap-1.5">
                     <span>{t("policyPattern")}</span>
-                    <Tooltip content="用于匹配敏感信息的正则，如 1[3-9]\\d{9}">
+                    <Tooltip
+                      content={
+                        <div className="max-w-[min(24rem,calc(100vw-2rem))] whitespace-pre-line text-left text-xs leading-relaxed">
+                          {t("policyPatternFormatTooltip")}
+                        </div>
+                      }
+                    >
                       <span className="inline-flex cursor-help items-center text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300">
                         <IconQuestionCircleFill className="text-[13px]" />
                       </span>
@@ -644,7 +650,26 @@ export function InterceptorPoliciesManager({
                   </span>,
                 )}
                 field="pattern"
-                rules={[{ required: true, message: t("policyPatternRequired") }]}
+                rules={[
+                  { required: true, message: t("policyPatternRequired") },
+                  {
+                    validator(value, callback) {
+                      const raw = String(value ?? "").trim();
+                      if (!raw) {
+                        callback();
+                        return;
+                      }
+                      try {
+                        const source = raw.startsWith("(?i)") ? raw.slice(4) : raw;
+                        const flags = raw.startsWith("(?i)") ? "gi" : "g";
+                        new RegExp(source, flags);
+                        callback();
+                      } catch {
+                        callback(t("policyPatternInvalid"));
+                      }
+                    },
+                  },
+                ]}
                 className="policy-modal-field-full policy-modal-pattern-field"
               >
                 <Input placeholder="RegExp pattern" />

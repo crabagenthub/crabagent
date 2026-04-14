@@ -244,7 +244,15 @@ export default definePluginEntry({
         if (!r.enabled) {
           continue;
         }
-        const action = String((r as { policyAction?: unknown }).policyAction ?? "data_mask")
+        const rr = r as { policyAction?: unknown; redactType?: unknown; redact_type?: unknown };
+        const redactTypeRaw = typeof rr.redactType === "string" ? rr.redactType : rr.redact_type;
+        const fallbackAction =
+          String(redactTypeRaw ?? "")
+            .trim()
+            .toLowerCase() === "block"
+            ? "abort_run"
+            : "data_mask";
+        const action = String(rr.policyAction ?? fallbackAction)
           .trim()
           .toLowerCase();
         if (action !== "abort_run") {
@@ -276,7 +284,8 @@ export default definePluginEntry({
       for (const r of rules) {
         const re = r.regex;
         re.lastIndex = 0;
-        if (re.test(t)) {
+        const hit = re.test(t);
+        if (hit) {
           ids.push(r.id);
           names.push(r.name);
         }
@@ -649,6 +658,7 @@ export default definePluginEntry({
     };
 
     const hardBlockContribution = (replyText: string, source: string, policyIds: string[], policyNames: string[]) => ({
+      // #endregion
       block: true,
       reply: replyText,
       message: replyText,
@@ -842,7 +852,8 @@ export default definePluginEntry({
         vaultEnabled,
       }, compiledRegexByRuleId);
       if (out.block) {
-        return { block: true };
+        const cfgNow = getCfg();
+        return hardBlockContribution(cfgNow.hardBlockReplyText, "before_message_write", [], []);
       }
       if (out.shadowHits > 0) {
         getRuntime().recordShadowWouldLeak(sk, out.shadowHits);
