@@ -660,7 +660,7 @@ export function InterceptorPoliciesManager({
                         return;
                       }
                       if (/^\/.+\/[a-z]*$/i.test(raw)) {
-                        callback(t("policyPatternInvalid"));
+                        callback(t("policyPatternWrappedLiteralNotAllowed"));
                         return;
                       }
                       try {

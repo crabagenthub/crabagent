@@ -33,10 +33,16 @@ function applyReplace(
   vaultEnabled: boolean,
 ): string {
   const action = rule.policyAction ?? (rule.redactType === "block" ? "abort_run" : "data_mask");
+  let replacementPreview = "";
+  if (action === "input_guard") {
+    replacementPreview = "*".repeat(Math.max(1, match.length));
+  }
   switch (action) {
     case "abort_run":
-    case "input_guard":
       return "[REDACTED_POLICY]";
+    case "input_guard":
+      // 输入防护只做 prompt 预处理，命中片段统一替换为等长星号。
+      return replacementPreview;
     case "audit_only":
       return match;
     case "data_mask":

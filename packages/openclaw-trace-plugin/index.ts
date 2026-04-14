@@ -667,6 +667,36 @@ export default definePluginEntry({
       return out.value;
     };
 
+    const sanitizeLlmOutputAssistantTexts = (value: unknown): unknown => {
+      const rules = (cachedRedactionRules as import("./vault-pipeline.js").ExtendedRedactionRule[]).filter((r) => {
+        if (!r.enabled) {
+          return false;
+        }
+        const action = String(r.policyAction ?? "data_mask")
+          .trim()
+          .toLowerCase();
+        if (action === "audit_only") {
+          return false;
+        }
+        const targets = Array.isArray(r.targets) ? r.targets : [];
+        return (
+          action === "input_guard" ||
+          targets.includes("assistantTexts") ||
+          targets.includes("llm_output")
+        );
+      });
+      if (rules.length <= 0) {
+        return value;
+      }
+      const out = deepSanitizeStrings(
+        value,
+        rules,
+        { vault: getVaultStore(), vaultEnabled: false },
+        compiledRegexByRuleId,
+      );
+      return out.value;
+    };
+
     const hardBlockContribution = (replyText: string, source: string, policyIds: string[], policyNames: string[]) => ({
       block: true,
       reply: replyText,
@@ -779,6 +809,7 @@ export default definePluginEntry({
       });
       const rewritten = applyInputGuardForText(p);
       if (rewritten !== p) {
+        (event as { prompt?: unknown }).prompt = rewritten;
         return { ...event, prompt: rewritten };
       }
       return undefined;
@@ -799,6 +830,7 @@ export default definePluginEntry({
       });
       const rewritten = applyInputGuardForText(p);
       if (rewritten !== p) {
+        (event as { prompt?: unknown }).prompt = rewritten;
         return { ...event, prompt: rewritten };
       }
       return undefined;
@@ -908,6 +940,11 @@ export default definePluginEntry({
     api.on("llm_input", (ev: unknown, c: unknown) => {
       const event = ev as LlmInputEvent;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
+      const promptRaw = typeof event.prompt === "string" ? event.prompt : "";
+      const promptSanitized = applyInputGuardForText(promptRaw);
+      if (promptSanitized !== promptRaw) {
+        (event as { prompt?: unknown }).prompt = promptSanitized;
+      }
       const cfg = getCfg();
       const sk = effectiveSk(ctx);
       const pendingAliases = traceSessionKeyCandidatesForPending(ctx);
@@ -942,7 +979,7 @@ export default definePluginEntry({
         {
           provider: event.provider,
           model: event.model,
-          prompt: event.prompt,
+          prompt: typeof event.prompt === "string" ? event.prompt : promptSanitized,
           systemPrompt: event.systemPrompt,
           imagesCount: event.imagesCount,
           sessionId: event.sessionId,
@@ -976,6 +1013,7 @@ export default definePluginEntry({
       const event = ev as LlmOutputEvent;
       const ctx = withEventSessionId(c as AgentCtx, event.sessionId);
       const sk = effectiveSk(ctx);
+      const sanitizedAssistantTexts = sanitizeLlmOutputAssistantTexts(event.assistantTexts);
       let usage: Record<string, unknown> | undefined;
       try {
         usage = pickLlmOutputUsage(event);
@@ -987,7 +1025,7 @@ export default definePluginEntry({
       const payload: Record<string, unknown> = {
         provider: event.provider,
         model: event.model,
-        assistantTexts: event.assistantTexts,
+        assistantTexts: sanitizedAssistantTexts,
         usage,
       };
       const um = event.usageMetadata;

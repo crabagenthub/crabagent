@@ -383,6 +383,7 @@
     "policyPattern": "正则表达式",
     "policyPatternRequired": "请填写正则表达式",
     "policyPatternInvalid": "正则表达式无效，请检查是否与 JavaScript RegExp 语法一致。",
+    "policyPatternWrappedLiteralNotAllowed": "不支持 /.../g 或 /.../gi 这类写法。请仅填写表达式本体（不要包含两侧 / 和末尾标志位）。",
     "policyPatternFormatTooltip": "本系统使用与 JavaScript RegExp 相同的正则语法；Collector 与 Agent 侧仅以全局标志 g 编译，不做其它改写。\n\n填写说明：\n• 不要包含两侧的 / 定界符，只填写表达式本体。\n• 反斜杠按字面输入即可，例如 \\d 表示数字、\\b 表示单词边界；匹配字面反斜杠请写 \\\\。\n• 字符类、分组、非捕获组 (?:)、量词、前后查找等写法与运行环境的 JS 引擎能力一致。\n• 不区分大小写请勿使用 (?i)；请用显式字符类（如 [Pp]assword）或分支写法。\n\n示例：手机号片段可写为 \\b1[3-9]\\d'{'9'}'\\b",
     "policyPatternExtra": "用于匹配敏感信息的正则，如 1[3-9]\\d'{'9'}'",
     "detectionModelNoPatternHint": "使用模型检测时无需填写正则表达式；上线后在此配置模型相关参数。",

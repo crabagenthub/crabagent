@@ -383,6 +383,7 @@
     "policyPattern": "Regular expression",
     "policyPatternRequired": "Enter a regular expression",
     "policyPatternInvalid": "Invalid regular expression. Use syntax valid for JavaScript RegExp.",
+    "policyPatternWrappedLiteralNotAllowed": "The /.../g or /.../gi literal form is not supported. Enter only the expression body (without surrounding / or trailing flags).",
     "policyPatternFormatTooltip": "This system uses JavaScript RegExp syntax. The Collector and agents compile your pattern with the global g flag only.\n\nHow to enter:\n• Do not wrap the pattern in /slashes/; enter the expression body only.\n• Type backslashes as needed (e.g. \\d for digits, \\b for word boundaries; \\\\ for a literal backslash).\n• Features follow the JS engine: character classes, groups, non-capturing (?:), quantifiers, and lookaround where the runtime supports them.\n• Case-insensitive matching is not done via (?i); use explicit classes (e.g. [Pp]assword) or alternation.\n\nExample: \\b1[3-9]\\d'{'9'}'\\b for phone-like digit runs.",
     "policyPatternExtra": "RegExp used to detect sensitive text, e.g. 1[3-9]\\d'{'9'}' for phone-like digits.",
     "detectionModelNoPatternHint": "Model-based detection does not use a regex pattern; model options will appear here when available.",
