@@ -283,11 +283,21 @@ export default definePluginEntry({
       const names: string[] = [];
       for (const r of rules) {
         const re = r.regex;
-        re.lastIndex = 0;
-        const hit = re.test(t);
-        if (hit) {
-          ids.push(r.id);
-          names.push(r.name);
+        try {
+          re.lastIndex = 0;
+          const hit = re.test(t);
+          if (hit) {
+            ids.push(r.id);
+            names.push(r.name);
+          }
+        } catch (err) {
+          console.error(`[Crabagent policy] inbound hard-block scan failed rule=${r.id} name=${r.name}`, err);
+        } finally {
+          try {
+            re.lastIndex = 0;
+          } catch {
+            /* ignore */
+          }
         }
       }
       if (ids.length <= 0) {
@@ -658,7 +668,6 @@ export default definePluginEntry({
     };
 
     const hardBlockContribution = (replyText: string, source: string, policyIds: string[], policyNames: string[]) => ({
-      // #endregion
       block: true,
       reply: replyText,
       message: replyText,
@@ -843,6 +852,37 @@ export default definePluginEntry({
       const hardBlocked = pickInboundHardBlock([sk, ...traceSessionKeyCandidates(ctx)]);
       if (hardBlocked) {
         return hardBlockContribution(hardBlocked.replyText, "before_message_write", hardBlocked.policyIds, hardBlocked.policyNames);
+      }
+      // 兜底：某些通道/时序下上游钩子未先命中时，这里直接对待写消息再做一次硬拦截扫描。
+      const msgText = (() => {
+        const msg = event.message;
+        if (typeof msg === "string") {
+          return msg;
+        }
+        if (msg == null) {
+          return "";
+        }
+        try {
+          return JSON.stringify(msg);
+        } catch {
+          return String(msg);
+        }
+      })();
+      const fallbackMatched = scanInboundForHardBlock(msgText, compiledInboundHardBlockRules);
+      if (fallbackMatched) {
+        const cfgNow = getCfg();
+        const keys = [sk, ...traceSessionKeyCandidates(ctx)];
+        setInboundHardBlock(keys, {
+          replyText: cfgNow.hardBlockReplyText,
+          policyIds: fallbackMatched.policyIds,
+          policyNames: fallbackMatched.policyNames,
+        });
+        return hardBlockContribution(
+          cfgNow.hardBlockReplyText,
+          "before_message_write",
+          fallbackMatched.policyIds,
+          fallbackMatched.policyNames,
+        );
       }
       const vault = getVaultStore();
       const pro = getCfg().productTier === "pro" || process.env.CRABAGENT_PRODUCT_TIER?.trim().toLowerCase() === "pro";

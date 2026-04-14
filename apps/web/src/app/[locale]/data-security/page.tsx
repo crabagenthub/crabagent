@@ -80,7 +80,8 @@ const POLICY_TEMPLATES: PolicyTemplate[] = [
     id: "password",
     nameKey: "templateNamePassword",
     summaryKey: "templateSummaryPassword",
-    pattern: "(?i)\\b(?:password|passwd|pwd|secret|token|api[_-]?secret)[=:]\\s*\\S+\\b",
+    pattern:
+      "\\b(?:[Pp]assword|[Pp]asswd|[Pp]wd|[Ss]ecret|[Tt]oken|[Aa]pi[_-]?[Ss]ecret)[=:]\\s*\\S+\\b",
     example: "password=MyS3cret!",
     targets: ["prompt", "assistantTexts", "tool_params"],
     redactType: "block",

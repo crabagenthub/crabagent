@@ -659,10 +659,12 @@ export function InterceptorPoliciesManager({
                         callback();
                         return;
                       }
+                      if (/^\/.+\/[a-z]*$/i.test(raw)) {
+                        callback(t("policyPatternInvalid"));
+                        return;
+                      }
                       try {
-                        const source = raw.startsWith("(?i)") ? raw.slice(4) : raw;
-                        const flags = raw.startsWith("(?i)") ? "gi" : "g";
-                        new RegExp(source, flags);
+                        new RegExp(raw, "g");
                         callback();
                       } catch {
                         callback(t("policyPatternInvalid"));

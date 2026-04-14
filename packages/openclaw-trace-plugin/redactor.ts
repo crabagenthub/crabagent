@@ -92,21 +92,37 @@ export class Redactor {
   redactString(text: string): string {
     let result = text;
     for (const rule of this.rules) {
+      const action = String(rule.policyAction ?? (rule.redactType === "block" ? "abort_run" : "data_mask"))
+        .trim()
+        .toLowerCase();
+      if (action === "abort_run" || action === "audit_only") {
+        continue;
+      }
       const regex = this.regexCache.get(rule.id);
       if (!regex) continue;
 
-      result = result.replace(regex, (match) => {
-        switch (rule.redactType) {
-          case "mask":
-            return this.applyMask(match);
-          case "hash":
-            return `[HASH:${this.simpleHash(match)}]`;
-          case "block":
-            return "[REDACTED]";
-          default:
-            return match;
+      try {
+        result = result.replace(regex, (match) => {
+          switch (rule.redactType) {
+            case "mask":
+              return this.applyMask(match);
+            case "hash":
+              return `[HASH:${this.simpleHash(match)}]`;
+            case "block":
+              return "[REDACTED]";
+            default:
+              return match;
+          }
+        });
+      } catch (err) {
+        console.error(`[Redactor] match/replace failed rule=${rule.id} name=${rule.name ?? ""}`, err);
+      } finally {
+        try {
+          regex.lastIndex = 0;
+        } catch {
+          /* ignore */
         }
-      });
+      }
     }
     return result;
   }
@@ -131,22 +147,32 @@ export class Redactor {
       if (!regex) {
         continue;
       }
-      regex.lastIndex = 0;
       let n = 0;
-      for (;;) {
-        const m = regex.exec(text);
-        if (!m) {
-          break;
+      try {
+        regex.lastIndex = 0;
+        for (;;) {
+          const m = regex.exec(text);
+          if (!m) {
+            break;
+          }
+          n += 1;
+          if (m[0] === "") {
+            regex.lastIndex += 1;
+          }
+          if (n > 10_000) {
+            break;
+          }
         }
-        n += 1;
-        if (m[0] === "") {
-          regex.lastIndex += 1;
-        }
-        if (n > 10_000) {
-          break;
+      } catch (err) {
+        console.error(`[Redactor] scan exec failed rule=${rule.id} name=${rule.name ?? ""}`, err);
+        n = 0;
+      } finally {
+        try {
+          regex.lastIndex = 0;
+        } catch {
+          /* ignore */
         }
       }
-      regex.lastIndex = 0;
       if (n <= 0) {
         continue;
       }

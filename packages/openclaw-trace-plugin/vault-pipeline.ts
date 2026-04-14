@@ -57,8 +57,9 @@ export function compileRules(rules: ExtendedRedactionRule[]): Map<string, RegExp
     try {
       const { source, flags } = normalizePolicyPatternForJsRegExp(r.pattern);
       m.set(r.id, new RegExp(source, flags));
-    } catch {
-      /* skip */
+    } catch (err) {
+      const preview = String(r.pattern ?? "").slice(0, 160);
+      console.error(`[Crabagent policy] compile failed rule=${r.id} patternPreview=${JSON.stringify(preview)}`, err);
     }
   }
   return m;
@@ -87,31 +88,41 @@ export function processTextSegment(
       continue;
     }
     const action = rule.policyAction ?? (rule.redactType === "block" ? "abort_run" : "data_mask");
-    if (action === "abort_run") {
-      re.lastIndex = 0;
-      if (re.test(out)) {
-        block = true;
-        out = "[Crabagent: message blocked by data security policy]";
-        replacements += 1;
-        break;
+    try {
+      if (action === "abort_run") {
+        re.lastIndex = 0;
+        if (re.test(out)) {
+          block = true;
+          out = "[Crabagent: message blocked by data security policy]";
+          replacements += 1;
+          break;
+        }
+        re.lastIndex = 0;
+        continue;
       }
-      re.lastIndex = 0;
-      continue;
-    }
-    if (action === "audit_only") {
-      const m = out.match(re);
-      if (m) {
-        shadowHits += m.length;
+      if (action === "audit_only") {
+        const m = out.match(re);
+        if (m) {
+          shadowHits += m.length;
+        }
+        continue;
       }
-      continue;
-    }
 
-    re.lastIndex = 0;
-    const newStr = out.replace(re, (match) => {
-      replacements += 1;
-      return applyReplace(match, rule, opts.vault, opts.vaultEnabled);
-    });
-    out = newStr;
+      re.lastIndex = 0;
+      const newStr = out.replace(re, (match) => {
+        replacements += 1;
+        return applyReplace(match, rule, opts.vault, opts.vaultEnabled);
+      });
+      out = newStr;
+    } catch (err) {
+      console.error(`[Crabagent policy] match failed rule=${rule.id} name=${rule.name ?? ""}`, err);
+    } finally {
+      try {
+        re.lastIndex = 0;
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   return { text: out, shadowHits, replacements, block };

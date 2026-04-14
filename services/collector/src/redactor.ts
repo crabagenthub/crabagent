@@ -23,14 +23,15 @@ function isAuditOnlyAction(action: string | undefined): boolean {
     .toLowerCase() === "audit_only";
 }
 
+function isAbortRunAction(action: string | undefined): boolean {
+  return String(action ?? "")
+    .trim()
+    .toLowerCase() === "abort_run";
+}
+
 function compilePolicyPattern(pattern: string): RegExp {
-  let source = String(pattern ?? "").trim();
-  let flags = "g";
-  if (source.startsWith("(?i)")) {
-    source = source.slice(4);
-    flags += "i";
-  }
-  return new RegExp(source, flags);
+  const source = String(pattern ?? "").trim();
+  return new RegExp(source, "g");
 }
 
 export class Redactor {
@@ -89,25 +90,35 @@ export class Redactor {
   redactString(text: string): string {
     let result = text;
     for (const rule of this.rules) {
-      if (isAuditOnlyAction(rule.policyAction)) {
+      if (isAuditOnlyAction(rule.policyAction) || isAbortRunAction(rule.policyAction)) {
         continue;
       }
       const regex = this.regexCache.get(rule.id);
       if (!regex) {
         continue;
       }
-      result = result.replace(regex, (match) => {
-        switch (rule.redactType) {
-          case "mask":
-            return this.applyMask(match);
-          case "hash":
-            return `[HASH:${this.simpleHash(match)}]`;
-          case "block":
-            return "[REDACTED]";
-          default:
-            return match;
+      try {
+        result = result.replace(regex, (match) => {
+          switch (rule.redactType) {
+            case "mask":
+              return this.applyMask(match);
+            case "hash":
+              return `[HASH:${this.simpleHash(match)}]`;
+            case "block":
+              return "[REDACTED]";
+            default:
+              return match;
+          }
+        });
+      } catch (err) {
+        console.error(`[Redactor] match/replace failed rule=${rule.id} name=${rule.name ?? ""}`, err);
+      } finally {
+        try {
+          regex.lastIndex = 0;
+        } catch {
+          /* ignore */
         }
-      });
+      }
     }
     return result;
   }

@@ -170,13 +170,8 @@ type CompiledRule = {
 };
 
 function compilePolicyPattern(pattern: string): RegExp {
-  let source = String(pattern ?? "").trim();
-  let flags = "g";
-  if (source.startsWith("(?i)")) {
-    source = source.slice(4);
-    flags += "i";
-  }
-  return new RegExp(source, flags);
+  const source = String(pattern ?? "").trim();
+  return new RegExp(source, "g");
 }
 
 function compilePolicies(policies: InterceptionPolicy[]): CompiledRule[] {
@@ -252,7 +247,13 @@ function traceScanText(row: Record<string, unknown>): string {
 function scanText(rules: CompiledRule[], text: string): SecurityAuditFinding[] {
   const findings: SecurityAuditFinding[] = [];
   for (const { policy, regex } of rules) {
-    const n = countMatches(regex, text);
+    let n = 0;
+    try {
+      n = countMatches(regex, text);
+    } catch (err) {
+      console.error(`[ingest-security-audit] policy match count failed id=${policy.id} name=${policy.name ?? ""}`, err);
+      continue;
+    }
     if (n <= 0) {
       continue;
     }

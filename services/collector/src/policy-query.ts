@@ -137,6 +137,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
   const policyAction = policy.policy_action ?? "data_mask";
   const redactType = deriveRedactTypeFromPolicyAction(policyAction);
   const detectionKind = normalizeDetectionKind(policy.detection_kind ?? undefined);
+  const pattern = String(policy.pattern ?? "").trim();
 
   db.prepare(
     `
@@ -163,7 +164,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     id,
     policy.name || "Unnamed Policy",
     policy.description || "",
-    policy.pattern || "",
+    pattern,
     redactType,
     policy.targets_json || "[]",
     policy.enabled ?? 1,
