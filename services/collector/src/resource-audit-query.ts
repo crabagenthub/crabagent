@@ -47,6 +47,25 @@ export function sqlCoalesceResourceUri(alias: string): string {
   )`;
 }
 
+function sqlCommandTextExpr(alias: string): string {
+  return `COALESCE(
+    NULLIF(TRIM(json_extract(${alias}.input_json, '$.params.command')), ''),
+    NULLIF(TRIM(json_extract(${alias}.input_json, '$.params.cmd')), ''),
+    NULLIF(TRIM(json_extract(${alias}.input_json, '$.params.shell_command')), ''),
+    ''
+  )`;
+}
+
+function sqlLikelyFileCommandPredicate(alias: string): string {
+  const cmd = `lower(${sqlCommandTextExpr(alias)})`;
+  return `(
+    ${cmd} LIKE 'trash %'
+    OR ${cmd} LIKE 'rm %'
+    OR ${cmd} LIKE 'mv %'
+    OR ${cmd} LIKE 'cp %'
+  )`;
+}
+
 /** 与 `sensitivePathFlags` 对齐的 URI 条件（用于聚合统计）。 */
 function sqlSensitiveUriPredicate(uriExpr: string): string {
   const u = `lower(${uriExpr})`;
@@ -77,6 +96,7 @@ function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[]
   parts.push(`(
     ${uriExpr} <> ''
     OR NULLIF(TRIM(json_extract(s.metadata_json, '$.semantic_kind')), '') = 'memory'
+    OR ${sqlLikelyFileCommandPredicate("s")}
   )`);
 
   if (q.sinceMs != null && Number.isFinite(q.sinceMs) && q.sinceMs > 0) {
@@ -207,6 +227,83 @@ function numFromUnknown(v: unknown): number | null {
   return null;
 }
 
+function strOf(v: unknown): string | undefined {
+  if (typeof v === "string" && v.trim()) {
+    return v.trim();
+  }
+  return undefined;
+}
+
+function tokenizeShellCommand(command: string): string[] {
+  const s = command.trim();
+  if (!s) {
+    return [];
+  }
+  const out: string[] = [];
+  let cur = "";
+  let quote: '"' | "'" | null = null;
+  let esc = false;
+  for (const ch of s) {
+    if (esc) {
+      cur += ch;
+      esc = false;
+      continue;
+    }
+    if (ch === "\\") {
+      esc = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) {
+    out.push(cur);
+  }
+  return out;
+}
+
+function commandPathFromParams(params: Record<string, unknown>): string {
+  const command = strOf(params.command) ?? strOf(params.cmd) ?? strOf(params.shell_command);
+  if (!command) {
+    return "";
+  }
+  const tokens = tokenizeShellCommand(command);
+  if (tokens.length < 2) {
+    return "";
+  }
+  const t0 = tokens[0] ?? "";
+  const bin = (t0.includes("/") ? t0.split("/").pop() ?? t0 : t0).toLowerCase();
+  if (bin !== "trash" && bin !== "rm" && bin !== "mv" && bin !== "cp") {
+    return "";
+  }
+  for (let i = 1; i < tokens.length; i += 1) {
+    const t = tokens[i]?.trim() ?? "";
+    if (!t || t.startsWith("-")) {
+      continue;
+    }
+    return t;
+  }
+  return "";
+}
+
 export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAuditEventJson {
   const meta = parseJsonObject(r.metadata_json != null ? String(r.metadata_json) : "{}");
   const input = parseJsonObject(r.input_json != null ? String(r.input_json) : "{}");
@@ -214,15 +311,21 @@ export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAudit
   const resObj = meta.resource && typeof meta.resource === "object" && !Array.isArray(meta.resource) ? (meta.resource as Record<string, unknown>) : {};
   const uriFromMeta = typeof resObj.uri === "string" ? resObj.uri.trim() : "";
   const params = input.params && typeof input.params === "object" && !Array.isArray(input.params) ? (input.params as Record<string, unknown>) : {};
+  const uriFromCommand = commandPathFromParams(params);
   const uri =
     uriFromMeta ||
     (typeof params.path === "string" && params.path.trim()) ||
     (typeof params.file_path === "string" && params.file_path.trim()) ||
     (typeof params.target_file === "string" && params.target_file.trim()) ||
+    uriFromCommand ||
     "";
+  const accessModeFromCommand = uriFromMeta ? null : uriFromCommand ? "write" : null;
   const spanType = String(r.span_type ?? "");
   const semantic_class = semanticClassFromRow(meta, spanType);
-  const access_mode = typeof resObj.access_mode === "string" ? resObj.access_mode : null;
+  const access_mode =
+    typeof resObj.access_mode === "string" && resObj.access_mode.trim()
+      ? resObj.access_mode
+      : accessModeFromCommand;
   const chars = numFromUnknown(resObj.chars);
   const snippet =
     typeof resObj.snippet === "string"

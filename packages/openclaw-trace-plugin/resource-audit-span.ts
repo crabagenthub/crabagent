@@ -207,6 +207,93 @@ function firstPathFromParams(params: Record<string, unknown>): string | undefine
   );
 }
 
+function shellCommandFromParams(params: Record<string, unknown>): string | undefined {
+  return strOf(params.command) ?? strOf(params.cmd) ?? strOf(params.shell_command);
+}
+
+function tokenizeShellCommand(command: string): string[] {
+  const s = command.trim();
+  if (!s) {
+    return [];
+  }
+  const out: string[] = [];
+  let cur = "";
+  let quote: '"' | "'" | null = null;
+  let esc = false;
+  for (const ch of s) {
+    if (esc) {
+      cur += ch;
+      esc = false;
+      continue;
+    }
+    if (ch === "\\") {
+      esc = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) {
+    out.push(cur);
+  }
+  return out;
+}
+
+function normalizeCmdBin(tok: string): string {
+  const t = tok.toLowerCase();
+  const base = t.includes("/") ? (t.split("/").pop() ?? t) : t;
+  return base;
+}
+
+function firstPathOperand(tokens: string[], from = 1): string | undefined {
+  for (let i = from; i < tokens.length; i += 1) {
+    const t = tokens[i]?.trim();
+    if (!t || t.startsWith("-")) {
+      continue;
+    }
+    return t;
+  }
+  return undefined;
+}
+
+function fileResourceFromShellCommand(params: Record<string, unknown>): { uri: string; access_mode: "write" } | null {
+  const command = shellCommandFromParams(params);
+  if (!command) {
+    return null;
+  }
+  const tokens = tokenizeShellCommand(command);
+  if (tokens.length < 2) {
+    return null;
+  }
+  const bin = normalizeCmdBin(tokens[0] ?? "");
+  if (bin !== "trash" && bin !== "rm" && bin !== "mv" && bin !== "cp") {
+    return null;
+  }
+  const uri = firstPathOperand(tokens);
+  if (!uri) {
+    return null;
+  }
+  return { uri, access_mode: "write" };
+}
+
 function toolNameLooksMemory(name: string): boolean {
   const n = name.toLowerCase();
   return (
@@ -438,6 +525,18 @@ export function enrichToolSpanResourceAudit(span: Record<string, unknown>): void
       uri: `file://glob/${encodeURIComponent(pattern.slice(0, 400))}`,
       access_mode: "read",
       chars,
+    };
+    span.metadata = prevMeta;
+    return;
+  }
+
+  const shellRes = fileResourceFromShellCommand(params);
+  if (shellRes) {
+    prevMeta.semantic_kind = "file";
+    prevMeta.resource = {
+      uri: shellRes.uri,
+      access_mode: shellRes.access_mode,
+      chars: 0,
     };
     span.metadata = prevMeta;
     return;

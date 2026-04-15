@@ -8,6 +8,7 @@ import {
   Input,
   Message,
   Pagination,
+  Popover,
   Select,
   Space,
   Spin,
@@ -55,6 +56,13 @@ const kpiShellClass =
 
 const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
+
+function topRankColorClass(rank: number): string {
+  if (rank <= 3) {
+    return "text-[#F53F3F]";
+  }
+  return "text-[#FF7D00]";
+}
 
 function shellTrendOption(
   rows: { day: string; total: number; failed: number }[],
@@ -586,40 +594,81 @@ export function CommandAnalysisDashboard() {
         </Card>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card bordered={false} className={kpiShellClass} title={t("sectionTopCmd")}>
-            {s?.top_commands?.length ? (
-              <ol className="list-decimal space-y-2 pl-4 text-sm">
-                {s.top_commands.map((x) => (
-                  <li key={x.command}>
-                    <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-                      {x.command}
-                    </Typography.Text>
-                    <span className="ml-2 text-xs text-muted-foreground">×{x.count}</span>
+          <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
+            <ul className="space-y-1.5">
+              {s?.top_commands?.length ? (
+                s.top_commands.map((x, idx) => (
+                  <li key={x.command} className="last:border-0">
+                    <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
+                      <span
+                        className={cn(
+                          "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                          topRankColorClass(idx + 1),
+                        )}
+                      >
+                        {idx + 1}
+                      </span>
+                      <Popover
+                        content={
+                          <div className="max-w-md break-all text-xs">
+                            {x.command || "—"}
+                          </div>
+                        }
+                      >
+                        <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                          {x.command}
+                        </Typography.Text>
+                      </Popover>
+                      <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                        {Math.round(x.count).toLocaleString()}
+                      </span>
+                    </div>
                   </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("emptyTopCmd")}</p>
-            )}
+                ))
+              ) : (
+                <li className="text-sm text-muted-foreground">{t("emptyTopCmd")}</li>
+              )}
+            </ul>
           </Card>
-          <Card bordered={false} className={kpiShellClass} title={t("sectionSlowest")}>
-            {s?.slowest?.length ? (
-              <ul className="space-y-2 text-sm">
-                {s.slowest.map((x) => (
-                  <li key={x.span_id} className="flex flex-wrap items-center gap-2">
-                    <span className="tabular-nums text-xs font-medium">{x.duration_ms} ms</span>
-                    <Button type="text" size="mini" onClick={() => setDrawerSpanId(x.span_id)}>
-                      {t("detailBtn")}
-                    </Button>
-                    <Typography.Text className="min-w-0 flex-1 text-xs" ellipsis={{ showTooltip: true }}>
-                      {x.command}
-                    </Typography.Text>
+          <Card title={t("sectionSlowest")} bordered className="shadow-sm rounded-lg">
+            <ul className="space-y-1.5">
+              {s?.slowest?.length ? (
+                s.slowest.map((x, idx) => (
+                  <li key={x.span_id} className="last:border-0">
+                    <button
+                      type="button"
+                      className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                      onClick={() => setDrawerSpanId(x.span_id)}
+                    >
+                      <span
+                        className={cn(
+                          "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                          topRankColorClass(idx + 1),
+                        )}
+                      >
+                        {idx + 1}
+                      </span>
+                      <Popover
+                        content={
+                          <div className="max-w-md break-all text-xs">
+                            {x.command || "—"}
+                          </div>
+                        }
+                      >
+                        <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                          {x.command}
+                        </Typography.Text>
+                      </Popover>
+                      <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                        {x.duration_ms} ms
+                      </span>
+                    </button>
                   </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("emptySlowest")}</p>
-            )}
+                ))
+              ) : (
+                <li className="text-sm text-muted-foreground">{t("emptySlowest")}</li>
+              )}
+            </ul>
           </Card>
         </div>
 

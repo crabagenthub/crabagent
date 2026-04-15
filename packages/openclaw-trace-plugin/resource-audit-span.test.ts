@@ -149,4 +149,33 @@ describe("enrichToolSpanResourceAudit", () => {
     assert.equal(meta.skill_id, "docs-qa");
     assert.equal(meta.skill_name, "docs-qa");
   });
+
+  it("maps params.command trash path into file resource", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "exec",
+      input: { params: { command: "trash /Users/lucbine/www/test.php" } },
+      output: { result: { exit_code: 0 } },
+    };
+    enrichToolSpanResourceAudit(span);
+    const meta = span.metadata as Record<string, unknown>;
+    assert.equal(meta.semantic_kind, "file");
+    const res = meta.resource as Record<string, unknown>;
+    assert.equal(res.uri, "/Users/lucbine/www/test.php");
+    assert.equal(res.access_mode, "write");
+  });
+
+  it("supports quoted path in rm command", () => {
+    const span: Record<string, unknown> = {
+      type: "tool",
+      name: "shell_exec",
+      input: { params: { command: "rm -f '/tmp/a b.txt'" } },
+      output: { result: { exit_code: 0 } },
+    };
+    enrichToolSpanResourceAudit(span);
+    const meta = span.metadata as Record<string, unknown>;
+    assert.equal(meta.semantic_kind, "file");
+    const res = meta.resource as Record<string, unknown>;
+    assert.equal(res.uri, "/tmp/a b.txt");
+  });
 });
