@@ -100,10 +100,11 @@ function normalizeDetectionKind(raw: string | null | undefined): "regex" | "mode
   return s === "model" ? "model" : "regex";
 }
 
-export function countPolicies(db: CrabagentDb, workspaceName: string): number {
+export function countPolicies(db: CrabagentDb, workspaceName?: string): number {
+  const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
   const row = db
-    .prepare(`SELECT COUNT(*) AS n FROM interception_policies WHERE workspace_name = ?`)
-    .get(workspaceName) as { n: number };
+    .prepare(`SELECT COUNT(*) AS n FROM interception_policies WHERE lower(workspace_name) = lower(?)`)
+    .get(ws) as { n: number };
   return row?.n ?? 0;
 }
 
@@ -118,20 +119,22 @@ function maxPolicyRowsForEnv(): number {
   return pro ? 100 : 10;
 }
 
-export function queryAllPolicies(db: CrabagentDb, workspaceName: string): InterceptionPolicy[] {
+export function queryAllPolicies(db: CrabagentDb, workspaceName?: string): InterceptionPolicy[] {
+  const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
   return db
-    .prepare(`SELECT * FROM interception_policies WHERE workspace_name = ? ORDER BY updated_at_ms DESC`)
-    .all(workspaceName) as InterceptionPolicy[];
+    .prepare(`SELECT * FROM interception_policies WHERE lower(workspace_name) = lower(?) ORDER BY updated_at_ms DESC`)
+    .all(ws) as InterceptionPolicy[];
 }
 
-export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy>, workspaceName: string): InterceptionPolicy {
+export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy>, workspaceName?: string): InterceptionPolicy {
+  const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
   const id = policy.id || randomUUID();
   const now = Date.now();
 
-  const existing = db.prepare(`SELECT id FROM interception_policies WHERE id = ? AND workspace_name = ?`).get(id, workspaceName) as
+  const existing = db.prepare(`SELECT id FROM interception_policies WHERE id = ? AND lower(workspace_name) = lower(?)`).get(id, ws) as
     | { id: string }
     | undefined;
-  if (!existing && countPolicies(db, workspaceName) >= maxPolicyRowsForEnv()) {
+  if (!existing && countPolicies(db, ws) >= maxPolicyRowsForEnv()) {
     throw new Error(
       `policy_limit_exceeded: max ${maxPolicyRowsForEnv()} policies for current plan (set CRABAGENT_PLAN=pro or CRABAGENT_POLICY_MAX)`,
     );
@@ -178,24 +181,28 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     detectionKind,
     now,
     now,
-    workspaceName,
+    ws,
   );
 
-  return db.prepare(`SELECT * FROM interception_policies WHERE id = ? AND workspace_name = ?`).get(id, workspaceName) as InterceptionPolicy;
+  return db.prepare(`SELECT * FROM interception_policies WHERE id = ? AND lower(workspace_name) = lower(?)`).get(id, ws) as InterceptionPolicy;
 }
 
 /**
  * 插件在成功执行一次「拉取策略列表」后调用，将所有行的 `pulled_at_ms` 更新为本次拉取时间。
  */
-export function reportPoliciesPulled(db: CrabagentDb, pulledAtMs: number, workspaceName: string): { updated: number } {
+export function reportPoliciesPulled(db: CrabagentDb, pulledAtMs: number, workspaceName?: string): { updated: number } {
+  const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
   const ms = Math.floor(Number(pulledAtMs));
   if (!Number.isFinite(ms) || ms <= 0) {
     return { updated: 0 };
   }
-  const info = db.prepare(`UPDATE interception_policies SET pulled_at_ms = ? WHERE workspace_name = ?`).run(ms, workspaceName);
+  const info = db
+    .prepare(`UPDATE interception_policies SET pulled_at_ms = ? WHERE lower(workspace_name) = lower(?)`)
+    .run(ms, ws);
   return { updated: info.changes };
 }
 
-export function deletePolicy(db: CrabagentDb, id: string, workspaceName: string): void {
-  db.prepare(`DELETE FROM interception_policies WHERE id = ? AND workspace_name = ?`).run(id, workspaceName);
+export function deletePolicy(db: CrabagentDb, id: string, workspaceName?: string): void {
+  const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
+  db.prepare(`DELETE FROM interception_policies WHERE id = ? AND lower(workspace_name) = lower(?)`).run(id, ws);
 }

@@ -60,19 +60,16 @@ export function collectorAuthHeaders(apiKey: string): HeadersInit {
 
 export function loadWorkspaceName(): string {
   if (typeof window === "undefined") {
-    return "openclaw";
+    return "OpenClaw";
   }
   const raw = window.localStorage.getItem(WORKSPACE_KEY);
-  const v = String(raw ?? "")
-    .trim()
-    .toLowerCase();
-  return v === "hermes-agent" ? "hermes-agent" : "openclaw";
+  const t = String(raw ?? "").trim();
+  const v = t.toLowerCase();
+  return v === "hermes-agent" ? "Hermes-Agent" : "OpenClaw";
 }
 
 export function appendWorkspaceNameParam(sp: URLSearchParams, workspaceName?: string): void {
-  const ws = String(workspaceName ?? loadWorkspaceName())
-    .trim()
-    .toLowerCase();
+  const ws = String(workspaceName ?? loadWorkspaceName()).trim();
   if (!ws) {
     return;
   }

@@ -3,23 +3,23 @@
 export const WORKSPACE_FILTER_STORAGE_KEY = "crabagent_workspace_name";
 export const WORKSPACE_FILTER_EVENT = "crabagent-workspace-changed";
 
-export type WorkspaceName = "openclaw" | "hermes-agent";
+export type WorkspaceName = "OpenClaw" | "Hermes-Agent";
 
 export const WORKSPACE_OPTIONS: { value: WorkspaceName; label: string }[] = [
-  { value: "openclaw", label: "OpenClaw" },
-  { value: "hermes-agent", label: "Hermes-Agent" },
+  { value: "OpenClaw", label: "OpenClaw" },
+  { value: "Hermes-Agent", label: "Hermes-Agent" },
 ];
 
 export function normalizeWorkspaceName(raw: string | null | undefined): WorkspaceName {
   const v = String(raw ?? "")
     .trim()
     .toLowerCase();
-  return v === "hermes-agent" ? "hermes-agent" : "openclaw";
+  return v === "hermes-agent" ? "Hermes-Agent" : "OpenClaw";
 }
 
 export function readWorkspaceName(): WorkspaceName {
   if (typeof window === "undefined") {
-    return "openclaw";
+    return "OpenClaw";
   }
   return normalizeWorkspaceName(window.localStorage.getItem(WORKSPACE_FILTER_STORAGE_KEY));
 }

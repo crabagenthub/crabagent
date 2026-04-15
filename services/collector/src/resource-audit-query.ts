@@ -109,7 +109,7 @@ function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[]
     params.push(Math.floor(q.untilMs));
   }
   if (q.workspace_name && q.workspace_name.trim()) {
-    parts.push(`COALESCE(NULLIF(TRIM(t.workspace_name), ''), 'default') = ?`);
+    parts.push(`lower(COALESCE(NULLIF(TRIM(t.workspace_name), ''), 'OpenClaw')) = lower(?)`);
     params.push(q.workspace_name.trim());
   }
 

@@ -108,7 +108,7 @@ function buildWhere(q: SecurityAuditListQuery): { sql: string; params: unknown[]
     params.push(q.spanId);
   }
   if (q.workspaceName) {
-    parts.push(`workspace_name = ?`);
+    parts.push(`lower(workspace_name) = lower(?)`);
     params.push(q.workspaceName);
   }
   if (q.policyId) {
@@ -147,7 +147,7 @@ export function querySecurityAuditPolicyEventCounts(
   workspaceName?: string,
 ): SecurityAuditPolicyEventCountRow[] {
   const hasWorkspace = !!workspaceName?.trim();
-  const whereSql = hasWorkspace ? `AND s.workspace_name = ?` : "";
+  const whereSql = hasWorkspace ? `AND lower(s.workspace_name) = lower(?)` : "";
   return db
     .prepare(
       `SELECT json_extract(j.value, '$.policy_id') AS policy_id,

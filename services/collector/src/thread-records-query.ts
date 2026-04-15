@@ -134,7 +134,7 @@ export function buildThreadRecordsWhere(q: ThreadRecordsListQuery): { whereSql: 
     params.push(Math.floor(q.untilMs));
   }
   if (q.workspaceName && q.workspaceName.trim()) {
-    whereParts.push("th.workspace_name = ?");
+    whereParts.push("lower(th.workspace_name) = lower(?)");
     params.push(q.workspaceName.trim());
   }
 

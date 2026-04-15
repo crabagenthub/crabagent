@@ -101,7 +101,7 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
     input_preview: r.input_preview != null ? String(r.input_preview) : null,
     output_preview: r.output_preview != null ? String(r.output_preview) : null,
     thread_key: String(r.thread_key ?? r.trace_id ?? ""),
-    workspace_name: String(r.workspace_name ?? "default"),
+    workspace_name: String(r.workspace_name ?? "OpenClaw"),
     project_name: String(r.project_name ?? "openclaw"),
     agent_name: ag != null && String(ag).trim() !== "" ? String(ag) : null,
     channel_name: ch != null && String(ch).trim() !== "" ? String(ch) : null,

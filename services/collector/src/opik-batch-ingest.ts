@@ -436,7 +436,7 @@ export type OpikBatchResult = {
   skipped: { reason: string; at: string }[];
 };
 
-const DEFAULT_WORKSPACE = "default";
+const DEFAULT_WORKSPACE = "OpenClaw";
 const DEFAULT_PROJECT = "openclaw";
 
 /** 入库前按 interception_policies 对 batch 做轻量正则兜底脱敏（与插件热路径互补）。 */
@@ -712,10 +712,11 @@ function applyOpikBatchInTransaction(db: Database.Database, body: unknown): Opik
     INSERT INTO opik_spans (
       span_id, trace_id, parent_span_id, name, span_type,
       start_time_ms, end_time_ms, duration_ms,
+      workspace_name,
       metadata_json, input_json, output_json, setting_json,
       usage_json, usage_preview, model, provider, error_info_json, status, total_cost,
       sort_index, is_complete
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(span_id) DO UPDATE SET
       trace_id = excluded.trace_id,
       parent_span_id = COALESCE(excluded.parent_span_id, opik_spans.parent_span_id),
@@ -724,6 +725,7 @@ function applyOpikBatchInTransaction(db: Database.Database, body: unknown): Opik
       start_time_ms = COALESCE(excluded.start_time_ms, opik_spans.start_time_ms),
       end_time_ms = COALESCE(excluded.end_time_ms, opik_spans.end_time_ms),
       duration_ms = COALESCE(excluded.duration_ms, opik_spans.duration_ms),
+      workspace_name = COALESCE(excluded.workspace_name, opik_spans.workspace_name),
       metadata_json = COALESCE(excluded.metadata_json, opik_spans.metadata_json),
       input_json = COALESCE(excluded.input_json, opik_spans.input_json),
       output_json = COALESCE(excluded.output_json, opik_spans.output_json),
@@ -761,6 +763,7 @@ function applyOpikBatchInTransaction(db: Database.Database, body: unknown): Opik
     const spanTypeNorm = (spanTypeRaw ?? "").trim().toLowerCase();
     const spanType =
       spanTypeNorm && ["general", "tool", "llm", "guardrail"].includes(spanTypeNorm) ? spanTypeNorm : "general";
+    const ws = asStr(row.workspace_name) ?? DEFAULT_WORKSPACE;
     if (spanType === "llm") {
       traceIdsWithLlmSpan.add(traceId);
     }
@@ -794,6 +797,7 @@ function applyOpikBatchInTransaction(db: Database.Database, body: unknown): Opik
         asNum(row.start_time_ms ?? row.startTimeMs),
         asNum(row.end_time_ms ?? row.endTimeMs),
         asNum(row.duration_ms ?? row.durationMs),
+        ws,
         jsonCol(mergedSpanMetadata),
         jsonCol(normalizeOpikSpanInputForStorage(row.input)),
         jsonCol(row.output),

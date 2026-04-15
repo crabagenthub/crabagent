@@ -117,7 +117,7 @@ function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[
   }
   if (q.workspaceName?.trim()) {
     parts.push(
-      `EXISTS (SELECT 1 FROM opik_traces t WHERE t.trace_id = s.trace_id AND t.workspace_name = ?)`,
+      `EXISTS (SELECT 1 FROM opik_traces t WHERE t.trace_id = s.trace_id AND lower(t.workspace_name) = lower(?))`,
     );
     params.push(q.workspaceName.trim());
   }

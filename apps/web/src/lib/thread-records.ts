@@ -89,7 +89,7 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
   const thread_type: "main" | "subagent" = tty === "subagent" ? "subagent" : "main";
   return {
     thread_id: String(r.thread_id ?? ""),
-    workspace_name: String(r.workspace_name ?? "default"),
+    workspace_name: String(r.workspace_name ?? "OpenClaw"),
     project_name: String(r.project_name ?? "openclaw"),
     thread_type,
     first_seen_ms: Number(r.first_seen_ms) || 0,

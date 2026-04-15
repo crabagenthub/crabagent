@@ -404,9 +404,9 @@ function WorkspaceSwitcher({ collapsed }: { collapsed: boolean }) {
                     }}
                   >
                     <span className="grid h-6 w-6 place-items-center rounded-full bg-primary/15 text-primary">
-                      {opt.value === "openclaw" ? (
+                      {opt.value === "OpenClaw" ? (
                         <OpenclawWorkspaceIcon className="h-4 w-4" />
-                      ) : opt.value === "hermes-agent" ? (
+                      ) : opt.value === "Hermes-Agent" ? (
                         <Image
                           src="/hermes-agent.png"
                           alt="Hermes-Agent"
@@ -432,9 +432,9 @@ function WorkspaceSwitcher({ collapsed }: { collapsed: boolean }) {
           aria-label={t("workspaceSwitchAria")}
         >
           <span className="grid h-6 w-6 place-items-center rounded-md bg-primary/15 text-primary">
-            {current.value === "openclaw" ? (
+            {current.value === "OpenClaw" ? (
               <OpenclawWorkspaceIcon className="h-4 w-4" />
-            ) : current.value === "hermes-agent" ? (
+            ) : current.value === "Hermes-Agent" ? (
               <Image
                 src="/hermes-agent.png"
                 alt="Hermes-Agent"

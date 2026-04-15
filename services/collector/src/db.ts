@@ -12,7 +12,7 @@ function opikSchemaDdl(): string {
   return `
     CREATE TABLE opik_threads (
       thread_id TEXT NOT NULL,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
       thread_type TEXT NOT NULL DEFAULT 'main'
         CHECK (thread_type IN ('main', 'subagent')),
@@ -33,7 +33,7 @@ function opikSchemaDdl(): string {
     CREATE TABLE opik_traces (
       trace_id TEXT PRIMARY KEY,
       thread_id TEXT,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
       trace_type TEXT NOT NULL DEFAULT 'external'
         CHECK (trace_type IN ('external', 'subagent', 'async_command', 'system')),
@@ -73,6 +73,7 @@ function opikSchemaDdl(): string {
       name TEXT NOT NULL,
       span_type TEXT NOT NULL DEFAULT 'general'
         CHECK (span_type IN ('general', 'tool', 'llm', 'guardrail')),
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       start_time_ms INTEGER,
       end_time_ms INTEGER,
       duration_ms INTEGER,
@@ -133,7 +134,7 @@ function opikSchemaDdl(): string {
 
     CREATE TABLE interception_policies (
       id TEXT PRIMARY KEY,
-      workspace_name TEXT NOT NULL DEFAULT 'openclaw',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       name TEXT NOT NULL,
       description TEXT,
       pattern TEXT NOT NULL,
@@ -154,7 +155,7 @@ function opikSchemaDdl(): string {
       created_at_ms INTEGER NOT NULL,
       trace_id TEXT NOT NULL,
       span_id TEXT,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
       findings_json TEXT NOT NULL DEFAULT '[]',
       total_findings INTEGER NOT NULL DEFAULT 0,
@@ -297,6 +298,17 @@ function ensureOpikSpansPlanColumns(db: Database.Database): void {
   if (!n.has("usage_preview")) {
     db.exec(`ALTER TABLE opik_spans ADD COLUMN usage_preview TEXT`);
   }
+  if (!n.has("workspace_name")) {
+    db.exec(`ALTER TABLE opik_spans ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'OpenClaw'`);
+  }
+  db.exec(`
+    UPDATE opik_spans
+    SET workspace_name = COALESCE(
+      NULLIF(TRIM(workspace_name), ''),
+      (SELECT NULLIF(TRIM(t.workspace_name), '') FROM opik_traces t WHERE t.trace_id = opik_spans.trace_id LIMIT 1),
+      'OpenClaw'
+    )
+  `);
 }
 
 /** 移除已废弃的 `parent_trace_id` 列（SQLite 3.35+ `DROP COLUMN`）。 */
@@ -401,7 +413,7 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS interception_policies (
       id TEXT PRIMARY KEY,
-      workspace_name TEXT NOT NULL DEFAULT 'openclaw',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       name TEXT NOT NULL,
       description TEXT,
       pattern TEXT NOT NULL,
@@ -426,7 +438,7 @@ function ensureSecurityAuditLogsTable(db: Database.Database): void {
       created_at_ms INTEGER NOT NULL,
       trace_id TEXT NOT NULL,
       span_id TEXT,
-      workspace_name TEXT NOT NULL DEFAULT 'default',
+      workspace_name TEXT NOT NULL DEFAULT 'OpenClaw',
       project_name TEXT NOT NULL DEFAULT 'openclaw',
       findings_json TEXT NOT NULL DEFAULT '[]',
       total_findings INTEGER NOT NULL DEFAULT 0,
@@ -487,7 +499,7 @@ function ensureSecurityAuditLogsColumns(db: Database.Database): void {
   }
   if (!names.has("workspace_name")) {
     db.exec(
-      `ALTER TABLE security_audit_logs ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'default'`,
+      `ALTER TABLE security_audit_logs ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'OpenClaw'`,
     );
   }
   if (!names.has("project_name")) {
@@ -519,7 +531,7 @@ function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void
   }
   const names = tableColumnNames(db, "interception_policies");
   if (!names.has("workspace_name")) {
-    db.exec(`ALTER TABLE interception_policies ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'openclaw'`);
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'OpenClaw'`);
   }
   if (!names.has("created_at_ms")) {
     db.exec(`ALTER TABLE interception_policies ADD COLUMN created_at_ms INTEGER`);
@@ -553,6 +565,26 @@ function tableExists(db: Database.Database, name: string): boolean {
   return row != null;
 }
 
+function normalizeWorkspaceNameDefaults(db: Database.Database): void {
+  const targets = ["opik_threads", "opik_traces", "opik_spans", "security_audit_logs", "interception_policies"];
+  for (const table of targets) {
+    if (!tableExists(db, table)) {
+      continue;
+    }
+    const names = tableColumnNames(db, table);
+    if (!names.has("workspace_name")) {
+      continue;
+    }
+    db.exec(
+      `UPDATE ${table}
+       SET workspace_name = 'OpenClaw'
+       WHERE workspace_name IS NULL
+          OR TRIM(workspace_name) = ''
+          OR lower(TRIM(workspace_name)) IN ('default', 'openclaw')`,
+    );
+  }
+}
+
 function ensureOpikIncrementalMigrations(db: Database.Database): void {
   ensureOpikAuxTables(db);
   ensureInterceptionPoliciesTable(db);
@@ -564,6 +596,7 @@ function ensureOpikIncrementalMigrations(db: Database.Database): void {
   dropOpikTracesParentTraceIdColumnIfPresent(db);
   ensureOpikSpansPlanColumns(db);
   ensureOpikPlanIndexes(db);
+  normalizeWorkspaceNameDefaults(db);
 }
 
 /**

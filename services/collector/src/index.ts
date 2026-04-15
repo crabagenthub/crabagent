@@ -117,7 +117,7 @@ app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
 /** Interception policies CRUD */
 app.get("/v1/policies", (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
-  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "OpenClaw";
   return c.json(queryAllPolicies(db, workspaceName));
 });
 
@@ -125,7 +125,7 @@ app.post("/v1/policies", async (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
   try {
     const body = await c.req.json();
-    const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+    const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "OpenClaw";
     const res = upsertPolicy(db, body, workspaceName);
     return c.json(res);
   } catch (err) {
@@ -137,7 +137,7 @@ app.post("/v1/policies", async (c) => {
 app.delete("/v1/policies/:id", (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
   const id = c.req.param("id");
-  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "OpenClaw";
   deletePolicy(db, id, workspaceName);
   return c.json({ ok: true });
 });
@@ -161,7 +161,7 @@ app.post("/v1/policies/pull-report", async (c) => {
     typeof pulledRaw === "number" && Number.isFinite(pulledRaw) && pulledRaw > 0
       ? Math.floor(pulledRaw)
       : Date.now();
-  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "OpenClaw";
   const { updated } = reportPoliciesPulled(db, pulledAtMs, workspaceName);
   return c.json({ ok: true, updated, pulled_at_ms: pulledAtMs });
 });

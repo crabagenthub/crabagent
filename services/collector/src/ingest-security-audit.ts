@@ -350,7 +350,7 @@ export type IngestSecurityScanMaps = {
   traceScans: Map<string, SpanSecurityScan>;
 };
 
-const DEFAULT_WORKSPACE = "default";
+const DEFAULT_WORKSPACE = "OpenClaw";
 const DEFAULT_PROJECT = "openclaw";
 
 export function buildWorkspaceMapsFromEnvelope(envelope: {
@@ -400,7 +400,7 @@ export function scanOpikBatchForSecurityAudit(
     spans?: unknown[];
   },
 ): IngestSecurityScanMaps {
-  const rules = compilePolicies(queryAllPolicies(db));
+  const rules = compilePolicies(queryAllPolicies(db, DEFAULT_WORKSPACE));
   const spanScans = new Map<string, SpanSecurityScan>();
   const traceScans = new Map<string, SpanSecurityScan>();
 

@@ -111,7 +111,7 @@ export function buildTraceRecordsWhere(q: TraceRecordsListQuery): { whereSql: st
     params.push(Math.floor(q.untilMs));
   }
   if (q.workspaceName && q.workspaceName.trim()) {
-    whereParts.push("t.workspace_name = ?");
+    whereParts.push("lower(t.workspace_name) = lower(?)");
     params.push(q.workspaceName.trim());
   }
 
