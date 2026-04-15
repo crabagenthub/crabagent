@@ -2,7 +2,7 @@
 
 import "@/lib/arco-react19-setup";
 import { Button, Card, Pagination, Space, Spin, Table, Tag, Typography } from "@arco-design/web-react";
-import { IconRefresh } from "@arco-design/web-react/icon";
+import { IconApps, IconList, IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -50,6 +50,8 @@ const ANALYTICS_LIMIT = 200;
 const cardShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
 
+type SecurityAuditViewKind = "metrics" | "details";
+
 function hitTypeLabel(t: ReturnType<typeof useTranslations<"SecurityAudit">>, cat: SecurityHitCategory): string {
   switch (cat) {
     case "secret":
@@ -75,6 +77,7 @@ export function SecurityAuditDashboard() {
   const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [viewKind, setViewKind] = useState<SecurityAuditViewKind>("metrics");
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -292,6 +295,14 @@ export function SecurityAuditDashboard() {
         —
       </Typography.Text>
     );
+  const total = eventsQ.data?.total ?? 0;
+  const viewCounts = useMemo(
+    () => ({
+      metrics: analyticsRows.length,
+      details: total,
+    }),
+    [analyticsRows.length, total],
+  );
 
   if (!mounted) {
     return (
@@ -314,7 +325,6 @@ export function SecurityAuditDashboard() {
     );
   }
 
-  const total = eventsQ.data?.total ?? 0;
   const items = eventsQ.data?.items ?? [];
 
   return (
@@ -358,77 +368,126 @@ export function SecurityAuditDashboard() {
           </Space>
         </header>
 
-        <section aria-label={t("timelineSectionTitle")} className="space-y-3">
-          <h2 className="text-base font-semibold tracking-tight text-foreground">{t("timelineSectionTitle")}</h2>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card title={t("chartRiskTrend")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
-              {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : riskTrendChart}
-            </Card>
-            <Card title={t("chartHitTypes")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
-              {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : hitTypeChart}
-            </Card>
-            <Card title={t("chartTopSources")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
-              {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : sourcesChart}
-              <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
-                {t("sourceFootnote")}
-              </p>
-            </Card>
+        <section aria-label={t("viewSwitcherAria")} className="space-y-3">
+          <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {([
+              { id: "metrics" as const, label: t("viewMetrics"), Icon: IconApps },
+              { id: "details" as const, label: t("viewDetails"), Icon: IconList },
+            ] satisfies Array<{ id: SecurityAuditViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
+              const selected = viewKind === opt.id;
+              const count = viewCounts[opt.id];
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setViewKind(opt.id)}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
+                    selected
+                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
+                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <opt.Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      selected ? "text-neutral-800 dark:text-zinc-100" : "text-neutral-600 dark:text-zinc-400",
+                    )}
+                    strokeWidth={selected ? 3 : 2}
+                    aria-hidden
+                  />
+                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    className={cn(
+                      "tabular-nums text-[13px]",
+                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
+                    )}
+                  >
+                    {`(${count.toLocaleString()})`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
-        <section aria-label={t("eventListSection")} className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">{t("eventListSection")}</h3>
-          <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
-            <Table<SecurityAuditEventRow>
-              size="small"
-              loading={eventsQ.isLoading}
-              columns={columns}
-              data={items}
-              rowKey="id"
-              pagination={false}
-              noDataElement={<div className="py-12 text-center text-sm text-muted-foreground">{t("empty")}</div>}
-              onRow={(record) => ({
-                onClick: () => openTraceForRow(record),
-                style: { cursor: "pointer" },
-              })}
-            />
-            {total > pageSize ? (
-              <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
-                <Typography.Text type="secondary" className="text-xs">
-                  {t("showingOfTotal", {
-                    from: String(items.length ? (page - 1) * pageSize + 1 : 0),
-                    to: String(items.length ? (page - 1) * pageSize + items.length : 0),
-                    total: String(total),
-                  })}
-                </Typography.Text>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                    {t("paginationTotalPages", { count: String(Math.max(1, Math.ceil(total / pageSize) || 1)) })}
-                  </span>
-                  <Pagination
-                    size="small"
-                    current={page}
-                    pageSize={pageSize}
-                    total={total}
-                    onChange={(nextPage, nextPageSize) => {
-                      if (nextPageSize && nextPageSize !== pageSize) {
-                        setPageSize(nextPageSize);
-                        writeStoredPageSize(nextPageSize);
-                      }
-                      setPage(nextPage);
-                    }}
-                    showTotal
-                    bufferSize={1}
-                    sizeCanChange
-                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                    showJumper
-                    disabled={eventsQ.isFetching}
-                  />
+        {viewKind === "metrics" ? (
+          <section aria-label={t("timelineSectionTitle")} className="space-y-3">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">{t("timelineSectionTitle")}</h2>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card title={t("chartRiskTrend")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
+                {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : riskTrendChart}
+              </Card>
+              <Card title={t("chartHitTypes")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
+                {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : hitTypeChart}
+              </Card>
+              <Card title={t("chartTopSources")} bordered={false} className={cardShellClass} bodyStyle={{ paddingBottom: 8 }}>
+                {analyticsQ.isFetching && !analyticsQ.data ? <Spin className="py-8" /> : sourcesChart}
+                <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-snug text-muted-foreground">
+                  {t("sourceFootnote")}
+                </p>
+              </Card>
+            </div>
+          </section>
+        ) : null}
+
+        {viewKind === "details" ? (
+          <section aria-label={t("eventListSection")} className="space-y-2">
+            <h3 className="text-sm font-semibold text-foreground">{t("eventListSection")}</h3>
+            <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+              <Table<SecurityAuditEventRow>
+                size="small"
+                loading={eventsQ.isLoading}
+                columns={columns}
+                data={items}
+                rowKey="id"
+                pagination={false}
+                noDataElement={<div className="py-12 text-center text-sm text-muted-foreground">{t("empty")}</div>}
+                onRow={(record) => ({
+                  onClick: () => openTraceForRow(record),
+                  style: { cursor: "pointer" },
+                })}
+              />
+              {total > pageSize ? (
+                <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+                  <Typography.Text type="secondary" className="text-xs">
+                    {t("showingOfTotal", {
+                      from: String(items.length ? (page - 1) * pageSize + 1 : 0),
+                      to: String(items.length ? (page - 1) * pageSize + items.length : 0),
+                      total: String(total),
+                    })}
+                  </Typography.Text>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                      {t("paginationTotalPages", { count: String(Math.max(1, Math.ceil(total / pageSize) || 1)) })}
+                    </span>
+                    <Pagination
+                      size="small"
+                      current={page}
+                      pageSize={pageSize}
+                      total={total}
+                      onChange={(nextPage, nextPageSize) => {
+                        if (nextPageSize && nextPageSize !== pageSize) {
+                          setPageSize(nextPageSize);
+                          writeStoredPageSize(nextPageSize);
+                        }
+                        setPage(nextPage);
+                      }}
+                      showTotal
+                      bufferSize={1}
+                      sizeCanChange
+                      sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                      showJumper
+                      disabled={eventsQ.isFetching}
+                    />
+                  </div>
                 </div>
-              </div>
-            ) : null}
-          </div>
-        </section>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
       </main>
     </AppPageShell>
   );

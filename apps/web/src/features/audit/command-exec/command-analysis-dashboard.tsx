@@ -16,7 +16,7 @@ import {
   Tag,
   Typography,
 } from "@arco-design/web-react";
-import { IconRefresh } from "@arco-design/web-react/icon";
+import { IconApps, IconList, IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
@@ -56,6 +56,8 @@ const kpiShellClass =
 
 const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
+
+type CommandAnalysisViewKind = "metrics" | "details";
 
 function topRankColorClass(rank: number): string {
   if (rank <= 3) {
@@ -151,6 +153,7 @@ export function CommandAnalysisDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [drawerSpanId, setDrawerSpanId] = useState<string | null>(null);
+  const [viewKind, setViewKind] = useState<CommandAnalysisViewKind>("metrics");
 
   useEffect(() => {
     setMounted(true);
@@ -416,30 +419,6 @@ export function CommandAnalysisDashboard() {
     ],
     [t],
   );
-
-  if (!mounted) {
-    return (
-      <AppPageShell variant="overview">
-        <main className="ca-page relative z-[1] flex justify-center py-16">
-          <Spin />
-        </main>
-      </AppPageShell>
-    );
-  }
-
-  if (!baseUrl.trim()) {
-    return (
-      <AppPageShell variant="overview">
-        <main className="ca-page relative z-[1] space-y-4 pb-10">
-          <Typography.Title heading={4} className="ca-page-title !m-0">
-            {t("title")}
-          </Typography.Title>
-          <Typography.Paragraph type="secondary">{t("needCollector")}</Typography.Paragraph>
-        </main>
-      </AppPageShell>
-    );
-  }
-
   const s: ShellExecSummary | undefined = summaryQuery.data;
   const totalRows = listQuery.data?.total ?? 0;
   const snap = s?.db_snapshot;
@@ -463,6 +442,36 @@ export function CommandAnalysisDashboard() {
   const showRuleMismatchHint =
     summaryQuery.isSuccess && snap != null && snap.tool_spans > 0 && snap.shell_like_spans === 0;
   const showEmptyDbHint = summaryQuery.isSuccess && snap != null && snap.tool_spans === 0;
+  const viewCounts = useMemo(
+    () => ({
+      metrics: s?.totals.commands ?? 0,
+      details: totalRows,
+    }),
+    [s?.totals.commands, totalRows],
+  );
+
+  if (!mounted) {
+    return (
+      <AppPageShell variant="overview">
+        <main className="ca-page relative z-[1] flex justify-center py-16">
+          <Spin />
+        </main>
+      </AppPageShell>
+    );
+  }
+
+  if (!baseUrl.trim()) {
+    return (
+      <AppPageShell variant="overview">
+        <main className="ca-page relative z-[1] space-y-4 pb-10">
+          <Typography.Title heading={4} className="ca-page-title !m-0">
+            {t("title")}
+          </Typography.Title>
+          <Typography.Paragraph type="secondary">{t("needCollector")}</Typography.Paragraph>
+        </main>
+      </AppPageShell>
+    );
+  }
 
   return (
     <AppPageShell variant="overview">
@@ -539,297 +548,284 @@ export function CommandAnalysisDashboard() {
           <Message type="warning" content={t("summaryCapped", { n: s.scanned })} />
         ) : null}
 
-        {/* Executive summary KPIs */}
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: t("kpiCommands"), value: s?.totals.commands },
-            { label: t("kpiTraces"), value: s?.totals.distinct_traces },
-            { label: t("kpiSuccess"), value: s?.totals.success },
-            { label: t("kpiFailed"), value: s?.totals.failed },
-          ].map((k) => (
-            <Card key={k.label} bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "14px 16px" }}>
-              <div className="text-xs text-muted-foreground">{k.label}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summaryQuery.isLoading ? <Spin size={20} /> : (k.value ?? 0).toLocaleString()}
-              </div>
-            </Card>
-          ))}
+        <section aria-label={t("viewSwitcherAria")} className="space-y-3">
+          <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {([
+              { id: "metrics" as const, label: t("viewMetrics"), Icon: IconApps },
+              { id: "details" as const, label: t("viewDetails"), Icon: IconList },
+            ] satisfies Array<{ id: CommandAnalysisViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
+              const selected = viewKind === opt.id;
+              const count = viewCounts[opt.id];
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setViewKind(opt.id)}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
+                    selected
+                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
+                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <opt.Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      selected ? "text-neutral-800 dark:text-zinc-100" : "text-neutral-600 dark:text-zinc-400",
+                    )}
+                    strokeWidth={selected ? 3 : 2}
+                    aria-hidden
+                  />
+                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    className={cn(
+                      "tabular-nums text-[13px]",
+                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
+                    )}
+                  >
+                    {`(${count.toLocaleString()})`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </section>
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-1")} title={t("sectionCategory")}>
-            <div className="h-[260px] w-full min-w-0">
-              {categoryPie && summaryQuery.isSuccess ? (
-                <ReactEChart option={categoryPie} style={{ height: 240 }} />
-              ) : (
-                <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                  {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+        {viewKind === "metrics" ? (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: t("kpiCommands"), value: s?.totals.commands },
+                { label: t("kpiTraces"), value: s?.totals.distinct_traces },
+                { label: t("kpiSuccess"), value: s?.totals.success },
+                { label: t("kpiFailed"), value: s?.totals.failed },
+              ].map((k) => (
+                <Card key={k.label} bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "14px 16px" }}>
+                  <div className="text-xs text-muted-foreground">{k.label}</div>
+                  <div className="mt-1 text-2xl font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                    {summaryQuery.isLoading ? <Spin size={20} /> : (k.value ?? 0).toLocaleString()}
+                  </div>
+                </Card>
+              ))}
+            </section>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-1")} title={t("sectionCategory")}>
+                <div className="h-[260px] w-full min-w-0">
+                  {categoryPie && summaryQuery.isSuccess ? (
+                    <ReactEChart option={categoryPie} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </Card>
-          <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} title={t("sectionTrend")}>
-            <div className="h-[260px] w-full min-w-0">
-              {trendOpt && summaryQuery.isSuccess ? (
-                <ReactEChart option={trendOpt} style={{ height: 240 }} />
-              ) : (
-                <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                  {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+              </Card>
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} title={t("sectionTrend")}>
+                <div className="h-[260px] w-full min-w-0">
+                  {trendOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={trendOpt} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
                 </div>
-              )}
+              </Card>
             </div>
-          </Card>
-        </div>
 
-        <Card bordered={false} className={kpiShellClass} title={t("sectionDuration")}>
-          <div className="h-[220px] w-full max-w-xl min-w-0">
-            {durationBar && summaryQuery.isSuccess ? (
-              <ReactEChart option={durationBar} style={{ height: 200 }} />
-            ) : (
-              <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-                {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+            <Card bordered={false} className={kpiShellClass} title={t("sectionDuration")}>
+              <div className="h-[220px] w-full max-w-xl min-w-0">
+                {durationBar && summaryQuery.isSuccess ? (
+                  <ReactEChart option={durationBar} style={{ height: 200 }} />
+                ) : (
+                  <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
+                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </Card>
+            </Card>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
-            <ul className="space-y-1.5">
-              {s?.top_commands?.length ? (
-                s.top_commands.map((x, idx) => (
-                  <li key={x.command} className="last:border-0">
-                    <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
-                      <span
-                        className={cn(
-                          "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                          topRankColorClass(idx + 1),
-                        )}
-                      >
-                        {idx + 1}
-                      </span>
-                      <Popover
-                        content={
-                          <div className="max-w-md break-all text-xs">
-                            {x.command || "—"}
-                          </div>
-                        }
-                      >
-                        <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                          {x.command}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
+                <ul className="space-y-1.5">
+                  {s?.top_commands?.length ? (
+                    s.top_commands.map((x, idx) => (
+                      <li key={x.command} className="last:border-0">
+                        <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
+                          <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
+                            {idx + 1}
+                          </span>
+                          <Popover content={<div className="max-w-md break-all text-xs">{x.command || "—"}</div>}>
+                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                              {x.command}
+                            </Typography.Text>
+                          </Popover>
+                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{Math.round(x.count).toLocaleString()}</span>
+                        </div>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">{t("emptyTopCmd")}</li>
+                  )}
+                </ul>
+              </Card>
+              <Card title={t("sectionSlowest")} bordered className="shadow-sm rounded-lg">
+                <ul className="space-y-1.5">
+                  {s?.slowest?.length ? (
+                    s.slowest.map((x, idx) => (
+                      <li key={x.span_id} className="last:border-0">
+                        <button
+                          type="button"
+                          className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                          onClick={() => setDrawerSpanId(x.span_id)}
+                        >
+                          <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
+                            {idx + 1}
+                          </span>
+                          <Popover content={<div className="max-w-md break-all text-xs">{x.command || "—"}</div>}>
+                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                              {x.command}
+                            </Typography.Text>
+                          </Popover>
+                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{x.duration_ms} ms</span>
+                        </button>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">{t("emptySlowest")}</li>
+                  )}
+                </ul>
+              </Card>
+            </div>
+
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionBehavior")}
+            </Typography.Title>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card bordered={false} className={kpiShellClass} title={t("sectionLoops")}>
+                {s?.loop_alerts?.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {s.loop_alerts.slice(0, 8).map((lo) => (
+                      <li key={`${lo.trace_id}-${lo.command}`} className="rounded-md bg-muted/40 px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Tag color="red">{t("loopTag", { n: lo.repeat_count })}</Tag>
+                          <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(lo.trace_id)}`}>
+                            {formatShortId(lo.trace_id)}
+                          </LocalizedLink>
+                        </div>
+                        <Typography.Text className="mt-1 block text-xs" ellipsis={{ showTooltip: true }}>
+                          {lo.command}
                         </Typography.Text>
-                      </Popover>
-                      <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                        {Math.round(x.count).toLocaleString()}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noLoops")}</p>
+                )}
+              </Card>
+              <Card bordered={false} className={kpiShellClass} title={t("sectionChain")}>
+                {s?.chain_preview?.steps?.length ? (
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
+                    {s.chain_preview.steps.map((st, i) => (
+                      <span key={`${st.kind}-${i}-${st.name}`} className="flex items-center gap-1">
+                        {i > 0 ? <span className="text-muted-foreground">→</span> : null}
+                        <Tag size="small" color={st.kind === "llm" ? "arcoblue" : "gray"}>
+                          {st.kind}:{st.name.slice(0, 40)}
+                        </Tag>
                       </span>
-                    </div>
-                  </li>
-                ))
-              ) : (
-                <li className="text-sm text-muted-foreground">{t("emptyTopCmd")}</li>
-              )}
-            </ul>
-          </Card>
-          <Card title={t("sectionSlowest")} bordered className="shadow-sm rounded-lg">
-            <ul className="space-y-1.5">
-              {s?.slowest?.length ? (
-                s.slowest.map((x, idx) => (
-                  <li key={x.span_id} className="last:border-0">
-                    <button
-                      type="button"
-                      className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                      onClick={() => setDrawerSpanId(x.span_id)}
-                    >
-                      <span
-                        className={cn(
-                          "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                          topRankColorClass(idx + 1),
-                        )}
-                      >
-                        {idx + 1}
-                      </span>
-                      <Popover
-                        content={
-                          <div className="max-w-md break-all text-xs">
-                            {x.command || "—"}
-                          </div>
-                        }
-                      >
-                        <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                          {x.command}
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noChain")}</p>
+                )}
+                {s?.chain_preview?.trace_id ? (
+                  <LocalizedLink className="mt-2 inline-block text-xs text-primary" href={`/messages/${encodeURIComponent(s.chain_preview.trace_id)}`}>
+                    {t("openTrace")}
+                  </LocalizedLink>
+                ) : null}
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card bordered={false} className={kpiShellClass} title={t("sectionIdempotency")}>
+                {s?.idempotency_samples?.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {s.idempotency_samples.map((x) => (
+                      <li key={x.command_key} className="border-b border-border/60 pb-2 last:border-0">
+                        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+                          {x.command_key}
                         </Typography.Text>
-                      </Popover>
-                      <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                        {x.duration_ms} ms
-                      </span>
-                    </button>
-                  </li>
-                ))
+                        <div className="mt-1 text-xs text-muted-foreground">{t("idempoHint", { traces: x.traces, outcomes: x.outcomes })}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noIdempo")}</p>
+                )}
+              </Card>
+              <Card bordered={false} className={kpiShellClass} title={t("sectionRedundant")}>
+                {s?.redundant_read_hints?.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {s.redundant_read_hints.map((r) => (
+                      <li key={`${r.trace_id}-${r.command}`}>
+                        <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}>
+                          {formatShortId(r.trace_id)}
+                        </LocalizedLink>
+                        <span className="ml-2 text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noRedundant")}</p>
+                )}
+              </Card>
+            </div>
+
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionEfficiency")}
+            </Typography.Title>
+            <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
+              {s?.token_risks?.length ? (
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="span_id"
+                  columns={[
+                    { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
+                    { title: t("colCommand"), render: (_, r) => <Typography.Text className="text-xs" ellipsis>{r.command}</Typography.Text> },
+                    { title: t("colStdout"), dataIndex: "stdout_chars" },
+                    { title: t("colEstTokens"), dataIndex: "est_tokens" },
+                    { title: t("colEstUsd"), dataIndex: "est_usd" },
+                    { title: t("colAction"), render: (_, r) => <Button type="text" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>{t("detailBtn")}</Button> },
+                  ]}
+                  data={s.token_risks}
+                />
               ) : (
-                <li className="text-sm text-muted-foreground">{t("emptySlowest")}</li>
+                <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
               )}
-            </ul>
-          </Card>
-        </div>
+              <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
+            </Card>
 
-        {/* Behavior */}
-        <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-          {t("sectionBehavior")}
-        </Typography.Title>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card bordered={false} className={kpiShellClass} title={t("sectionLoops")}>
-            {s?.loop_alerts?.length ? (
-              <ul className="space-y-2 text-sm">
-                {s.loop_alerts.slice(0, 8).map((lo) => (
-                  <li key={`${lo.trace_id}-${lo.command}`} className="rounded-md bg-muted/40 px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Tag color="red">{t("loopTag", { n: lo.repeat_count })}</Tag>
-                      <LocalizedLink
-                        className="font-mono text-xs text-primary"
-                        href={`/command-analysis?trace_id=${encodeURIComponent(lo.trace_id)}`}
-                      >
-                        {formatShortId(lo.trace_id)}
-                      </LocalizedLink>
-                    </div>
-                    <Typography.Text className="mt-1 block text-xs" ellipsis={{ showTooltip: true }}>
-                      {lo.command}
-                    </Typography.Text>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noLoops")}</p>
-            )}
-          </Card>
-          <Card bordered={false} className={kpiShellClass} title={t("sectionChain")}>
-            {s?.chain_preview?.steps?.length ? (
-              <div className="flex flex-wrap items-center gap-1 text-xs">
-                {s.chain_preview.steps.map((st, i) => (
-                  <span key={`${st.kind}-${i}-${st.name}`} className="flex items-center gap-1">
-                    {i > 0 ? <span className="text-muted-foreground">→</span> : null}
-                    <Tag size="small" color={st.kind === "llm" ? "arcoblue" : "gray"}>
-                      {st.kind}:{st.name.slice(0, 40)}
-                    </Tag>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noChain")}</p>
-            )}
-            {s?.chain_preview?.trace_id ? (
-              <LocalizedLink
-                className="mt-2 inline-block text-xs text-primary"
-                href={`/messages/${encodeURIComponent(s.chain_preview.trace_id)}`}
-              >
-                {t("openTrace")}
-              </LocalizedLink>
-            ) : null}
-          </Card>
-        </div>
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionDiagnostics")}
+            </Typography.Title>
+            <div className="flex flex-wrap gap-2">
+              <Tag color="red">{t("diagNotFound")}: {s?.diagnostics.command_not_found ?? 0}</Tag>
+              <Tag color="orangered">{t("diagPerm")}: {s?.diagnostics.permission_denied ?? 0}</Tag>
+              <Tag color="gold">{t("diagArg")}: {s?.diagnostics.illegal_arg_hint ?? 0}</Tag>
+            </div>
+          </>
+        ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card bordered={false} className={kpiShellClass} title={t("sectionIdempotency")}>
-            {s?.idempotency_samples?.length ? (
-              <ul className="space-y-2 text-sm">
-                {s.idempotency_samples.map((x) => (
-                  <li key={x.command_key} className="border-b border-border/60 pb-2 last:border-0">
-                    <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-                      {x.command_key}
-                    </Typography.Text>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {t("idempoHint", { traces: x.traces, outcomes: x.outcomes })}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noIdempo")}</p>
-            )}
-          </Card>
-          <Card bordered={false} className={kpiShellClass} title={t("sectionRedundant")}>
-            {s?.redundant_read_hints?.length ? (
-              <ul className="space-y-2 text-sm">
-                {s.redundant_read_hints.map((r) => (
-                  <li key={`${r.trace_id}-${r.command}`}>
-                    <LocalizedLink
-                      className="font-mono text-xs text-primary"
-                      href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}
-                    >
-                      {formatShortId(r.trace_id)}
-                    </LocalizedLink>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      ×{r.repeats} {r.command.slice(0, 80)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noRedundant")}</p>
-            )}
-          </Card>
-        </div>
-
-        {/* Efficiency */}
-        <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-          {t("sectionEfficiency")}
-        </Typography.Title>
-        <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
-          {s?.token_risks?.length ? (
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="span_id"
-              columns={[
-                { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
-                {
-                  title: t("colCommand"),
-                  render: (_, r) => (
-                    <Typography.Text className="text-xs" ellipsis>
-                      {r.command}
-                    </Typography.Text>
-                  ),
-                },
-                { title: t("colStdout"), dataIndex: "stdout_chars" },
-                { title: t("colEstTokens"), dataIndex: "est_tokens" },
-                { title: t("colEstUsd"), dataIndex: "est_usd" },
-                {
-                  title: t("colAction"),
-                  render: (_, r) => (
-                    <Button type="text" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>
-                      {t("detailBtn")}
-                    </Button>
-                  ),
-                },
-              ]}
-              data={s.token_risks}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
-          )}
-          <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
-        </Card>
-
-        {/* Diagnostics */}
-        <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-          {t("sectionDiagnostics")}
-        </Typography.Title>
-        <div className="flex flex-wrap gap-2">
-          <Tag color="red">
-            {t("diagNotFound")}: {s?.diagnostics.command_not_found ?? 0}
-          </Tag>
-          <Tag color="orangered">
-            {t("diagPerm")}: {s?.diagnostics.permission_denied ?? 0}
-          </Tag>
-          <Tag color="gold">
-            {t("diagArg")}: {s?.diagnostics.illegal_arg_hint ?? 0}
-          </Tag>
-        </div>
-
-        {/* Filters + list */}
-        <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-          {t("sectionList")}
-        </Typography.Title>
-        <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px 16px" }}>
+        {viewKind === "details" ? (
+          <>
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionList")}
+            </Typography.Title>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px 16px" }}>
           <Space wrap className="w-full">
             <Select
               placeholder={t("filterChannel")}
@@ -896,38 +892,40 @@ export function CommandAnalysisDashboard() {
               {t("applyFilter")}
             </Button>
           </Space>
-        </Card>
+            </Card>
 
-        <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
-          <Table
-            size="small"
-            rowKey="span_id"
-            loading={listQuery.isLoading}
-            columns={listColumns}
-            data={listQuery.data?.items ?? []}
-            pagination={false}
-            border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-            className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
-          />
-          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 px-3 py-3">
-            <Pagination
-              size="small"
-              total={totalRows}
-              current={page}
-              pageSize={pageSize}
-              showTotal={(tot) => t("paginationTotal", { total: tot })}
-              pageSizeChangeResetCurrent={false}
-              sizeOptions={[...PAGE_SIZE_OPTIONS]}
-              onChange={(p, ps) => {
-                setPage(p);
-                if (ps !== pageSize) {
-                  setPageSize(ps);
-                  writeStoredPageSize(ps);
-                }
-              }}
-            />
-          </div>
-        </Card>
+            <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
+              <Table
+                size="small"
+                rowKey="span_id"
+                loading={listQuery.isLoading}
+                columns={listColumns}
+                data={listQuery.data?.items ?? []}
+                pagination={false}
+                border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
+              />
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 px-3 py-3">
+                <Pagination
+                  size="small"
+                  total={totalRows}
+                  current={page}
+                  pageSize={pageSize}
+                  showTotal={(tot) => t("paginationTotal", { total: tot })}
+                  pageSizeChangeResetCurrent={false}
+                  sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                  onChange={(p, ps) => {
+                    setPage(p);
+                    if (ps !== pageSize) {
+                      setPageSize(ps);
+                      writeStoredPageSize(ps);
+                    }
+                  }}
+                />
+              </div>
+            </Card>
+          </>
+        ) : null}
 
         <Drawer
           width={520}
