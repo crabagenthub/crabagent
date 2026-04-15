@@ -338,6 +338,7 @@
     "filterRedactTypeMask": "Mask",
     "filterRedactTypeHash": "Hash",
     "filterRedactTypeBlock": "Block",
+    "refreshList": "Refresh",
     "clearFilters": "Clear filters",
     "templateUse": "Use template",
     "templatePattern": "Pattern",
@@ -480,7 +481,7 @@
     "totalTokens": "Total tokens"
   },
   "CommandAnalysis": {
-    "title": "Command execution analysis",
+    "title": "Command execution",
     "blurb": "Understand what the agent runs in the shell, whether failures cluster, where time and tokens go, and spot repeat loops. Data comes from tool spans (bash / terminal / params.command, etc.) in collected traces.",
     "needCollector": "Configure the Collector URL in Settings first.",
     "viewSwitcherAria": "Command analysis view switcher",
@@ -619,7 +620,7 @@
     "emptyChecklistRange": "Widen the date range or try “All time”.",
     "emptyChecklistFilters": "Clear URI prefix, semantic-class filter, and search text.",
     "emptyChecklistDb": "Confirm the db= path in the Collector startup log points at the instance receiving traffic.",
-    "sectionDashboard": "Dashboard",
+    "sectionDashboard": "Top 10",
     "topResources": "Top resources",
     "topResourceDuration": "Top resource latency",
     "classDist": "Access type mix",

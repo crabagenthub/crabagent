@@ -70,14 +70,12 @@ export function InterceptorPoliciesManager({
   templatePolicy,
   onTemplatePolicyHandled,
   searchQuery = "",
-  enabledFilter = "all",
-  redactTypeFilter = "",
+  refreshSignal = 0,
 }: {
   templatePolicy?: Partial<InterceptionPolicy> & { targets?: string[] } | null;
   onTemplatePolicyHandled?: () => void;
   searchQuery?: string;
-  enabledFilter?: "all" | "enabled" | "disabled";
-  redactTypeFilter?: "" | "mask" | "hash" | "block";
+  refreshSignal?: number;
 }) {
   const t = useTranslations("DataSecurity");
   const queryClient = useQueryClient();
@@ -88,6 +86,10 @@ export function InterceptorPoliciesManager({
   const [detectionKind, setDetectionKind] = useState<"regex" | "model">("regex");
   /** 创建时间列排序：默认最新在前（与 Trace 列表时间倒序一致） */
   const [createdSortOrder, setCreatedSortOrder] = useState<"ascend" | "descend">("descend");
+  const [severityFilters, setSeverityFilters] = useState<string[]>([]);
+  const [actionFilters, setActionFilters] = useState<string[]>([]);
+  const [targetsFilters, setTargetsFilters] = useState<string[]>([]);
+  const [enabledFilters, setEnabledFilters] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isModalVisible) {
@@ -121,7 +123,7 @@ export function InterceptorPoliciesManager({
   const collectorUrl = loadCollectorUrl();
   const apiKey = loadApiKey();
 
-  const { data: policies = [], isLoading } = useQuery({
+  const { data: policies = [], isLoading, refetch } = useQuery({
     queryKey: ["interception-policies", collectorUrl],
     queryFn: async () => {
       const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies`;
@@ -142,6 +144,22 @@ export function InterceptorPoliciesManager({
   const formatPolicyTime = (ms?: number | null) =>
     ms != null && Number.isFinite(ms) ? new Date(ms).toLocaleString() : "—";
 
+  const parseTargets = useCallback((targetsJson: string): string[] => {
+    try {
+      const parsed = JSON.parse(targetsJson || "[]");
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x ?? "").trim()).filter(Boolean);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refreshSignal, refetch]);
+
   const normalizedSearch = (searchQuery || "").trim().toLowerCase();
   const filteredPolicies = useMemo(() => {
     return policies.filter((policy) => {
@@ -155,19 +173,29 @@ export function InterceptorPoliciesManager({
         }
       }
 
-      if (enabledFilter === "enabled" && policy.enabled !== 1) {
+      const sev = (policy.severity ?? "high").toLowerCase();
+      if (severityFilters.length > 0 && !severityFilters.includes(sev)) {
         return false;
       }
-      if (enabledFilter === "disabled" && policy.enabled === 1) {
+
+      const action = (policy.policy_action ?? "data_mask").toLowerCase();
+      if (actionFilters.length > 0 && !actionFilters.includes(action)) {
         return false;
       }
-      if (redactTypeFilter && policy.redact_type !== redactTypeFilter) {
+
+      const targets = parseTargets(policy.targets_json);
+      if (targetsFilters.length > 0 && !targets.some((target) => targetsFilters.includes(target))) {
+        return false;
+      }
+
+      const enabledValue = policy.enabled === 1 ? "1" : "0";
+      if (enabledFilters.length > 0 && !enabledFilters.includes(enabledValue)) {
         return false;
       }
 
       return true;
     });
-  }, [policies, normalizedSearch, enabledFilter, redactTypeFilter]);
+  }, [policies, normalizedSearch, severityFilters, actionFilters, targetsFilters, enabledFilters, parseTargets]);
 
   const sortedPolicies = useMemo(() => {
     const arr = [...filteredPolicies];
@@ -181,6 +209,18 @@ export function InterceptorPoliciesManager({
 
   const onTableChange = useCallback<NonNullable<TableProps<InterceptionPolicy>["onChange"]>>(
     (_pagination, sorter, _filters, extra) => {
+      if (extra.action === "filter") {
+        const pick = (key: string): string[] => {
+          const val = (_filters as Record<string, unknown>)[key];
+          return Array.isArray(val) ? val.map((x) => String(x)) : [];
+        };
+        setSeverityFilters(pick("severity"));
+        setActionFilters(pick("policy_action"));
+        setTargetsFilters(pick("targets_json"));
+        setEnabledFilters(pick("enabled"));
+        return;
+      }
+
       if (extra.action !== "sort") {
         return;
       }
@@ -424,6 +464,12 @@ export function InterceptorPoliciesManager({
         dataIndex: "severity",
         key: "severity",
         width: 88,
+        filters: [
+          { text: t("policySeverityLow"), value: "low" },
+          { text: t("policySeverityHigh"), value: "high" },
+          { text: t("policySeverityCritical"), value: "critical" },
+        ],
+        filteredValue: severityFilters,
         render: (severity: string | null | undefined) => {
           const s = severity ?? "high";
           const color = s === "critical" ? "red" : s === "low" ? "green" : "orange";
@@ -441,6 +487,13 @@ export function InterceptorPoliciesManager({
         dataIndex: "policy_action",
         key: "policy_action",
         width: 120,
+        filters: [
+          { text: t("policyActionDataMask"), value: "data_mask" },
+          { text: t("policyActionAbortRun"), value: "abort_run" },
+          { text: t("policyActionInputGuard"), value: "input_guard" },
+          { text: t("policyActionAuditOnly"), value: "audit_only" },
+        ],
+        filteredValue: actionFilters,
         render: (action: string | null | undefined) => {
           const a = action ?? "data_mask";
           const labelKey =
@@ -488,18 +541,16 @@ export function InterceptorPoliciesManager({
         dataIndex: "targets_json",
         key: "targets_json",
         width: 180,
+        filters: [
+          { text: "prompt", value: "prompt" },
+          { text: "assistantTexts", value: "assistantTexts" },
+          { text: "tool_params", value: "tool_params" },
+          { text: "tool_output", value: "tool_output" },
+          { text: "metadata", value: "metadata" },
+        ],
+        filteredValue: targetsFilters,
         render: (targetsJson: string) => {
-          let targets: string[] = [];
-          try {
-            const parsed = JSON.parse(targetsJson || "[]");
-            if (Array.isArray(parsed)) {
-              targets = parsed
-                .map((x) => String(x ?? "").trim())
-                .filter(Boolean);
-            }
-          } catch {
-            targets = [];
-          }
+          const targets = parseTargets(targetsJson);
           if (targets.length === 0) {
             return <span className="text-xs text-neutral-500 dark:text-neutral-400">—</span>;
           }
@@ -525,6 +576,11 @@ export function InterceptorPoliciesManager({
         title: <ObserveTableHeaderLabel>{t("policyEnabled")}</ObserveTableHeaderLabel>,
         dataIndex: "enabled",
         key: "enabled",
+        filters: [
+          { text: t("filterStatusEnabled"), value: "1" },
+          { text: t("filterStatusDisabled"), value: "0" },
+        ],
+        filteredValue: enabledFilters,
         render: (enabled: number, record: InterceptionPolicy) => (
           <Switch checked={enabled === 1} onChange={() => handleToggleEnabled(record)} size="small" />
         ),
@@ -537,12 +593,23 @@ export function InterceptorPoliciesManager({
         render: (_: unknown, record: InterceptionPolicy) => (
           <Space>
             <Tooltip content={t("editPolicy")}>
-              <Button type="text" size="small" icon={<IconEdit />} onClick={() => handleEdit(record)} />
+              <Button
+                type="text"
+                size="small"
+                icon={<IconEdit />}
+                className="!text-neutral-900 hover:!bg-neutral-200/70 hover:!text-neutral-700 dark:!text-zinc-100 dark:hover:!bg-zinc-700/70 dark:hover:!text-zinc-300"
+                onClick={() => handleEdit(record)}
+              />
             </Tooltip>
             <Tooltip content={t("deletePolicyTooltip")}>
               <span className="inline-flex">
                 <Popconfirm title={t("deletePolicyConfirm")} onOk={() => deleteMutation.mutate(record.id)}>
-                  <Button type="text" size="small" status="danger" icon={<IconDelete />} />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<IconDelete />}
+                    className="!text-neutral-900 hover:!bg-neutral-200/70 hover:!text-neutral-700 dark:!text-zinc-100 dark:hover:!bg-zinc-700/70 dark:hover:!text-zinc-300"
+                  />
                 </Popconfirm>
               </span>
             </Tooltip>
@@ -550,7 +617,18 @@ export function InterceptorPoliciesManager({
         ),
       },
     ],
-    [t, createdSortOrder, handleEdit, handleToggleEnabled, deleteMutation],
+    [
+      t,
+      createdSortOrder,
+      handleEdit,
+      handleToggleEnabled,
+      deleteMutation,
+      severityFilters,
+      actionFilters,
+      targetsFilters,
+      enabledFilters,
+      parseTargets,
+    ],
   );
 
   return (

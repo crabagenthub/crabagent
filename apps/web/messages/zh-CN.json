@@ -338,6 +338,7 @@
     "filterRedactTypeMask": "遮蔽",
     "filterRedactTypeHash": "哈希",
     "filterRedactTypeBlock": "阻断",
+    "refreshList": "刷新",
     "clearFilters": "清除筛选",
     "templateUse": "使用模板",
     "templatePattern": "匹配表达式",
@@ -480,7 +481,7 @@
     "totalTokens": "总 Token 数"
   },
   "CommandAnalysis": {
-    "title": "指令执行分析",
+    "title": "指令执行",
     "blurb": "看清 Agent 在 Shell 里做了什么、失败是否集中、时间与 Token 花在哪、是否反复执行同一条命令。数据来自已采集 Trace 中的工具型 Span（bash / terminal / params.command 等启发式识别）。",
     "needCollector": "请先在设置中配置 Collector URL。",
     "viewSwitcherAria": "指令执行视图切换",
@@ -619,7 +620,7 @@
     "emptyChecklistRange": "尝试放宽日期范围，或切换到「全部」时间再试。",
     "emptyChecklistFilters": "清空 URI 前缀、语义类型筛选与搜索关键字。",
     "emptyChecklistDb": "核对 Collector 启动日志中的 db= 路径是否指向正在产生流量的实例。",
-    "sectionDashboard": "资源看板",
+    "sectionDashboard": "Top 10",
     "topResources": "热点资源 Top 10",
     "topResourceDuration": "资源耗时 Top 10",
     "classDist": "访问类型分布",

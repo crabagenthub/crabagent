@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import Input from "@arco-design/web-react/es/Input";
-import Select from "@arco-design/web-react/es/Select";
 import { IconSearch, IconList, IconApps, IconPlus, IconFile, IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { AppPageShell } from "@/components/app-page-shell";
@@ -158,14 +157,11 @@ export default function DataSecurityPage() {
   const t = useTranslations("DataSecurity");
   const [activeTab, setActiveTab] = useState<"policies" | "templates">("policies");
   const [searchQuery, setSearchQuery] = useState("");
-  const [enabledFilter, setEnabledFilter] = useState<"all" | "enabled" | "disabled">("all");
-  const [redactTypeFilter, setRedactTypeFilter] = useState<"" | "mask" | "hash" | "block">("");
+  const [refreshSignal, setRefreshSignal] = useState(0);
   const [templatePolicy, setTemplatePolicy] = useState<Partial<DataSecurityTemplatePolicy> & { targets?: string[] } | null>(null);
 
-  const handleClearFilters = useCallback(() => {
-    setSearchQuery("");
-    setEnabledFilter("all");
-    setRedactTypeFilter("");
+  const handleRefreshList = useCallback(() => {
+    setRefreshSignal((prev) => prev + 1);
   }, []);
 
   const handleAddPolicy = useCallback(() => {
@@ -275,30 +271,16 @@ export default function DataSecurityPage() {
                   </div>
 
                   <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 xl:flex-nowrap">
-                    <Select
-                      value={enabledFilter}
-                      onChange={(value) => setEnabledFilter(value)}
-                      className="min-w-[10rem]"
-                    >
-                      <Select.Option value="all">{t("filterStatusAll")}</Select.Option>
-                      <Select.Option value="enabled">{t("filterStatusEnabled")}</Select.Option>
-                      <Select.Option value="disabled">{t("filterStatusDisabled")}</Select.Option>
-                    </Select>
-                    <Select
-                      value={redactTypeFilter}
-                      onChange={(value) => setRedactTypeFilter(value)}
-                      className="min-w-[10rem]"
-                    >
-                      <Select.Option value="">{t("filterRedactTypeAll")}</Select.Option>
-                      <Select.Option value="mask">{t("filterRedactTypeMask")}</Select.Option>
-                      <Select.Option value="hash">{t("filterRedactTypeHash")}</Select.Option>
-                      <Select.Option value="block">{t("filterRedactTypeBlock")}</Select.Option>
-                    </Select>
-                    <Button variant="outline" size="sm" onClick={handleClearFilters} disabled={!searchQuery && enabledFilter === "all" && redactTypeFilter === ""}>
-                      {t("clearFilters")}
+                    <Button variant="outline" size="sm" onClick={handleRefreshList}>
+                      {t("refreshList")}
                     </Button>
-                    <Button variant="default" size="sm" onClick={handleAddPolicy} className="inline-flex shrink-0 gap-1">
-                      <IconPlus className="size-3.5" aria-hidden />
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleAddPolicy}
+                      className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl px-4 [&_svg]:size-4 [&_svg]:shrink-0"
+                    >
+                      <IconPlus aria-hidden />
                       {t("addPolicy")}
                     </Button>
                   </div>
@@ -310,8 +292,7 @@ export default function DataSecurityPage() {
                   templatePolicy={templatePolicy}
                   onTemplatePolicyHandled={() => setTemplatePolicy(null)}
                   searchQuery={searchQuery}
-                  enabledFilter={enabledFilter}
-                  redactTypeFilter={redactTypeFilter}
+                  refreshSignal={refreshSignal}
                 />
               </div>
             </>

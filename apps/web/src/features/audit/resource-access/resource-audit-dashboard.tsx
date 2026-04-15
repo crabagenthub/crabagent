@@ -29,6 +29,7 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
+import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
@@ -57,7 +58,13 @@ import {
   type ResourceAuditEventRow,
   type ResourceAuditSemanticClassParam,
 } from "@/lib/resource-audit-records";
-import { loadTraceRecords, traceRecordAgentName, traceRecordChannel } from "@/lib/trace-records";
+import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
+import {
+  loadTraceRecords,
+  traceRecordAgentName,
+  traceRecordChannel,
+  type TraceRecordRow,
+} from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
@@ -231,6 +238,8 @@ export function ResourceAuditDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
+  const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
+  const [inspectTraceInitialSpanId, setInspectTraceInitialSpanId] = useState<string | null>(null);
   const [viewKind, setViewKind] = useState<ResourceAuditViewKind>("metrics");
 
   useEffect(() => {
@@ -362,6 +371,24 @@ export function ResourceAuditDashboard() {
     [pathname, router, searchParams],
   );
 
+  const openTraceInspectAtSpan = useCallback(
+    async (row: ResourceAuditEventRow) => {
+      const traceId = row.trace_id?.trim();
+      const spanId = row.span_id?.trim();
+      if (!traceId) {
+        return;
+      }
+      const hit = (traceMetaQ.data?.items ?? []).find((x) => x.trace_id === traceId) ?? null;
+      const resolved = hit ?? (await resolveTraceRowForInspect(baseUrl, apiKey, traceId));
+      if (!resolved) {
+        return;
+      }
+      setInspectTraceInitialSpanId(spanId || null);
+      setInspectTraceRow(resolved);
+    },
+    [apiKey, baseUrl, traceMetaQ.data?.items],
+  );
+
   const spanDrawerRows = useMemo(
     () => (eventsQ.data?.items ?? []).map(resourceAuditEventToSpanRecord),
     [eventsQ.data?.items],
@@ -479,7 +506,9 @@ export function ResourceAuditDashboard() {
             type="text"
             size="mini"
             className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-            onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(row))}
+            onClick={() => {
+              void openTraceInspectAtSpan(row);
+            }}
           >
             {formatShortId(row.span_id)}
           </Button>
@@ -522,7 +551,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, setTraceFilterUrl, traceMetaById],
+    [t, openTraceInspectAtSpan, setTraceFilterUrl, traceMetaById],
   );
 
   const dailyRows = useMemo(() => {
@@ -1045,6 +1074,21 @@ export function ResourceAuditDashboard() {
         row={spanInspectRow}
         rows={spanDrawerRows}
         onNavigate={setSpanInspectRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
+      <TraceRecordInspectDialog
+        open={inspectTraceRow != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInspectTraceRow(null);
+            setInspectTraceInitialSpanId(null);
+          }
+        }}
+        row={inspectTraceRow}
+        initialSpanId={inspectTraceInitialSpanId}
+        rows={inspectTraceRow ? [inspectTraceRow] : []}
+        onNavigate={(nextRow) => setInspectTraceRow(nextRow)}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />

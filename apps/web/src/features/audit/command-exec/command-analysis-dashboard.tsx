@@ -481,9 +481,6 @@ export function CommandAnalysisDashboard() {
             <Typography.Title heading={4} className="ca-page-title !m-0">
               {t("title")}
             </Typography.Title>
-            <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 max-w-3xl text-sm">
-              {t("blurb")}
-            </Typography.Paragraph>
           </div>
           <Space>
             <ObserveDateRangeTrigger value={dateRange} onChange={onDateChange} />
@@ -508,15 +505,6 @@ export function CommandAnalysisDashboard() {
             {summaryQuery.error instanceof Error && summaryQuery.error.message
               ? ` ${t("loadErrorDetail", { detail: summaryQuery.error.message })}`
               : null}
-          </Typography.Text>
-        ) : null}
-        {summaryQuery.isSuccess && snap?.db_basename ? (
-          <Typography.Text type="secondary" className="block text-xs">
-            {t("dbSourceLine", {
-              file: snap.db_basename,
-              tools: snap.tool_spans,
-              shell: snap.shell_like_spans,
-            })}
           </Typography.Text>
         ) : null}
         {showWidenHint ? (
