@@ -68,23 +68,6 @@ const kpiShellClass =
 const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
 
-function fmtCompactNumber(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) {
-    return "—";
-  }
-  const abs = Math.abs(n);
-  if (abs >= 1e9) {
-    return `${(n / 1e9).toFixed(2)}B`;
-  }
-  if (abs >= 1e6) {
-    return `${(n / 1e6).toFixed(2)}M`;
-  }
-  if (abs >= 1e4) {
-    return `${(n / 1e3).toFixed(1)}K`;
-  }
-  return Math.round(n).toLocaleString();
-}
-
 function maskUri(uri: string): string {
   if (!uri) {
     return "—";
@@ -672,7 +655,7 @@ export function ResourceAuditDashboard() {
           <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
             {t("sectionKpi")}
           </Typography.Title>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
                 {t("kpiTotalEvents")}
@@ -692,14 +675,6 @@ export function ResourceAuditDashboard() {
               </div>
             </Card>
             <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
-                {t("kpiSumChars")}
-              </Typography.Text>
-              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summary ? fmtCompactNumber(summary.sum_chars) : "—"}
-              </div>
-            </Card>
-            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
               <Tooltip content={t("kpiRiskAnyHint")}>
                 <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
                   {t("kpiRiskAny")}
@@ -715,14 +690,6 @@ export function ResourceAuditDashboard() {
                   })}
                 </div>
               ) : null}
-            </Card>
-            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
-                {t("kpiAvgDuration")}
-              </Typography.Text>
-              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summary?.avg_duration_ms != null ? `${Math.round(summary.avg_duration_ms)} ms` : "—"}
-              </div>
             </Card>
           </div>
         </section>
@@ -746,127 +713,129 @@ export function ResourceAuditDashboard() {
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionDashboard")}
             </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-            <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
-              <ul className="space-y-1.5">
-                {(statsQ.data?.top_resources ?? []).length === 0 ? (
-                  <li className="text-sm text-muted-foreground">—</li>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
+                <ul className="space-y-1.5">
+                  {(statsQ.data?.top_resources ?? []).length === 0 ? (
+                    <li className="text-sm text-muted-foreground">—</li>
+                  ) : (
+                    statsQ.data!.top_resources.map((r, idx) => (
+                      <li key={r.uri} className="last:border-0">
+                        <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
+                          <span
+                            className={cn(
+                              "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                              topRankColorClass(idx + 1),
+                            )}
+                          >
+                            {idx + 1}
+                          </span>
+                          <Popover
+                            content={
+                              <div className="max-w-md break-all text-xs">
+                                {formatMemorySearchUriForDisplay(r.uri) || "—"}
+                              </div>
+                            }
+                          >
+                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                              {maskUri(formatMemorySearchUriForDisplay(r.uri))}
+                            </Typography.Text>
+                          </Popover>
+                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                            {Math.round(r.count).toLocaleString()}
+                          </span>
+                        </div>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </Card>
+              <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
+                <ul className="space-y-1.5">
+                  {topDurationEventRows.length === 0 ? (
+                    <li className="text-sm text-muted-foreground">—</li>
+                  ) : (
+                    topDurationEventRows.map((r, idx) => (
+                      <li key={`${r.span_id}-${idx}`} className="last:border-0">
+                        <button
+                          type="button"
+                          className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                          onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(r))}
+                        >
+                          <span
+                            className={cn(
+                              "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                              topRankColorClass(idx + 1),
+                            )}
+                          >
+                            {idx + 1}
+                          </span>
+                          <Popover
+                            content={
+                              <div className="max-w-md break-all text-xs">
+                                {formatMemorySearchUriForDisplay(r.resource_uri) || "—"}
+                              </div>
+                            }
+                          >
+                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                              {maskUri(formatMemorySearchUriForDisplay(r.resource_uri))}
+                            </Typography.Text>
+                          </Popover>
+                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                            {`${Math.round(Number(r.duration_ms ?? 0))} ms`}
+                          </span>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </Card>
+              <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                {classPieOpt ? (
+                  <div className="h-[260px] w-full min-w-0">
+                    <ReactEChart option={classPieOpt} />
+                  </div>
                 ) : (
-                  statsQ.data!.top_resources.map((r, idx) => (
-                    <li key={r.uri} className="last:border-0">
-                      <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
-                        <span
-                          className={cn(
-                            "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                            topRankColorClass(idx + 1),
-                          )}
-                        >
-                          {idx + 1}
-                        </span>
-                        <Popover
-                          content={
-                            <div className="max-w-md break-all text-xs">
-                              {formatMemorySearchUriForDisplay(r.uri) || "—"}
-                            </div>
-                          }
-                        >
-                          <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                            {maskUri(formatMemorySearchUriForDisplay(r.uri))}
-                          </Typography.Text>
-                        </Popover>
-                        <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                          {Math.round(r.count).toLocaleString()}
-                        </span>
+                  <Space direction="vertical" size={8} className="w-full py-4">
+                    {(statsQ.data?.class_distribution ?? []).map((c) => (
+                      <div key={c.semantic_class} className="flex items-center justify-between text-sm">
+                        <span>{classLabel(t, c.semantic_class)}</span>
+                        <Tag>{c.count}</Tag>
                       </div>
-                    </li>
-                  ))
+                    ))}
+                  </Space>
                 )}
-              </ul>
-            </Card>
-            <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
-              <ul className="space-y-1.5">
-                {topDurationEventRows.length === 0 ? (
-                  <li className="text-sm text-muted-foreground">—</li>
+              </Card>
+              <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                {riskBarOpt ? (
+                  <div className="h-[200px] w-full min-w-0">
+                    <ReactEChart option={riskBarOpt} />
+                  </div>
                 ) : (
-                  topDurationEventRows.map((r, idx) => (
-                    <li key={`${r.span_id}-${idx}`} className="last:border-0">
-                      <button
-                        type="button"
-                        className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                        onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(r))}
-                      >
-                        <span
-                          className={cn(
-                            "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                            topRankColorClass(idx + 1),
-                          )}
-                        >
-                          {idx + 1}
-                        </span>
-                        <Popover
-                          content={
-                            <div className="max-w-md break-all text-xs">
-                              {formatMemorySearchUriForDisplay(r.resource_uri) || "—"}
-                            </div>
-                          }
-                        >
-                          <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                            {maskUri(formatMemorySearchUriForDisplay(r.resource_uri))}
-                          </Typography.Text>
-                        </Popover>
-                        <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                          {`${Math.round(Number(r.duration_ms ?? 0))} ms`}
-                        </span>
-                      </button>
-                    </li>
-                  ))
+                  <Typography.Text type="secondary" className="text-sm">
+                    {t("emptyRiskChart")}
+                  </Typography.Text>
                 )}
-              </ul>
-            </Card>
-            <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {classPieOpt ? (
-                <div className="h-[260px] w-full min-w-0">
-                  <ReactEChart option={classPieOpt} />
-                </div>
-              ) : (
-                <Space direction="vertical" size={8} className="w-full py-4">
-                  {(statsQ.data?.class_distribution ?? []).map((c) => (
-                    <div key={c.semantic_class} className="flex items-center justify-between text-sm">
-                      <span>{classLabel(t, c.semantic_class)}</span>
-                      <Tag>{c.count}</Tag>
-                    </div>
-                  ))}
-                </Space>
-              )}
-            </Card>
-            <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-              {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
-            </Card>
-          </div>
+              </Card>
 
-          <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-            {riskBarOpt ? (
-              <div className="h-[200px] w-full min-w-0">
-                <ReactEChart option={riskBarOpt} />
-              </div>
-            ) : (
-              <Typography.Text type="secondary" className="text-sm">
-                {t("emptyRiskChart")}
-              </Typography.Text>
-            )}
-          </Card>
-
-          <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-            {toolsBarOpt ? (
-              <div className="h-[240px] w-full min-w-0">
-                <ReactEChart option={toolsBarOpt} />
-              </div>
-            ) : (
-              <Typography.Text type="secondary" className="text-sm">
-                —
-              </Typography.Text>
-            )}
-          </Card>
+              <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                {toolsBarOpt ? (
+                  <div className="h-[240px] w-full min-w-0">
+                    <ReactEChart option={toolsBarOpt} />
+                  </div>
+                ) : (
+                  <Typography.Text type="secondary" className="text-sm">
+                    —
+                  </Typography.Text>
+                )}
+              </Card>
+            </div>
           </section>
         ) : null}
 
