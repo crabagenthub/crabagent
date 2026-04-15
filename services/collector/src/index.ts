@@ -26,6 +26,7 @@ import {
   countSecurityAuditEvents,
   parseSecurityAuditListQuery,
   querySecurityAuditEvents,
+  querySecurityAuditPolicyEventCounts,
 } from "./security-audit-query.js";
 import { countSpanRecords, querySpanRecords } from "./span-records-query.js";
 import {
@@ -629,6 +630,12 @@ const handleSecurityAuditEvents = (c: Context) => {
 };
 
 app.get("/v1/security-audit/events", handleSecurityAuditEvents);
+app.get("/v1/security-audit/policy-event-counts", (c) => {
+  if (!checkApiKey(c)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  return c.json({ items: querySecurityAuditPolicyEventCounts(db) });
+});
 
 app.get("/v1/observe-facets", (c) => {
   if (!checkApiKey(c)) {

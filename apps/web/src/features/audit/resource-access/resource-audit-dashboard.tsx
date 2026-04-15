@@ -26,7 +26,6 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
-import { LocalizedLink } from "@/shared/components/localized-link";
 import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
@@ -527,12 +526,6 @@ export function ResourceAuditDashboard() {
             >
               {t("filterSameTrace")}
             </Button>
-            <LocalizedLink
-              href={`/data-security-audit?trace_id=${encodeURIComponent(row.trace_id)}&span_id=${encodeURIComponent(row.span_id)}`}
-              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-            >
-              {t("openSecurityAudit")}
-            </LocalizedLink>
           </Space>
         ),
       },

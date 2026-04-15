@@ -57,10 +57,6 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
     }
 
-    if (p === "/data-security-audit") {
-      return [{ label: tNav("groupAudit") }, { label: tNav("dataSecurityAudit") }];
-    }
-
     if (p === "/logs") {
       return [{ label: tNav("groupObserve") }, { label: tNav("logs") }];
     }

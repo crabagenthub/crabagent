@@ -8,6 +8,7 @@ export type SecurityAuditListQuery = {
   untilMs?: number;
   traceId?: string;
   spanId?: string;
+  policyId?: string;
 };
 
 export type SecurityAuditEventRow = {
@@ -22,6 +23,11 @@ export type SecurityAuditEventRow = {
   hit_count: number;
   intercepted: number;
   observe_only: number;
+};
+
+export type SecurityAuditPolicyEventCountRow = {
+  policy_id: string;
+  event_count: number;
 };
 
 function parseLimitOffset(c: { req: { query: (k: string) => string | undefined } }): {
@@ -68,7 +74,8 @@ export function parseSecurityAuditListQuery(c: {
   })();
   const traceId = c.req.query("trace_id")?.trim() || undefined;
   const spanId = c.req.query("span_id")?.trim() || undefined;
-  return { limit, offset, order, sinceMs, untilMs, traceId, spanId };
+  const policyId = c.req.query("policy_id")?.trim() || undefined;
+  return { limit, offset, order, sinceMs, untilMs, traceId, spanId, policyId };
 }
 
 export function countSecurityAuditEvents(db: Database.Database, q: SecurityAuditListQuery): number {
@@ -98,6 +105,16 @@ function buildWhere(q: SecurityAuditListQuery): { sql: string; params: unknown[]
     parts.push(`(span_id IS NOT NULL AND span_id = ?)`);
     params.push(q.spanId);
   }
+  if (q.policyId) {
+    parts.push(
+      `EXISTS (
+        SELECT 1
+        FROM json_each(findings_json)
+        WHERE json_extract(json_each.value, '$.policy_id') = ?
+      )`,
+    );
+    params.push(q.policyId);
+  }
   const sql = parts.length ? `WHERE ${parts.join(" AND ")}` : "";
   return { sql, params };
 }
@@ -117,4 +134,17 @@ export function querySecurityAuditEvents(db: Database.Database, q: SecurityAudit
        LIMIT ? OFFSET ?`,
     )
     .all(...params, q.limit, q.offset) as SecurityAuditEventRow[];
+}
+
+export function querySecurityAuditPolicyEventCounts(db: Database.Database): SecurityAuditPolicyEventCountRow[] {
+  return db
+    .prepare(
+      `SELECT json_extract(j.value, '$.policy_id') AS policy_id,
+              COUNT(DISTINCT s.id) AS event_count
+       FROM security_audit_logs AS s,
+            json_each(s.findings_json) AS j
+       WHERE COALESCE(TRIM(json_extract(j.value, '$.policy_id')), '') <> ''
+       GROUP BY json_extract(j.value, '$.policy_id')`,
+    )
+    .all() as SecurityAuditPolicyEventCountRow[];
 }

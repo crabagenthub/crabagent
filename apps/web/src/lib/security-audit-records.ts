@@ -24,6 +24,11 @@ export type SecurityAuditEventRow = {
   observe_only: number;
 };
 
+export type SecurityAuditPolicyEventCountRow = {
+  policy_id: string;
+  event_count: number;
+};
+
 export type LoadSecurityAuditEventsParams = {
   limit?: number;
   offset?: number;
@@ -32,6 +37,7 @@ export type LoadSecurityAuditEventsParams = {
   untilMs?: number;
   traceId?: string;
   spanId?: string;
+  policyId?: string;
 };
 
 export function parseSecurityAuditFindings(raw: string | null | undefined): SecurityAuditFinding[] {
@@ -80,6 +86,9 @@ export async function loadSecurityAuditEvents(
   if (params.spanId?.trim()) {
     sp.set("span_id", params.spanId.trim());
   }
+  if (params.policyId?.trim()) {
+    sp.set("policy_id", params.policyId.trim());
+  }
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
   if (!res.ok) {
@@ -105,4 +114,29 @@ export async function loadSecurityAuditEvents(
       })
     : [];
   return { items, total: Number(data.total ?? items.length) || 0 };
+}
+
+export async function loadSecurityAuditPolicyEventCounts(
+  baseUrl: string,
+  apiKey: string,
+): Promise<SecurityAuditPolicyEventCountRow[]> {
+  const b = baseUrl.replace(/\/+$/, "");
+  const url = `${b}${COLLECTOR_API.securityAuditPolicyEventCounts}`;
+  const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { items?: unknown[] };
+  if (!Array.isArray(data.items)) {
+    return [];
+  }
+  return data.items
+    .map((row) => {
+      const o = row as Record<string, unknown>;
+      return {
+        policy_id: String(o.policy_id ?? "").trim(),
+        event_count: Number(o.event_count ?? 0) || 0,
+      } satisfies SecurityAuditPolicyEventCountRow;
+    })
+    .filter((row) => !!row.policy_id);
 }

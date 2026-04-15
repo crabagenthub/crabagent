@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
 import { Space, Spin, Tag, Typography } from "@arco-design/web-react";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadResourceAuditEvents, type ResourceAuditEventRow } from "@/lib/resource-audit-records";
@@ -180,14 +179,6 @@ export function SpanInspectAuditBridge({ baseUrl, apiKey, traceId, spanId, open 
                 {previewPolicies.map((p) => `${p.policy_name}×${p.match_count}`).join(", ")}
               </Typography.Text>
             ) : null}
-            <div className="mt-2">
-              <Link
-                href={`/data-security-audit?trace_id=${encodeURIComponent(traceId)}&span_id=${encodeURIComponent(sid)}`}
-                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-              >
-                {tTr("spanInspectOpenSecurityAudit")}
-              </Link>
-            </div>
           </div>
         ) : (
           <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
