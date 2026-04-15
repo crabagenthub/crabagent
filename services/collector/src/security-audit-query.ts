@@ -9,6 +9,7 @@ export type SecurityAuditListQuery = {
   traceId?: string;
   spanId?: string;
   policyId?: string;
+  workspaceName?: string;
 };
 
 export type SecurityAuditEventRow = {
@@ -75,7 +76,8 @@ export function parseSecurityAuditListQuery(c: {
   const traceId = c.req.query("trace_id")?.trim() || undefined;
   const spanId = c.req.query("span_id")?.trim() || undefined;
   const policyId = c.req.query("policy_id")?.trim() || undefined;
-  return { limit, offset, order, sinceMs, untilMs, traceId, spanId, policyId };
+  const workspaceName = c.req.query("workspace_name")?.trim() || undefined;
+  return { limit, offset, order, sinceMs, untilMs, traceId, spanId, policyId, workspaceName };
 }
 
 export function countSecurityAuditEvents(db: Database.Database, q: SecurityAuditListQuery): number {
@@ -104,6 +106,10 @@ function buildWhere(q: SecurityAuditListQuery): { sql: string; params: unknown[]
   if (q.spanId) {
     parts.push(`(span_id IS NOT NULL AND span_id = ?)`);
     params.push(q.spanId);
+  }
+  if (q.workspaceName) {
+    parts.push(`workspace_name = ?`);
+    params.push(q.workspaceName);
   }
   if (q.policyId) {
     parts.push(
@@ -136,7 +142,12 @@ export function querySecurityAuditEvents(db: Database.Database, q: SecurityAudit
     .all(...params, q.limit, q.offset) as SecurityAuditEventRow[];
 }
 
-export function querySecurityAuditPolicyEventCounts(db: Database.Database): SecurityAuditPolicyEventCountRow[] {
+export function querySecurityAuditPolicyEventCounts(
+  db: Database.Database,
+  workspaceName?: string,
+): SecurityAuditPolicyEventCountRow[] {
+  const hasWorkspace = !!workspaceName?.trim();
+  const whereSql = hasWorkspace ? `AND s.workspace_name = ?` : "";
   return db
     .prepare(
       `SELECT json_extract(j.value, '$.policy_id') AS policy_id,
@@ -144,7 +155,8 @@ export function querySecurityAuditPolicyEventCounts(db: Database.Database): Secu
        FROM security_audit_logs AS s,
             json_each(s.findings_json) AS j
        WHERE COALESCE(TRIM(json_extract(j.value, '$.policy_id')), '') <> ''
+       ${whereSql}
        GROUP BY json_extract(j.value, '$.policy_id')`,
     )
-    .all() as SecurityAuditPolicyEventCountRow[];
+    .all(...(hasWorkspace ? [workspaceName!.trim()] : [])) as SecurityAuditPolicyEventCountRow[];
 }

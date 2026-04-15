@@ -37,6 +37,7 @@ export type ThreadRecordsListQuery = {
   channel?: string;
   /** Exact match on `opik_threads.agent_name`. */
   agent?: string;
+  workspaceName?: string;
 };
 
 function clampSearch(s: string): string | undefined {
@@ -131,6 +132,10 @@ export function buildThreadRecordsWhere(q: ThreadRecordsListQuery): { whereSql: 
   if (q.untilMs != null && Number.isFinite(q.untilMs) && q.untilMs > 0) {
     whereParts.push("th.last_seen_ms <= ?");
     params.push(Math.floor(q.untilMs));
+  }
+  if (q.workspaceName && q.workspaceName.trim()) {
+    whereParts.push("th.workspace_name = ?");
+    params.push(q.workspaceName.trim());
   }
 
   const channel = clampFacetFilter(q.channel);

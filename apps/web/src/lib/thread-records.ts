@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import { extractThreadListMessageText } from "@/lib/strip-inbound-meta";
@@ -152,6 +152,7 @@ export async function loadThreadRecords(
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");
   }
+  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.conversationList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });

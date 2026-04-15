@@ -18,6 +18,7 @@ export type ResourceAuditListQuery = {
   trace_id?: string;
   /** 仅某个 Span */
   span_id?: string;
+  workspace_name?: string;
 };
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
@@ -106,6 +107,10 @@ function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[]
   if (q.untilMs != null && Number.isFinite(q.untilMs) && q.untilMs > 0) {
     parts.push(`COALESCE(s.start_time_ms, t.created_at_ms, 0) <= ?`);
     params.push(Math.floor(q.untilMs));
+  }
+  if (q.workspace_name && q.workspace_name.trim()) {
+    parts.push(`COALESCE(NULLIF(TRIM(t.workspace_name), ''), 'default') = ?`);
+    params.push(q.workspace_name.trim());
   }
 
   const search = q.search?.trim().slice(0, 200);

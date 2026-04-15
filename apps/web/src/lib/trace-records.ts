@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
@@ -109,6 +109,7 @@ export async function loadTraceRecords(
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");
   }
+  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.traceList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });

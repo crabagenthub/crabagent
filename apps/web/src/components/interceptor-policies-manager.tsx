@@ -26,7 +26,7 @@ import {
   Menu,
 } from "@arco-design/web-react";
 import { IconEdit, IconDelete, IconQuestionCircleFill, IconFilter } from "@arco-design/web-react/icon";
-import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -284,9 +284,11 @@ export function InterceptorPoliciesManager({
   const apiKey = loadApiKey();
 
   const { data: policies = [], isLoading, refetch } = useQuery({
-    queryKey: ["interception-policies", collectorUrl],
+    queryKey: ["interception-policies", collectorUrl, "workspace-scoped"],
     queryFn: async () => {
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies`;
+      const sp = new URLSearchParams();
+      appendWorkspaceNameParam(sp);
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies?${sp.toString()}`;
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
@@ -441,7 +443,9 @@ export function InterceptorPoliciesManager({
 
   const upsertMutation = useMutation({
     mutationFn: async (policy: Partial<InterceptionPolicy>) => {
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies`;
+      const sp = new URLSearchParams();
+      appendWorkspaceNameParam(sp);
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies?${sp.toString()}`;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -471,7 +475,9 @@ export function InterceptorPoliciesManager({
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies/${id}`;
+      const sp = new URLSearchParams();
+      appendWorkspaceNameParam(sp);
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies/${id}?${sp.toString()}`;
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
@@ -1141,14 +1147,42 @@ export function InterceptorPoliciesManager({
               title: t("policyEventsColTrace"),
               dataIndex: "trace_id",
               width: 140,
-              render: (traceId: string) => <span className="font-mono text-xs text-primary">{formatShortId(traceId)}</span>,
+              render: (traceId: string) => (
+                <Space size={4} align="center">
+                  <span className="font-mono text-xs text-primary">{formatShortId(traceId)}</span>
+                  {traceId ? (
+                    <TraceCopyIconButton
+                      text={traceId}
+                      ariaLabel={t("copyTraceIdAria")}
+                      tooltipLabel={t("copyTooltip")}
+                      successLabel={t("copySuccess")}
+                      className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
+                      stopPropagation
+                    />
+                  ) : null}
+                </Space>
+              ),
             },
             {
               title: t("policyEventsColSpan"),
               dataIndex: "span_id",
               width: 120,
               render: (spanId: string | null) => (
-                <span className="font-mono text-xs text-muted-foreground">{spanId ? formatShortId(spanId) : "—"}</span>
+                spanId ? (
+                  <Space size={4} align="center">
+                    <span className="font-mono text-xs text-muted-foreground">{formatShortId(spanId)}</span>
+                    <TraceCopyIconButton
+                      text={spanId}
+                      ariaLabel={t("copySpanIdAria")}
+                      tooltipLabel={t("copyTooltip")}
+                      successLabel={t("copySuccess")}
+                      className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
+                      stopPropagation
+                    />
+                  </Space>
+                ) : (
+                  <span className="font-mono text-xs text-muted-foreground">—</span>
+                )
               ),
             },
             {

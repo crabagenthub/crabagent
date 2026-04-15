@@ -26,6 +26,7 @@ export type TraceRecordsListQuery = {
   agent?: string;
   /** 多状态 OR 筛选；空/未传表示不限 */
   listStatuses?: ObserveListStatus[];
+  workspaceName?: string;
 };
 
 const LIST_PREVIEW_MAX_CHARS = 16_384;
@@ -108,6 +109,10 @@ export function buildTraceRecordsWhere(q: TraceRecordsListQuery): { whereSql: st
   if (q.untilMs != null && Number.isFinite(q.untilMs) && q.untilMs > 0) {
     whereParts.push("t.created_at_ms <= ?");
     params.push(Math.floor(q.untilMs));
+  }
+  if (q.workspaceName && q.workspaceName.trim()) {
+    whereParts.push("t.workspace_name = ?");
+    params.push(q.workspaceName.trim());
   }
 
   if (q.minTotalTokens != null && Number.isFinite(q.minTotalTokens) && q.minTotalTokens > 0) {

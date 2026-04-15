@@ -21,6 +21,7 @@ export type SpanRecordsListQuery = {
   /** 与 `opik_spans.span_type` CHECK 一致 */
   spanType?: ObserveSpanListType;
   listStatuses?: ObserveListStatus[];
+  workspaceName?: string;
 };
 
 const PREVIEW = 4096;
@@ -83,6 +84,10 @@ export function buildSpanRecordsWhere(q: SpanRecordsListQuery): { whereSql: stri
   if (q.untilMs != null && Number.isFinite(q.untilMs) && q.untilMs > 0) {
     whereParts.push(`COALESCE(s.start_time_ms, t.created_at_ms, 0) <= ?`);
     params.push(Math.floor(q.untilMs));
+  }
+  if (q.workspaceName && q.workspaceName.trim()) {
+    whereParts.push("t.workspace_name = ?");
+    params.push(q.workspaceName.trim());
   }
 
   const search = q.search ? clampSearch(q.search) : undefined;

@@ -96,6 +96,7 @@ export type ShellExecBaseQuery = {
   commandContains?: string;
   minDurationMs?: number;
   maxDurationMs?: number;
+  workspaceName?: string;
 };
 
 function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[] } {
@@ -113,6 +114,12 @@ function buildShellWhere(q: ShellExecBaseQuery): { sql: string; params: unknown[
   if (q.traceId?.trim()) {
     parts.push(`s.trace_id = ?`);
     params.push(q.traceId.trim());
+  }
+  if (q.workspaceName?.trim()) {
+    parts.push(
+      `EXISTS (SELECT 1 FROM opik_traces t WHERE t.trace_id = s.trace_id AND t.workspace_name = ?)`,
+    );
+    params.push(q.workspaceName.trim());
   }
   const channel = clampFacetFilter(q.channel);
   if (channel) {

@@ -20,6 +20,7 @@ export interface InterceptionPolicy {
   /** OpenClaw 插件定时从 Collector `GET /v1/policies` 拉取成功后的时间（见 `POST /v1/policies/pull-report`）。 */
   pulled_at_ms?: number | null;
   updated_at_ms: number;
+  workspace_name?: string;
 }
 
 /** 由 `policy_action` 派生 Collector `Redactor` 使用的 `redact_type`（单一真源为处置方式）。 */
@@ -99,8 +100,10 @@ function normalizeDetectionKind(raw: string | null | undefined): "regex" | "mode
   return s === "model" ? "model" : "regex";
 }
 
-export function countPolicies(db: CrabagentDb): number {
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM interception_policies`).get() as { n: number };
+export function countPolicies(db: CrabagentDb, workspaceName: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM interception_policies WHERE workspace_name = ?`)
+    .get(workspaceName) as { n: number };
   return row?.n ?? 0;
 }
 
@@ -115,20 +118,20 @@ function maxPolicyRowsForEnv(): number {
   return pro ? 100 : 10;
 }
 
-export function queryAllPolicies(db: CrabagentDb): InterceptionPolicy[] {
+export function queryAllPolicies(db: CrabagentDb, workspaceName: string): InterceptionPolicy[] {
   return db
-    .prepare(`SELECT * FROM interception_policies ORDER BY updated_at_ms DESC`)
-    .all() as InterceptionPolicy[];
+    .prepare(`SELECT * FROM interception_policies WHERE workspace_name = ? ORDER BY updated_at_ms DESC`)
+    .all(workspaceName) as InterceptionPolicy[];
 }
 
-export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy>): InterceptionPolicy {
+export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy>, workspaceName: string): InterceptionPolicy {
   const id = policy.id || randomUUID();
   const now = Date.now();
 
-  const existing = db.prepare(`SELECT id FROM interception_policies WHERE id = ?`).get(id) as
+  const existing = db.prepare(`SELECT id FROM interception_policies WHERE id = ? AND workspace_name = ?`).get(id, workspaceName) as
     | { id: string }
     | undefined;
-  if (!existing && countPolicies(db) >= maxPolicyRowsForEnv()) {
+  if (!existing && countPolicies(db, workspaceName) >= maxPolicyRowsForEnv()) {
     throw new Error(
       `policy_limit_exceeded: max ${maxPolicyRowsForEnv()} policies for current plan (set CRABAGENT_PLAN=pro or CRABAGENT_POLICY_MAX)`,
     );
@@ -144,9 +147,9 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     INSERT INTO interception_policies (
       id, name, description, pattern, redact_type, targets_json, enabled,
       severity, policy_action, intercept_mode, detection_kind,
-      created_at_ms, updated_at_ms
+      created_at_ms, updated_at_ms, workspace_name
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
@@ -158,6 +161,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
       policy_action = COALESCE(excluded.policy_action, interception_policies.policy_action),
       intercept_mode = interception_policies.intercept_mode,
       detection_kind = COALESCE(excluded.detection_kind, interception_policies.detection_kind),
+      workspace_name = excluded.workspace_name,
       updated_at_ms = excluded.updated_at_ms
   `,
   ).run(
@@ -174,23 +178,24 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     detectionKind,
     now,
     now,
+    workspaceName,
   );
 
-  return db.prepare(`SELECT * FROM interception_policies WHERE id = ?`).get(id) as InterceptionPolicy;
+  return db.prepare(`SELECT * FROM interception_policies WHERE id = ? AND workspace_name = ?`).get(id, workspaceName) as InterceptionPolicy;
 }
 
 /**
  * 插件在成功执行一次「拉取策略列表」后调用，将所有行的 `pulled_at_ms` 更新为本次拉取时间。
  */
-export function reportPoliciesPulled(db: CrabagentDb, pulledAtMs: number): { updated: number } {
+export function reportPoliciesPulled(db: CrabagentDb, pulledAtMs: number, workspaceName: string): { updated: number } {
   const ms = Math.floor(Number(pulledAtMs));
   if (!Number.isFinite(ms) || ms <= 0) {
     return { updated: 0 };
   }
-  const info = db.prepare(`UPDATE interception_policies SET pulled_at_ms = ?`).run(ms);
+  const info = db.prepare(`UPDATE interception_policies SET pulled_at_ms = ? WHERE workspace_name = ?`).run(ms, workspaceName);
   return { updated: info.changes };
 }
 
-export function deletePolicy(db: CrabagentDb, id: string): void {
-  db.prepare(`DELETE FROM interception_policies WHERE id = ?`).run(id);
+export function deletePolicy(db: CrabagentDb, id: string, workspaceName: string): void {
+  db.prepare(`DELETE FROM interception_policies WHERE id = ? AND workspace_name = ?`).run(id, workspaceName);
 }

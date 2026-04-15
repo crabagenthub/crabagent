@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ShellCommandCategory = "file" | "network" | "system" | "process" | "package" | "other";
@@ -86,6 +86,7 @@ export type ShellExecQueryParams = {
 };
 
 function appendShellParams(sp: URLSearchParams, q: ShellExecQueryParams): void {
+  appendWorkspaceNameParam(sp);
   if (q.sinceMs != null) {
     sp.set("since_ms", String(q.sinceMs));
   }

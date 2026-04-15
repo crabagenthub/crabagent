@@ -117,14 +117,16 @@ app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
 /** Interception policies CRUD */
 app.get("/v1/policies", (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
-  return c.json(queryAllPolicies(db));
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  return c.json(queryAllPolicies(db, workspaceName));
 });
 
 app.post("/v1/policies", async (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
   try {
     const body = await c.req.json();
-    const res = upsertPolicy(db, body);
+    const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+    const res = upsertPolicy(db, body, workspaceName);
     return c.json(res);
   } catch (err) {
     console.error(`[collector] POST /v1/policies failed:`, err);
@@ -135,7 +137,8 @@ app.post("/v1/policies", async (c) => {
 app.delete("/v1/policies/:id", (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
   const id = c.req.param("id");
-  deletePolicy(db, id);
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  deletePolicy(db, id, workspaceName);
   return c.json({ ok: true });
 });
 
@@ -158,7 +161,8 @@ app.post("/v1/policies/pull-report", async (c) => {
     typeof pulledRaw === "number" && Number.isFinite(pulledRaw) && pulledRaw > 0
       ? Math.floor(pulledRaw)
       : Date.now();
-  const { updated } = reportPoliciesPulled(db, pulledAtMs);
+  const workspaceName = optionalQueryString(c, "workspace_name")?.trim() || "openclaw";
+  const { updated } = reportPoliciesPulled(db, pulledAtMs, workspaceName);
   return c.json({ ok: true, updated, pulled_at_ms: pulledAtMs });
 });
 
@@ -279,6 +283,7 @@ const handleConversationTraces = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
+  const workspaceName = optionalQueryString(c, "workspace_name");
   const listStatuses = parseObserveListStatusesFromSearchParams(new URL(c.req.url, "http://127.0.0.1").searchParams);
 
   const listQuery = {
@@ -294,6 +299,7 @@ const handleConversationTraces = (c: Context) => {
     untilMs,
     channel,
     agent,
+    workspaceName: workspaceName?.trim() || undefined,
     listStatuses,
   };
 
@@ -330,8 +336,20 @@ const handleThreadRecords = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
+  const workspaceName = optionalQueryString(c, "workspace_name");
 
-  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent };
+  const listQuery = {
+    limit,
+    offset,
+    order,
+    sort,
+    search,
+    sinceMs,
+    untilMs,
+    channel,
+    agent,
+    workspaceName: workspaceName?.trim() || undefined,
+  };
   const items = queryThreadRecords(db, listQuery);
   const total = countThreadRecords(db, listQuery);
   return c.json({ items, total });
@@ -440,10 +458,24 @@ const handleSpanRecords = (c: Context) => {
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
+  const workspaceName = optionalQueryString(c, "workspace_name");
   const spanType = parseObserveSpanListType(optionalQueryString(c, "span_type"));
   const listStatuses = parseObserveListStatusesFromSearchParams(new URL(c.req.url, "http://127.0.0.1").searchParams);
 
-  const listQuery = { limit, offset, order, sort, search, sinceMs, untilMs, channel, agent, spanType, listStatuses };
+  const listQuery = {
+    limit,
+    offset,
+    order,
+    sort,
+    search,
+    sinceMs,
+    untilMs,
+    channel,
+    agent,
+    workspaceName: workspaceName?.trim() || undefined,
+    spanType,
+    listStatuses,
+  };
   const items = querySpanRecords(db, listQuery);
   const total = countSpanRecords(db, listQuery);
   return c.json({ items, total });
@@ -467,6 +499,7 @@ const handleShellExecSummary = (c: Context) => {
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
   const commandContains = optionalQueryString(c, "command_contains");
+  const workspaceName = optionalQueryString(c, "workspace_name");
   const minDurationMs = optionalNonNegativeIntQuery(c, "min_duration_ms");
   const maxDurationMs = optionalNonNegativeIntQuery(c, "max_duration_ms");
   const body = queryShellExecSummary(
@@ -478,6 +511,7 @@ const handleShellExecSummary = (c: Context) => {
       channel,
       agent,
       commandContains,
+      workspaceName: workspaceName?.trim() || undefined,
       minDurationMs,
       maxDurationMs,
     },
@@ -506,6 +540,7 @@ const handleShellExecList = (c: Context) => {
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
   const commandContains = optionalQueryString(c, "command_contains");
+  const workspaceName = optionalQueryString(c, "workspace_name");
   const minDurationMs = optionalNonNegativeIntQuery(c, "min_duration_ms");
   const maxDurationMs = optionalNonNegativeIntQuery(c, "max_duration_ms");
   const { items, total } = queryShellExecList(db, {
@@ -518,6 +553,7 @@ const handleShellExecList = (c: Context) => {
     channel,
     agent,
     commandContains,
+    workspaceName: workspaceName?.trim() || undefined,
     minDurationMs,
     maxDurationMs,
   });
@@ -569,6 +605,7 @@ const handleResourceAuditEvents = (c: Context) => {
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
   const span_id = optionalQueryString(c, "span_id");
+  const workspace_name = optionalQueryString(c, "workspace_name");
 
   const listQuery = {
     limit,
@@ -579,6 +616,7 @@ const handleResourceAuditEvents = (c: Context) => {
     untilMs,
     semantic_class,
     uri_prefix,
+    workspace_name: workspace_name ?? undefined,
     trace_id: trace_id ?? undefined,
     span_id: span_id ?? undefined,
   };
@@ -603,6 +641,7 @@ const handleResourceAuditStats = (c: Context) => {
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
   const span_id = optionalQueryString(c, "span_id");
+  const workspace_name = optionalQueryString(c, "workspace_name");
 
   const stats = queryResourceAuditStats(db, {
     search,
@@ -610,6 +649,7 @@ const handleResourceAuditStats = (c: Context) => {
     untilMs,
     semantic_class,
     uri_prefix,
+    workspace_name: workspace_name ?? undefined,
     trace_id: trace_id ?? undefined,
     span_id: span_id ?? undefined,
   });
@@ -634,14 +674,16 @@ app.get("/v1/security-audit/policy-event-counts", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  return c.json({ items: querySecurityAuditPolicyEventCounts(db) });
+  const workspaceName = optionalQueryString(c, "workspace_name");
+  return c.json({ items: querySecurityAuditPolicyEventCounts(db, workspaceName?.trim() || undefined) });
 });
 
 app.get("/v1/observe-facets", (c) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const facets = queryObserveFacets(db);
+  const workspaceName = optionalQueryString(c, "workspace_name");
+  const facets = queryObserveFacets(db, workspaceName?.trim() || undefined);
   return c.json(facets);
 });
 

@@ -133,6 +133,7 @@ function opikSchemaDdl(): string {
 
     CREATE TABLE interception_policies (
       id TEXT PRIMARY KEY,
+      workspace_name TEXT NOT NULL DEFAULT 'openclaw',
       name TEXT NOT NULL,
       description TEXT,
       pattern TEXT NOT NULL,
@@ -400,6 +401,7 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS interception_policies (
       id TEXT PRIMARY KEY,
+      workspace_name TEXT NOT NULL DEFAULT 'openclaw',
       name TEXT NOT NULL,
       description TEXT,
       pattern TEXT NOT NULL,
@@ -516,6 +518,9 @@ function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void
     return;
   }
   const names = tableColumnNames(db, "interception_policies");
+  if (!names.has("workspace_name")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN workspace_name TEXT NOT NULL DEFAULT 'openclaw'`);
+  }
   if (!names.has("created_at_ms")) {
     db.exec(`ALTER TABLE interception_policies ADD COLUMN created_at_ms INTEGER`);
     db.exec(

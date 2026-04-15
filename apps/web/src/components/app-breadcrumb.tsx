@@ -77,10 +77,6 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
     }
 
-    if (p === "/settings") {
-      return [{ label: tNav("groupSettings") }, { label: tNav("settings") }];
-    }
-
     return [{ label: tNav("brand") }];
   }, [pathname, tNav, tHome]);
 

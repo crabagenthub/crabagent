@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 /** Collector `findings_json` 解析后单项（无明文、无 vault 原文）。 */
@@ -89,6 +89,7 @@ export async function loadSecurityAuditEvents(
   if (params.policyId?.trim()) {
     sp.set("policy_id", params.policyId.trim());
   }
+  appendWorkspaceNameParam(sp);
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
   if (!res.ok) {
@@ -121,7 +122,9 @@ export async function loadSecurityAuditPolicyEventCounts(
   apiKey: string,
 ): Promise<SecurityAuditPolicyEventCountRow[]> {
   const b = baseUrl.replace(/\/+$/, "");
-  const url = `${b}${COLLECTOR_API.securityAuditPolicyEventCounts}`;
+  const sp = new URLSearchParams();
+  appendWorkspaceNameParam(sp);
+  const url = `${b}${COLLECTOR_API.securityAuditPolicyEventCounts}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);

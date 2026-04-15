@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 
 /** Matches Collector list query `status`（可重复键或逗号分隔，多选为 OR）. */
 export type ObserveListStatusParam = "running" | "success" | "error" | "timeout";
@@ -17,7 +17,9 @@ export type ObserveFacets = { agents: string[]; channels: string[] };
 
 export async function loadObserveFacets(baseUrl: string, apiKey: string): Promise<ObserveFacets> {
   const b = baseUrl.replace(/\/+$/, "");
-  const res = await fetch(`${b}/v1/observe-facets`, { headers: collectorAuthHeaders(apiKey) });
+  const sp = new URLSearchParams();
+  appendWorkspaceNameParam(sp);
+  const res = await fetch(`${b}/v1/observe-facets?${sp.toString()}`, { headers: collectorAuthHeaders(apiKey) });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }

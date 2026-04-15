@@ -1,4 +1,4 @@
-import { collectorAuthHeaders } from "@/lib/collector";
+import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ResourceAuditSemanticClassParam = "all" | "file" | "memory" | "tool_io";
@@ -230,6 +230,7 @@ export async function loadResourceAuditEvents(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
+  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditEvents}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
@@ -271,6 +272,7 @@ export async function loadResourceAuditStats(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
+  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });

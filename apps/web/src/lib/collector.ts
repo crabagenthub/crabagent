@@ -1,5 +1,6 @@
 const URL_KEY = "crabagent_collector_url";
 const API_KEY_KEY = "crabagent_api_key";
+const WORKSPACE_KEY = "crabagent_workspace_name";
 
 export function loadCollectorUrl(): string {
   if (typeof window === "undefined") {
@@ -55,6 +56,27 @@ export function collectorAuthHeaders(apiKey: string): HeadersInit {
     h.authorization = `Bearer ${apiKey.trim()}`;
   }
   return h;
+}
+
+export function loadWorkspaceName(): string {
+  if (typeof window === "undefined") {
+    return "openclaw";
+  }
+  const raw = window.localStorage.getItem(WORKSPACE_KEY);
+  const v = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  return v === "hermes-agent" ? "hermes-agent" : "openclaw";
+}
+
+export function appendWorkspaceNameParam(sp: URLSearchParams, workspaceName?: string): void {
+  const ws = String(workspaceName ?? loadWorkspaceName())
+    .trim()
+    .toLowerCase();
+  if (!ws) {
+    return;
+  }
+  sp.set("workspace_name", ws);
 }
 
 /** `threadKey` = conversation aggregate id (session_key → session_id → trace_root_id), same as list rows. */
