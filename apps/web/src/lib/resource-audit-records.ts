@@ -27,13 +27,16 @@ export type ResourceAuditEventRow = {
 export type ResourceAuditStatsSummary = {
   total_events: number;
   distinct_traces: number;
-  sum_chars: number | null;
   avg_duration_ms: number | null;
   risk_sensitive_path: number;
   risk_pii_hint: number;
   risk_large_read: number;
   risk_redundant_read: number;
   risk_any: number;
+  risk_secret_hint: number;
+  risk_credential_hint: number;
+  risk_config_hint: number;
+  risk_database_hint: number;
 };
 
 export type ResourceAuditStats = {
@@ -52,18 +55,22 @@ export type ResourceAuditStats = {
   }[];
   top_tools: { span_name: string; count: number }[];
   by_workspace: { workspace_name: string; count: number }[];
+  hint_type_distribution: { hint_type: string; count: number }[];
 };
 
 const EMPTY_SUMMARY: ResourceAuditStatsSummary = {
   total_events: 0,
   distinct_traces: 0,
-  sum_chars: null,
   avg_duration_ms: null,
   risk_sensitive_path: 0,
   risk_pii_hint: 0,
   risk_large_read: 0,
   risk_redundant_read: 0,
   risk_any: 0,
+  risk_secret_hint: 0,
+  risk_credential_hint: 0,
+  risk_config_hint: 0,
+  risk_database_hint: 0,
 };
 
 function parseSummary(v: unknown): ResourceAuditStatsSummary {
@@ -74,10 +81,6 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
   return {
     total_events: Number(o.total_events ?? 0),
     distinct_traces: Number(o.distinct_traces ?? 0),
-    sum_chars:
-      o.sum_chars != null && o.sum_chars !== "" && Number.isFinite(Number(o.sum_chars))
-        ? Number(o.sum_chars)
-        : null,
     avg_duration_ms:
       o.avg_duration_ms != null && o.avg_duration_ms !== "" && Number.isFinite(Number(o.avg_duration_ms))
         ? Number(o.avg_duration_ms)
@@ -87,6 +90,10 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
     risk_large_read: Number(o.risk_large_read ?? 0),
     risk_redundant_read: Number(o.risk_redundant_read ?? 0),
     risk_any: Number(o.risk_any ?? 0),
+    risk_secret_hint: Number(o.risk_secret_hint ?? 0),
+    risk_credential_hint: Number(o.risk_credential_hint ?? 0),
+    risk_config_hint: Number(o.risk_config_hint ?? 0),
+    risk_database_hint: Number(o.risk_database_hint ?? 0),
   };
 }
 
@@ -99,6 +106,7 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
       daily_io: [],
       top_tools: [],
       by_workspace: [],
+      hint_type_distribution: [],
     };
   }
   const o = raw as Record<string, unknown>;
@@ -144,6 +152,12 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
         count: Number(r.count ?? 0),
       }))
     : [];
+  const hint_type_distribution = Array.isArray(o.hint_type_distribution)
+    ? (o.hint_type_distribution as Record<string, unknown>[]).map((r) => ({
+        hint_type: String(r.hint_type ?? ""),
+        count: Number(r.count ?? 0),
+      }))
+    : [];
 
   return {
     summary: parseSummary(o.summary),
@@ -152,6 +166,7 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
     daily_io,
     top_tools,
     by_workspace,
+    hint_type_distribution,
   };
 }
 
@@ -166,6 +181,10 @@ export type LoadResourceAuditEventsParams = {
   uri_prefix?: string;
   trace_id?: string;
   span_id?: string;
+  hint_type?: string;
+  policy_id?: string;
+  span_name?: string;
+  sort_mode?: "time_desc" | "risk_first" | "chars_desc";
 };
 
 function normalizeEvent(r: Record<string, unknown>): ResourceAuditEventRow {
@@ -230,6 +249,18 @@ export async function loadResourceAuditEvents(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
+  if (params.hint_type?.trim()) {
+    sp.set("hint_type", params.hint_type.trim());
+  }
+  if (params.policy_id?.trim()) {
+    sp.set("policy_id", params.policy_id.trim());
+  }
+  if (params.span_name?.trim()) {
+    sp.set("span_name", params.span_name.trim());
+  }
+  if (params.sort_mode && params.sort_mode !== "time_desc") {
+    sp.set("sort_mode", params.sort_mode);
+  }
   appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditEvents}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
@@ -272,6 +303,12 @@ export async function loadResourceAuditStats(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
+  if (params.hint_type?.trim()) {
+    sp.set("hint_type", params.hint_type.trim());
+  }
+  if (params.policy_id?.trim()) {
+    sp.set("policy_id", params.policy_id.trim());
+  }
   appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
@@ -282,3 +319,4 @@ export async function loadResourceAuditStats(
   const json = await res.json();
   return normalizeStatsPayload(json);
 }
+

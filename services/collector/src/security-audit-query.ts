@@ -9,6 +9,7 @@ export type SecurityAuditListQuery = {
   traceId?: string;
   spanId?: string;
   policyId?: string;
+  hintType?: string;
   workspaceName?: string;
 };
 
@@ -76,8 +77,9 @@ export function parseSecurityAuditListQuery(c: {
   const traceId = c.req.query("trace_id")?.trim() || undefined;
   const spanId = c.req.query("span_id")?.trim() || undefined;
   const policyId = c.req.query("policy_id")?.trim() || undefined;
+  const hintType = c.req.query("hint_type")?.trim() || undefined;
   const workspaceName = c.req.query("workspace_name")?.trim() || undefined;
-  return { limit, offset, order, sinceMs, untilMs, traceId, spanId, policyId, workspaceName };
+  return { limit, offset, order, sinceMs, untilMs, traceId, spanId, policyId, hintType, workspaceName };
 }
 
 export function countSecurityAuditEvents(db: Database.Database, q: SecurityAuditListQuery): number {
@@ -120,6 +122,16 @@ function buildWhere(q: SecurityAuditListQuery): { sql: string; params: unknown[]
       )`,
     );
     params.push(q.policyId);
+  }
+  if (q.hintType) {
+    parts.push(
+      `EXISTS (
+        SELECT 1
+        FROM json_each(findings_json)
+        WHERE lower(COALESCE(json_extract(json_each.value, '$.hint_type'), '')) = lower(?)
+      )`,
+    );
+    params.push(q.hintType);
   }
   const sql = parts.length ? `WHERE ${parts.join(" AND ")}` : "";
   return { sql, params };

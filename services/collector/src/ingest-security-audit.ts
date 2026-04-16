@@ -144,6 +144,7 @@ export type SecurityAuditFinding = {
   match_count: number;
   policy_action: string;
   redact_type: string;
+  hint_type?: string | null;
 };
 
 export type CrabagentInterceptionMeta = {
@@ -263,6 +264,7 @@ function scanText(rules: CompiledRule[], text: string): SecurityAuditFinding[] {
       match_count: n,
       policy_action: policy.policy_action ?? "data_mask",
       redact_type: policy.redact_type,
+      hint_type: policy.hint_type ?? null,
     });
   }
   return findings;
@@ -336,6 +338,7 @@ function readForwardedFindingsFromMetadata(
         match_count: matchCount > 0 ? Math.floor(matchCount) : 0,
         policy_action: String(o.policy_action ?? "data_mask"),
         redact_type: redactType,
+        hint_type: typeof o.hint_type === "string" ? o.hint_type : null,
       } satisfies SecurityAuditFinding;
     })
     .filter((f) => f.match_count > 0 && f.policy_id.trim().length > 0);

@@ -1,8 +1,15 @@
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
+import resourceAuditConfig from "../../../../resource-audit.config.json";
 
 /** ~500k UTF-16 units → warn as “large read” */
 export const LARGE_IO_CHARS = 500_000;
-export const LARGE_TOOL_RESULT_CHARS = 8_192;
+function resolveLargeToolResultChars(): number {
+  const raw = (resourceAuditConfig as { largeToolResult?: { thresholdChars?: unknown } }).largeToolResult
+    ?.thresholdChars;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 8_192;
+}
+export const LARGE_TOOL_RESULT_CHARS = resolveLargeToolResultChars();
 
 export function ioPathFromInput(input: Record<string, unknown>): string | null {
   const p = input.path ?? input.filePath ?? input.file_path ?? input.uri;

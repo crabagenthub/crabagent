@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CrabagentDb } from "./db.js";
 import type { RedactionType } from "./redactor.js";
+import { RESOURCE_AUDIT_HINT_TYPES, type ResourceAuditHintType } from "./resource-audit-config.js";
 
 export interface InterceptionPolicy {
   id: string;
@@ -13,6 +14,7 @@ export interface InterceptionPolicy {
   severity?: string | null;
   policy_action?: string | null;
   intercept_mode?: string | null;
+  hint_type?: ResourceAuditHintType | null;
   /** v1 仅 `regex` 生效；`model` 为预留。 */
   detection_kind?: string | null;
   /** 首次写入策略的时间（Web 或 API 创建/更新时由服务端写入）。 */
@@ -100,6 +102,16 @@ function normalizeDetectionKind(raw: string | null | undefined): "regex" | "mode
   return s === "model" ? "model" : "regex";
 }
 
+function normalizeHintType(raw: string | null | undefined): ResourceAuditHintType | null {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if ((RESOURCE_AUDIT_HINT_TYPES as readonly string[]).includes(s)) {
+    return s as ResourceAuditHintType;
+  }
+  return null;
+}
+
 export function countPolicies(db: CrabagentDb, workspaceName?: string): number {
   const ws = (workspaceName ?? "OpenClaw").trim() || "OpenClaw";
   const row = db
@@ -143,16 +155,17 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
   const policyAction = policy.policy_action ?? "data_mask";
   const redactType = deriveRedactTypeFromPolicyAction(policyAction);
   const detectionKind = normalizeDetectionKind(policy.detection_kind ?? undefined);
+  const hintType = normalizeHintType(policy.hint_type ?? undefined);
   const pattern = String(policy.pattern ?? "").trim();
 
   db.prepare(
     `
     INSERT INTO interception_policies (
       id, name, description, pattern, redact_type, targets_json, enabled,
-      severity, policy_action, intercept_mode, detection_kind,
+      severity, policy_action, intercept_mode, hint_type, detection_kind,
       created_at_ms, updated_at_ms, workspace_name
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
@@ -163,6 +176,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
       severity = COALESCE(excluded.severity, interception_policies.severity),
       policy_action = COALESCE(excluded.policy_action, interception_policies.policy_action),
       intercept_mode = interception_policies.intercept_mode,
+      hint_type = excluded.hint_type,
       detection_kind = COALESCE(excluded.detection_kind, interception_policies.detection_kind),
       workspace_name = excluded.workspace_name,
       updated_at_ms = excluded.updated_at_ms
@@ -178,6 +192,7 @@ export function upsertPolicy(db: CrabagentDb, policy: Partial<InterceptionPolicy
     policy.severity ?? "high",
     policyAction,
     null,
+    hintType,
     detectionKind,
     now,
     now,

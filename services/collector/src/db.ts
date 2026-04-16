@@ -144,9 +144,16 @@ function opikSchemaDdl(): string {
       severity TEXT DEFAULT 'high',
       policy_action TEXT DEFAULT 'data_mask',
       intercept_mode TEXT DEFAULT 'enforce',
+      hint_type TEXT,
       detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
       pulled_at_ms INTEGER,
+      updated_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE resource_audit_configs (
+      workspace_name TEXT PRIMARY KEY,
+      config_json TEXT NOT NULL,
       updated_at_ms INTEGER NOT NULL
     );
 
@@ -180,6 +187,7 @@ function dropAllTables(db: Database.Database) {
     DROP TABLE IF EXISTS opik_attachments;
     DROP TABLE IF EXISTS security_audit_logs;
     DROP TABLE IF EXISTS interception_policies;
+    DROP TABLE IF EXISTS resource_audit_configs;
     DROP TABLE IF EXISTS opik_spans;
     DROP TABLE IF EXISTS opik_thread_turns;
     DROP TABLE IF EXISTS opik_traces;
@@ -423,9 +431,20 @@ function ensureInterceptionPoliciesTable(db: Database.Database): void {
       severity TEXT DEFAULT 'high',
       policy_action TEXT DEFAULT 'data_mask',
       intercept_mode TEXT DEFAULT 'enforce',
+      hint_type TEXT,
       detection_kind TEXT NOT NULL DEFAULT 'regex' CHECK (detection_kind IN ('regex', 'model')),
       created_at_ms INTEGER,
       pulled_at_ms INTEGER,
+      updated_at_ms INTEGER NOT NULL
+    );
+  `);
+}
+
+function ensureResourceAuditConfigsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS resource_audit_configs (
+      workspace_name TEXT PRIMARY KEY,
+      config_json TEXT NOT NULL,
       updated_at_ms INTEGER NOT NULL
     );
   `);
@@ -556,6 +575,9 @@ function ensureInterceptionPoliciesTimestampColumns(db: Database.Database): void
       `ALTER TABLE interception_policies ADD COLUMN detection_kind TEXT NOT NULL DEFAULT 'regex'`,
     );
   }
+  if (!names.has("hint_type")) {
+    db.exec(`ALTER TABLE interception_policies ADD COLUMN hint_type TEXT`);
+  }
 }
 
 function tableExists(db: Database.Database, name: string): boolean {
@@ -565,29 +587,197 @@ function tableExists(db: Database.Database, name: string): boolean {
   return row != null;
 }
 
+/** 待合并/规范化的 workspace（精确 `OpenClaw` 已排除，避免与自身 PK 冲突）。 */
+const LEGACY_WORKSPACE_SQL = `(
+  workspace_name IS NULL
+  OR TRIM(workspace_name) = ''
+  OR lower(TRIM(workspace_name)) IN ('default', 'openclaw')
+)
+AND IFNULL(workspace_name, '') != 'OpenClaw'`;
+
+/**
+ * 同一 (thread_id, project_name) 下多行劣质 workspace（如 '' 与 `openclaw`）在全部 UPDATE 成 OpenClaw 时会撞 PK。
+ * 保留 rowid 最小行，把 trace / 子 thread 外键迁到该行后删除其余 thread 行。
+ */
+function mergeOpikThreadsLegacyDuplicates(db: Database.Database): void {
+  if (!opikThreadsTableExists(db)) {
+    return;
+  }
+  const groups = db
+    .prepare(
+      `SELECT thread_id, project_name
+       FROM opik_threads
+       WHERE ${LEGACY_WORKSPACE_SQL}
+       GROUP BY thread_id, project_name
+       HAVING COUNT(*) > 1`,
+    )
+    .all() as { thread_id: string; project_name: string }[];
+
+  const updTracesMainEmpty = db.prepare(
+    `UPDATE opik_traces SET workspace_name = ?
+     WHERE thread_id = ? AND project_name = ?
+       AND (workspace_name IS NULL OR TRIM(workspace_name) = '')`,
+  );
+  const updTracesMainEq = db.prepare(
+    `UPDATE opik_traces SET workspace_name = ?
+     WHERE thread_id = ? AND project_name = ? AND workspace_name = ?`,
+  );
+  const updTracesSubEmpty = db.prepare(
+    `UPDATE opik_traces SET workspace_name = ?
+     WHERE subagent_thread_id = ? AND project_name = ?
+       AND (workspace_name IS NULL OR TRIM(workspace_name) = '')`,
+  );
+  const updTracesSubEq = db.prepare(
+    `UPDATE opik_traces SET workspace_name = ?
+     WHERE subagent_thread_id = ? AND project_name = ? AND workspace_name = ?`,
+  );
+  const updChildThreadsEmpty = db.prepare(
+    `UPDATE opik_threads SET workspace_name = ?
+     WHERE parent_thread_id = ? AND project_name = ?
+       AND (workspace_name IS NULL OR TRIM(workspace_name) = '')`,
+  );
+  const updChildThreadsEq = db.prepare(
+    `UPDATE opik_threads SET workspace_name = ?
+     WHERE parent_thread_id = ? AND project_name = ? AND workspace_name = ?`,
+  );
+  const delThreadRow = db.prepare(`DELETE FROM opik_threads WHERE rowid = ?`);
+
+  for (const g of groups) {
+    const rows = db
+      .prepare(
+        `SELECT rowid, workspace_name FROM opik_threads
+         WHERE thread_id = ? AND project_name = ? AND (${LEGACY_WORKSPACE_SQL})
+         ORDER BY rowid ASC`,
+      )
+      .all(g.thread_id, g.project_name) as { rowid: number; workspace_name: string | null }[];
+
+    if (rows.length < 2) {
+      continue;
+    }
+    const keeper = rows[0]!;
+    const kws = keeper.workspace_name ?? "";
+
+    for (const loser of rows.slice(1)) {
+      const lws = loser.workspace_name;
+      const emptyLoser = lws == null || String(lws).trim() === "";
+
+      if (emptyLoser) {
+        updTracesMainEmpty.run(kws, g.thread_id, g.project_name);
+        updTracesSubEmpty.run(kws, g.thread_id, g.project_name);
+        updChildThreadsEmpty.run(kws, g.thread_id, g.project_name);
+      } else {
+        updTracesMainEq.run(kws, g.thread_id, g.project_name, lws);
+        updTracesSubEq.run(kws, g.thread_id, g.project_name, lws);
+        updChildThreadsEq.run(kws, g.thread_id, g.project_name, lws);
+      }
+      delThreadRow.run(loser.rowid);
+    }
+  }
+}
+
 function normalizeWorkspaceNameDefaults(db: Database.Database): void {
-  const targets = ["opik_threads", "opik_traces", "opik_spans", "security_audit_logs", "interception_policies"];
-  for (const table of targets) {
-    if (!tableExists(db, table)) {
-      continue;
-    }
-    const names = tableColumnNames(db, table);
-    if (!names.has("workspace_name")) {
-      continue;
-    }
-    db.exec(
-      `UPDATE ${table}
-       SET workspace_name = 'OpenClaw'
-       WHERE workspace_name IS NULL
-          OR TRIM(workspace_name) = ''
-          OR lower(TRIM(workspace_name)) IN ('default', 'openclaw')`,
-    );
+  /**
+   * `opik_traces` ↔ `opik_threads` 有复合外键 (thread_id, workspace_name, project_name)。
+   * 若先改 `opik_threads` 主键三元组而 `opik_traces` 仍指向旧三元组，会触发 SQLITE_CONSTRAINT_FOREIGNKEY；
+   * 仅「先子后父」也不够（子先改成 OpenClaw 而父行仍是劣质 workspace 同样会违例），故本事务开启
+   * `defer_foreign_keys`，并在批量 UPDATE 时严格按 **子表 → 父表** 顺序：`opik_traces`、`opik_spans`、最后 `opik_threads`。
+   *
+   * 另：历史数据可能同时存在 (thread_id, '', project) 与 (thread_id, 'OpenClaw', project)，
+   * 或两行劣质 workspace 规范化后撞同一主键；故在最终 UPDATE 前先：把 trace 指到已有 OpenClaw 的 thread、
+   * 抬升子 thread、删/合并重复 thread 行（见 `mergeOpikThreadsLegacyDuplicates`）。
+   */
+  const targets = [
+    "opik_traces",
+    "opik_spans",
+    "opik_threads",
+    "security_audit_logs",
+    "interception_policies",
+    "resource_audit_configs",
+  ];
+
+  db.pragma("defer_foreign_keys = ON");
+  try {
+    const run = db.transaction(() => {
+      if (tableExists(db, "opik_traces") && tableExists(db, "opik_threads")) {
+        db.exec(
+          `UPDATE opik_traces
+           SET workspace_name = 'OpenClaw'
+           WHERE (${LEGACY_WORKSPACE_SQL.replace(/\n/g, " ")})
+             AND EXISTS (
+               SELECT 1 FROM opik_threads tg
+               WHERE tg.thread_id = opik_traces.thread_id
+                 AND tg.project_name = opik_traces.project_name
+                 AND tg.workspace_name = 'OpenClaw'
+             )`,
+        );
+      }
+
+      if (opikThreadsTableExists(db)) {
+        for (let i = 0; i < 32; i += 1) {
+          const n = db
+            .prepare(
+              `UPDATE opik_threads AS ch
+               SET workspace_name = 'OpenClaw'
+               WHERE (
+                 ch.workspace_name IS NULL
+                 OR TRIM(ch.workspace_name) = ''
+                 OR lower(TRIM(ch.workspace_name)) IN ('default', 'openclaw')
+               )
+               AND IFNULL(ch.workspace_name, '') != 'OpenClaw'
+               AND ch.parent_thread_id IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM opik_threads par_good
+                 WHERE par_good.thread_id = ch.parent_thread_id
+                   AND par_good.project_name = ch.project_name
+                   AND par_good.workspace_name = 'OpenClaw'
+               )`,
+            )
+            .run();
+          if (n.changes === 0) {
+            break;
+          }
+        }
+
+        db.exec(
+          `DELETE FROM opik_threads AS t
+           WHERE (${LEGACY_WORKSPACE_SQL.replace(/\n/g, " ")})
+           AND EXISTS (
+             SELECT 1 FROM opik_threads g
+             WHERE g.thread_id = t.thread_id
+               AND g.project_name = t.project_name
+               AND g.workspace_name = 'OpenClaw'
+               AND g.rowid != t.rowid
+           )`,
+        );
+
+        mergeOpikThreadsLegacyDuplicates(db);
+      }
+
+      for (const table of targets) {
+        if (!tableExists(db, table)) {
+          continue;
+        }
+        const names = tableColumnNames(db, table);
+        if (!names.has("workspace_name")) {
+          continue;
+        }
+        db.exec(
+          `UPDATE ${table}
+           SET workspace_name = 'OpenClaw'
+           WHERE (${LEGACY_WORKSPACE_SQL.replace(/\n/g, " ")})`,
+        );
+      }
+    });
+    run();
+  } finally {
+    db.pragma("defer_foreign_keys = OFF");
   }
 }
 
 function ensureOpikIncrementalMigrations(db: Database.Database): void {
   ensureOpikAuxTables(db);
   ensureInterceptionPoliciesTable(db);
+  ensureResourceAuditConfigsTable(db);
   ensureSecurityAuditLogsTable(db);
   ensureInterceptionPoliciesTimestampColumns(db);
   ensureOpikThreadsAgentChannelColumns(db);

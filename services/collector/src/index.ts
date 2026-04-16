@@ -605,7 +605,13 @@ const handleResourceAuditEvents = (c: Context) => {
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
   const span_id = optionalQueryString(c, "span_id");
+  const hint_type = optionalQueryString(c, "hint_type");
+  const policy_id = optionalQueryString(c, "policy_id");
+  const span_name = optionalQueryString(c, "span_name");
   const workspace_name = optionalQueryString(c, "workspace_name");
+  const sort_mode = optionalQueryString(c, "sort_mode");
+  const normalizedSortMode: "time_desc" | "risk_first" | "chars_desc" =
+    sort_mode === "risk_first" || sort_mode === "chars_desc" ? sort_mode : "time_desc";
 
   const listQuery = {
     limit,
@@ -619,6 +625,10 @@ const handleResourceAuditEvents = (c: Context) => {
     workspace_name: workspace_name ?? undefined,
     trace_id: trace_id ?? undefined,
     span_id: span_id ?? undefined,
+    hint_type: hint_type ?? undefined,
+    policy_id: policy_id ?? undefined,
+    span_name: span_name ?? undefined,
+    sort_mode: normalizedSortMode,
   };
   const items = queryResourceAuditEvents(db, listQuery);
   const total = countResourceAuditEvents(db, listQuery);
@@ -641,6 +651,8 @@ const handleResourceAuditStats = (c: Context) => {
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
   const span_id = optionalQueryString(c, "span_id");
+  const hint_type = optionalQueryString(c, "hint_type");
+  const policy_id = optionalQueryString(c, "policy_id");
   const workspace_name = optionalQueryString(c, "workspace_name");
 
   const stats = queryResourceAuditStats(db, {
@@ -652,6 +664,8 @@ const handleResourceAuditStats = (c: Context) => {
     workspace_name: workspace_name ?? undefined,
     trace_id: trace_id ?? undefined,
     span_id: span_id ?? undefined,
+    hint_type: hint_type ?? undefined,
+    policy_id: policy_id ?? undefined,
   });
   return c.json(stats);
 };

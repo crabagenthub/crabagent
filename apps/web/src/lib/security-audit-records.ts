@@ -8,6 +8,7 @@ export type SecurityAuditFinding = {
   match_count: number;
   policy_action: string;
   redact_type: string;
+  hint_type?: string | null;
 };
 
 export type SecurityAuditEventRow = {
@@ -38,6 +39,7 @@ export type LoadSecurityAuditEventsParams = {
   traceId?: string;
   spanId?: string;
   policyId?: string;
+  hintType?: string;
 };
 
 export function parseSecurityAuditFindings(raw: string | null | undefined): SecurityAuditFinding[] {
@@ -57,6 +59,7 @@ export function parseSecurityAuditFindings(raw: string | null | undefined): Secu
         match_count: Number(o.match_count ?? 0) || 0,
         policy_action: String(o.policy_action ?? ""),
         redact_type: String(o.redact_type ?? ""),
+        hint_type: typeof o.hint_type === "string" ? o.hint_type : null,
       };
     });
   } catch {
@@ -88,6 +91,9 @@ export async function loadSecurityAuditEvents(
   }
   if (params.policyId?.trim()) {
     sp.set("policy_id", params.policyId.trim());
+  }
+  if (params.hintType?.trim()) {
+    sp.set("hint_type", params.hintType.trim());
   }
   appendWorkspaceNameParam(sp);
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;

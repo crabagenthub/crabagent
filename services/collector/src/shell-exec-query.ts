@@ -7,6 +7,7 @@ import {
   type ShellCommandCategory,
 } from "./shell-exec-analytics.js";
 import { clampFacetFilter } from "./observe-list-filters.js";
+import { loadResourceAuditConfig } from "./resource-audit-config.js";
 
 /** 与 `SHELL_TOOL_WHERE_SQL` 中 tool 分支内层条件相同（供 general 降级匹配复用）。 */
 const SHELL_HINT_INNER_SQL = `(
@@ -42,41 +43,11 @@ const SHELL_HINT_INNER_SQL = `(
       instr(lower(COALESCE(s.input_json, '')), '"cwd"') > 0
       AND instr(lower(COALESCE(s.input_json, '')), '"command"') > 0
     )
-    OR (
-      (
-        instr(lower(COALESCE(s.output_json, '')), 'exit_code') > 0
-        OR instr(lower(COALESCE(s.output_json, '')), 'exitcode') > 0
-      )
-      AND (
-        instr(lower(COALESCE(s.output_json, '')), 'stdout') > 0
-        OR instr(lower(COALESCE(s.output_json, '')), 'stderr') > 0
-      )
-    )
   )`;
 
-/**
- * 疑似 Shell / 终端执行：`span_type=tool` 为主；`general` 仅在含明确 command 或典型 shell 输出时纳入（ingest 缺省 type 时）。
- */
 export const SHELL_TOOL_WHERE_SQL = `(
-  (s.span_type = 'tool' AND ${SHELL_HINT_INNER_SQL})
-  OR (
-    s.span_type = 'general'
-    AND (
-      NULLIF(TRIM(json_extract(s.input_json, '$.params.command')), '') IS NOT NULL
-      OR NULLIF(TRIM(json_extract(s.input_json, '$.params.cmd')), '') IS NOT NULL
-      OR NULLIF(TRIM(json_extract(s.input_json, '$.command')), '') IS NOT NULL
-      OR (
-        (
-          instr(lower(COALESCE(s.output_json, '')), 'exit_code') > 0
-          OR instr(lower(COALESCE(s.output_json, '')), 'exitcode') > 0
-        )
-        AND (
-          instr(lower(COALESCE(s.output_json, '')), 'stdout') > 0
-          OR instr(lower(COALESCE(s.output_json, '')), 'stderr') > 0
-        )
-      )
-    )
-  )
+  s.span_type = 'tool'
+  AND ${SHELL_HINT_INNER_SQL}
 )`;
 
 /** 用于时间窗与排序：span 无 start_time 时用对应 trace 的 created_at_ms。 */
@@ -347,7 +318,6 @@ export type ShellSummaryJson = {
     permission_denied: number;
     illegal_arg_hint: number;
   };
-  idempotency_samples: { command_key: string; traces: number; outcomes: number }[];
   chain_preview: { trace_id: string; steps: { kind: string; name: string }[] } | null;
   redundant_read_hints: { trace_id: string; command: string; repeats: number }[];
 };
@@ -364,7 +334,14 @@ function dayKey(ms: number): string {
 
 export function computeShellSummaryFromRows(
   rows: Record<string, unknown>[],
-  options: { capped: boolean },
+  options: {
+    capped: boolean;
+    loopAlertMinRepeatCount: number;
+    loopAlertMaxItems: number;
+    tokenRiskStdoutChars: number;
+    tokenRiskMaxItems: number;
+    config: ReturnType<typeof loadResourceAuditConfig>;
+  },
 ): ShellSummaryJson {
   const parsed: { row: Record<string, unknown>; p: ParsedShellSpan }[] = [];
   for (const row of rows) {
@@ -374,7 +351,7 @@ export function computeShellSummaryFromRows(
       error_info_json: row.error_info_json != null ? String(row.error_info_json) : null,
       metadata_json: row.metadata_json != null ? String(row.metadata_json) : null,
       thread_metadata_json: row.thread_metadata_json != null ? String(row.thread_metadata_json) : null,
-    });
+    }, options.config, { tokenRiskStdoutChars: options.tokenRiskStdoutChars });
     parsed.push({ row, p });
   }
 
@@ -452,7 +429,7 @@ export function computeShellSummaryFromRows(
 
   const top_commands = [...cmdCount.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
+    .slice(0, 10)
     .map(([command, count]) => ({ command, count }));
 
   const slowest = [...parsed]
@@ -465,7 +442,7 @@ export function computeShellSummaryFromRows(
     }))
     .filter((x) => x.duration_ms != null && x.duration_ms >= 0)
     .sort((a, b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0))
-    .slice(0, 12);
+    .slice(0, 10);
 
   const byTraceLoops = new Map<string, Map<string, number>>();
   for (const { row, p } of parsed) {
@@ -483,7 +460,7 @@ export function computeShellSummaryFromRows(
   const loop_alerts: ShellSummaryJson["loop_alerts"] = [];
   for (const [trace_id, m] of byTraceLoops) {
     for (const [command, repeat_count] of m) {
-      if (repeat_count >= 3) {
+      if (repeat_count >= options.loopAlertMinRepeatCount) {
         const thread_key = parsed.find((x) => String(x.row.trace_id) === trace_id)?.row.thread_key;
         loop_alerts.push({
           trace_id,
@@ -495,7 +472,7 @@ export function computeShellSummaryFromRows(
     }
   }
   loop_alerts.sort((a, b) => b.repeat_count - a.repeat_count);
-  const loopTop = loop_alerts.slice(0, 20);
+  const loopTop = loop_alerts.slice(0, options.loopAlertMaxItems);
 
   const token_risks = parsed
     .filter(({ p }) => p.tokenRisk)
@@ -508,37 +485,12 @@ export function computeShellSummaryFromRows(
       est_usd: Math.round(p.estUsd * 10000) / 10000,
     }))
     .sort((a, b) => b.stdout_chars - a.stdout_chars)
-    .slice(0, 15);
-
-  const sigMap = new Map<string, { traces: Set<string>; exits: Set<string> }>();
-  for (const { row, p } of parsed) {
-    const sig = normalizeCommandKeyForLoop(p.commandKey).slice(0, 200);
-    if (!sig) {
-      continue;
-    }
-    const tid = String(row.trace_id ?? "");
-    if (!sigMap.has(sig)) {
-      sigMap.set(sig, { traces: new Set(), exits: new Set() });
-    }
-    const e = sigMap.get(sig)!;
-    if (tid) {
-      e.traces.add(tid);
-    }
-    e.exits.add(String(p.exitCode ?? (p.success === false ? "err" : p.success === true ? "ok" : "?")));
-  }
-  const idempotency_samples = [...sigMap.entries()]
-    .filter(([, v]) => v.traces.size >= 2 && v.exits.size >= 2)
-    .map(([command_key, v]) => ({
-      command_key,
-      traces: v.traces.size,
-      outcomes: v.exits.size,
-    }))
-    .sort((a, b) => b.traces - a.traces)
-    .slice(0, 10);
+    .slice(0, options.tokenRiskMaxItems);
 
   const readLike = (cmd: string) => {
-    const t = cmd.trim().split(/[\s;&|]+/)[0]?.toLowerCase() ?? "";
-    return ["cat", "head", "tail", "less", "grep", "rg", "find"].includes(t.replace(/^\.\//, ""));
+    const t = cmd.trim().split(/[\s;&|]+/)[0]?.toLowerCase().replace(/^\.\//, "") ?? "";
+    const normalized = options.config.shellExec.commandSemantics.aliases[t] ?? t;
+    return options.config.shellExec.commandSemantics.readLikeCommands.includes(normalized);
   };
   const redundantMap = new Map<string, number>();
   for (const { row, p } of parsed) {
@@ -584,7 +536,6 @@ export function computeShellSummaryFromRows(
     loop_alerts: loopTop,
     token_risks,
     diagnostics: diag,
-    idempotency_samples,
     chain_preview,
     redundant_read_hints,
   };
@@ -636,7 +587,15 @@ export function queryShellExecSummary(
     rows = [];
   }
   const slice = rows;
-  const summary = computeShellSummaryFromRows(slice, { capped });
+  const config = loadResourceAuditConfig();
+  const summary = computeShellSummaryFromRows(slice, {
+    capped,
+    loopAlertMinRepeatCount: config.shellExec.loopAlerts.minRepeatCount,
+    loopAlertMaxItems: config.shellExec.loopAlerts.maxItems,
+    tokenRiskStdoutChars: config.shellExec.tokenRisks.stdoutCharsThreshold,
+    tokenRiskMaxItems: config.shellExec.tokenRisks.maxItems,
+    config,
+  });
 
   if (summary.chain_preview?.trace_id) {
     const tid = summary.chain_preview.trace_id;
@@ -692,6 +651,8 @@ export function queryShellExecList(db: Database.Database, q: ShellExecListQuery)
   }
 
   const raw = fetchShellRowsBySpanIds(db, pageIds);
+  const config = loadResourceAuditConfig();
+  const tokenRiskStdoutChars = config.shellExec.tokenRisks.stdoutCharsThreshold;
   const items = raw.map((row) => {
     const parsed = parseShellSpanRow({
       input_json: row.input_json != null ? String(row.input_json) : null,
@@ -699,7 +660,7 @@ export function queryShellExecList(db: Database.Database, q: ShellExecListQuery)
       error_info_json: row.error_info_json != null ? String(row.error_info_json) : null,
       metadata_json: row.metadata_json != null ? String(row.metadata_json) : null,
       thread_metadata_json: row.thread_metadata_json != null ? String(row.thread_metadata_json) : null,
-    });
+    }, config, { tokenRiskStdoutChars });
     return { ...row, parsed: toParsedShellSpanLite(parsed) };
   });
   return { items, total };
@@ -719,12 +680,14 @@ WHERE s.span_id = ? AND ${SHELL_TOOL_WHERE_SQL}`,
   if (!row) {
     return null;
   }
+  const config = loadResourceAuditConfig();
+  const tokenRiskStdoutChars = config.shellExec.tokenRisks.stdoutCharsThreshold;
   const parsed = parseShellSpanRow({
     input_json: row.input_json != null ? String(row.input_json) : null,
     output_json: row.output_json != null ? String(row.output_json) : null,
     error_info_json: row.error_info_json != null ? String(row.error_info_json) : null,
     metadata_json: row.metadata_json != null ? String(row.metadata_json) : null,
     thread_metadata_json: row.thread_metadata_json != null ? String(row.thread_metadata_json) : null,
-  });
+  }, config, { tokenRiskStdoutChars });
   return { ...row, parsed };
 }

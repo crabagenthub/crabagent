@@ -6,6 +6,7 @@ import { Space, Spin, Tag, Typography } from "@arco-design/web-react";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { loadResourceAuditEvents, type ResourceAuditEventRow } from "@/lib/resource-audit-records";
 import { loadSecurityAuditEvents, parseSecurityAuditFindings } from "@/lib/security-audit-records";
+import { LocalizedLink } from "@/shared/components/localized-link";
 import { formatShortId } from "@/lib/utils";
 
 type Props = {
@@ -148,12 +149,12 @@ export function SpanInspectAuditBridge({ baseUrl, apiKey, traceId, spanId, open 
             </div>
             <ResourceFlags row={ra} tRa={tRa} />
             <div className="mt-2">
-              <Link
+              <LocalizedLink
                 href={`/resource-audit?trace_id=${encodeURIComponent(traceId)}`}
                 className="text-xs font-medium text-primary underline-offset-2 hover:underline"
               >
                 {tTr("spanInspectOpenResourceAudit")}
-              </Link>
+              </LocalizedLink>
             </div>
           </div>
         ) : (

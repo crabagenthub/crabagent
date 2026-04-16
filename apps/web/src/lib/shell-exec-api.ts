@@ -18,6 +18,7 @@ export type ShellParsedLite = {
   cwd: string | null;
   userId: string | null;
   host: string | null;
+  platform: "unix" | "windows_cmd" | "powershell";
 };
 
 export type ShellExecDbSnapshot = {
@@ -57,7 +58,6 @@ export type ShellExecSummary = {
     permission_denied: number;
     illegal_arg_hint: number;
   };
-  idempotency_samples: { command_key: string; traces: number; outcomes: number }[];
   chain_preview: { trace_id: string; steps: { kind: string; name: string }[] } | null;
   redundant_read_hints: { trace_id: string; command: string; repeats: number }[];
   /** 全库统计（不受当前时间窗影响），用于排查错库 / 时间窗 / 规则 */

@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Input,
+  Message,
   Pagination,
   Popover,
   Select,
@@ -32,6 +33,7 @@ import { TraceRecordInspectDialog } from "@/features/observe/traces/components/t
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
+import { LocalizedLink } from "@/shared/components/localized-link";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import {
@@ -67,6 +69,7 @@ import {
 import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
+import { buildAuditLink } from "@/lib/audit-linkage";
 
 type ResourceAuditViewKind = "metrics" | "details";
 
@@ -138,6 +141,14 @@ function flagLabel(
       return t("flagSensitivePath");
     case "pii_hint":
       return t("flagPiiHint");
+    case "secret_hint":
+      return t("flagSecretHint");
+    case "credential_hint":
+      return t("flagCredentialHint");
+    case "config_hint":
+      return t("flagConfigHint");
+    case "database_hint":
+      return t("flagDatabaseHint");
     case "large_read":
       return t("flagLargeRead");
     case "redundant_read":
@@ -153,6 +164,12 @@ function flagColor(f: string): string {
   }
   if (f === "pii_hint") {
     return "orangered";
+  }
+  if (f === "secret_hint" || f === "credential_hint") {
+    return "red";
+  }
+  if (f === "config_hint" || f === "database_hint") {
+    return "purple";
   }
   if (f === "large_read") {
     return "orange";
@@ -313,6 +330,15 @@ export function ResourceAuditDashboard() {
   const pathname = usePathname();
   const router = useRouter();
   const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
+  const spanFromUrl = searchParams.get("span_id")?.trim() ?? "";
+  const uriPrefixFromUrl = searchParams.get("uri_prefix")?.trim() ?? "";
+  const hintTypeFromUrl = searchParams.get("hint_type")?.trim() ?? "";
+  const policyIdFromUrl = searchParams.get("policy_id")?.trim() ?? "";
+  const riskOnlyFromUrl = searchParams.get("risk_only") === "1";
+  const riskFlagFromUrl = searchParams.get("risk_flag")?.trim() ?? "";
+  const p95SlowFromUrl = searchParams.get("p95_slow") === "1";
+  const sortModeFromUrl = searchParams.get("sort_mode")?.trim() ?? "";
+  const spanNameFromUrl = searchParams.get("span_name")?.trim() ?? "";
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -322,6 +348,15 @@ export function ResourceAuditDashboard() {
   const [semanticClass, setSemanticClass] = useState<ResourceAuditSemanticClassParam>("all");
   const [uriPrefix, setUriPrefix] = useState("");
   const [uriPrefixDraft, setUriPrefixDraft] = useState("");
+  const [sortMode, setSortMode] = useState<"time_desc" | "risk_first" | "chars_desc">(
+    sortModeFromUrl === "risk_first" || sortModeFromUrl === "chars_desc" ? (sortModeFromUrl as "risk_first" | "chars_desc") : "time_desc",
+  );
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [reviewedSpanIds, setReviewedSpanIds] = useState<Set<string>>(new Set());
+  const [riskOnly, setRiskOnly] = useState(riskOnlyFromUrl);
+  const [riskFlagFilter, setRiskFlagFilter] = useState<string>(riskFlagFromUrl);
+  const [p95SlowOnly, setP95SlowOnly] = useState(p95SlowFromUrl);
+  const [spanNameFilter, setSpanNameFilter] = useState(spanNameFromUrl);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
@@ -343,6 +378,14 @@ export function ResourceAuditDashboard() {
     const stored = readStoredPageSize(50);
     setPageSize(stored);
   }, []);
+
+  useEffect(() => {
+    if (!uriPrefixFromUrl) {
+      return;
+    }
+    setUriPrefix(uriPrefixFromUrl);
+    setUriPrefixDraft(uriPrefixFromUrl);
+  }, [uriPrefixFromUrl]);
 
   useEffect(() => {
     const onSettings = () => {
@@ -367,14 +410,19 @@ export function ResourceAuditDashboard() {
       limit: pageSize,
       offset: (page - 1) * pageSize,
       order: "desc" as const,
+      sort_mode: sortMode,
       search: search.trim() || undefined,
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
       semantic_class: semanticClass,
       uri_prefix: uriPrefix.trim() || undefined,
       trace_id: traceFromUrl || undefined,
+      span_id: spanFromUrl || undefined,
+      hint_type: hintTypeFromUrl || undefined,
+      policy_id: policyIdFromUrl || undefined,
+      span_name: spanNameFilter.trim() || undefined,
     }),
-    [page, pageSize, search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl],
+    [page, pageSize, sortMode, search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl, spanNameFilter],
   );
 
   const statsParams = useMemo(
@@ -385,8 +433,11 @@ export function ResourceAuditDashboard() {
       semantic_class: semanticClass,
       uri_prefix: uriPrefix.trim() || undefined,
       trace_id: traceFromUrl || undefined,
+      span_id: spanFromUrl || undefined,
+      hint_type: hintTypeFromUrl || undefined,
+      policy_id: policyIdFromUrl || undefined,
     }),
-    [search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl],
+    [search, sinceMs, untilMs, semanticClass, uriPrefix, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl],
   );
 
   const enabled = mounted && baseUrl.trim().length > 0;
@@ -478,6 +529,46 @@ export function ResourceAuditDashboard() {
     [pathname, router, searchParams],
   );
 
+  const setHintTypeFilterUrl = useCallback(
+    (hintType: string) => {
+      const p = new URLSearchParams(searchParams.toString());
+      const next = hintType.trim();
+      if (next) {
+        p.set("hint_type", next);
+      } else {
+        p.delete("hint_type");
+      }
+      const qs = p.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+      setPage(1);
+    },
+    [pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    const p = new URLSearchParams(searchParams.toString());
+    const hasAnyScopedFilter =
+      riskOnly || Boolean(riskFlagFilter.trim()) || p95SlowOnly || sortMode !== "time_desc" || Boolean(spanNameFilter.trim());
+    if (riskOnly) p.set("risk_only", "1");
+    else p.delete("risk_only");
+    if (riskFlagFilter.trim()) p.set("risk_flag", riskFlagFilter.trim());
+    else p.delete("risk_flag");
+    if (p95SlowOnly) p.set("p95_slow", "1");
+    else p.delete("p95_slow");
+    if (sortMode && sortMode !== "time_desc") p.set("sort_mode", sortMode);
+    else p.delete("sort_mode");
+    if (spanNameFilter.trim()) p.set("span_name", spanNameFilter.trim());
+    else p.delete("span_name");
+    if (hasAnyScopedFilter) p.set("source", "resource");
+    else if (p.get("source") === "resource") p.delete("source");
+    const qs = p.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    if (target !== current) {
+      router.replace(target);
+    }
+  }, [riskOnly, riskFlagFilter, p95SlowOnly, sortMode, spanNameFilter, pathname, router, searchParams]);
+
   const openTraceInspectAtSpan = useCallback(
     async (row: ResourceAuditEventRow) => {
       const traceId = row.trace_id?.trim();
@@ -515,10 +606,39 @@ export function ResourceAuditDashboard() {
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
+        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
+        dataIndex: "trace_id",
+        fixed: "left",
+        width: 120,
+        render: (_: unknown, row: ResourceAuditEventRow) => (
+          <Button
+            type="text"
+            size="mini"
+            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+            onClick={() => {
+              void openTraceInspectAtSpan(row);
+            }}
+          >
+            {formatShortId(row.span_id)}
+          </Button>
+        ),
+      },
+      {
+        title: <ColHintTitle label={t("colExecType")} hint={t("colExecTypeHint")} />,
+        dataIndex: "span_name",
+        key: "span_name",
+        width: 120,
+        ellipsis: true,
+        render: (name: string) => (
+          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+            {name || "—"}
+          </Typography.Text>
+        ),
+      },
+      {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
         key: "resource_uri",
-        fixed: "left",
         width: 280,
         render: (uri: string) => {
           const displayUri = formatMemorySearchUriForDisplay(uri);
@@ -565,18 +685,6 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: <ColHintTitle label={t("colExecType")} hint={t("colExecTypeHint")} />,
-        dataIndex: "span_name",
-        key: "span_name",
-        width: 120,
-        ellipsis: true,
-        render: (name: string) => (
-          <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-            {name || "—"}
-          </Typography.Text>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colAgent")} hint={t("colAgentHint")} />,
         dataIndex: "agent_name",
         width: 120,
@@ -605,23 +713,6 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
-        dataIndex: "trace_id",
-        width: 120,
-        render: (_: unknown, row: ResourceAuditEventRow) => (
-          <Button
-            type="text"
-            size="mini"
-            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-            onClick={() => {
-              void openTraceInspectAtSpan(row);
-            }}
-          >
-            {formatShortId(row.span_id)}
-          </Button>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colLinkage")} hint={t("colLinkageHint")} />,
         width: 168,
         render: (_: unknown, row: ResourceAuditEventRow) => (
@@ -633,6 +724,23 @@ export function ResourceAuditDashboard() {
               onClick={() => setTraceFilterUrl(row.trace_id)}
             >
               {t("filterSameTrace")}
+            </Button>
+            <Button
+              type="text"
+              size="mini"
+              className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+              onClick={() =>
+                router.push(
+                  buildAuditLink("/data-security", {
+                    source: "resource",
+                    trace_id: row.trace_id,
+                    span_id: row.span_id,
+                    uri_prefix: row.resource_uri || undefined,
+                  }),
+                )
+              }
+            >
+              {t("openSecurityAudit")}
             </Button>
           </Space>
         ),
@@ -652,7 +760,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, openTraceInspectAtSpan, setTraceFilterUrl, traceMetaById],
+    [t, openTraceInspectAtSpan, setTraceFilterUrl, traceMetaById, router],
   );
 
   const dailyRows = useMemo(() => {
@@ -690,6 +798,10 @@ export function ResourceAuditDashboard() {
     const rows = [
       { name: t("flagSensitivePath"), value: s.risk_sensitive_path },
       { name: t("flagPiiHint"), value: s.risk_pii_hint },
+      { name: t("flagSecretHint"), value: s.risk_secret_hint },
+      { name: t("flagCredentialHint"), value: s.risk_credential_hint },
+      { name: t("flagConfigHint"), value: s.risk_config_hint },
+      { name: t("flagDatabaseHint"), value: s.risk_database_hint },
       { name: t("flagLargeRead"), value: s.risk_large_read },
       { name: t("flagRedundantRead"), value: s.risk_redundant_read },
     ];
@@ -710,6 +822,88 @@ export function ResourceAuditDashboard() {
       "#7c3aed",
     );
   }, [statsQ.data?.top_tools, t]);
+
+  const classChartEvents = useMemo(
+    () => ({
+      click: (params: unknown) => {
+        const name = String((params as { name?: unknown })?.name ?? "");
+        const match = (statsQ.data?.class_distribution ?? []).find((c) => classLabel(t, c.semantic_class) === name);
+        if (match) {
+          setSemanticClass((match.semantic_class as ResourceAuditSemanticClassParam) ?? "all");
+          setViewKind("details");
+        }
+      },
+    }),
+    [statsQ.data?.class_distribution, t],
+  );
+
+  const riskChartEvents = useMemo(
+    () => ({
+      click: (params: unknown) => {
+        const name = String((params as { name?: unknown })?.name ?? "");
+        const entries: Array<{ label: string; flag: string }> = [
+          { label: t("flagSensitivePath"), flag: "sensitive_path" },
+          { label: t("flagPiiHint"), flag: "pii_hint" },
+          { label: t("flagSecretHint"), flag: "secret_hint" },
+          { label: t("flagCredentialHint"), flag: "credential_hint" },
+          { label: t("flagConfigHint"), flag: "config_hint" },
+          { label: t("flagDatabaseHint"), flag: "database_hint" },
+          { label: t("flagLargeRead"), flag: "large_read" },
+          { label: t("flagRedundantRead"), flag: "redundant_read" },
+        ];
+        const found = entries.find((x) => x.label === name);
+        if (found) {
+          setRiskOnly(true);
+          setRiskFlagFilter(found.flag);
+          if (found.flag.endsWith("_hint")) {
+            setHintTypeFilterUrl(found.flag);
+          } else {
+            setHintTypeFilterUrl("");
+          }
+          setViewKind("details");
+        }
+      },
+    }),
+    [t, setHintTypeFilterUrl],
+  );
+
+  const toolsChartEvents = useMemo(
+    () => ({
+      click: (params: unknown) => {
+        const name = String((params as { name?: unknown })?.name ?? "");
+        if (name) {
+          setSpanNameFilter(name);
+          setViewKind("details");
+        }
+      },
+    }),
+    [],
+  );
+
+  const p95DurationMs = useMemo(() => {
+    const rows = eventsQ.data?.items ?? [];
+    const dur = rows
+      .map((r) => r.duration_ms)
+      .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+      .sort((a, b) => a - b);
+    if (dur.length === 0) return null;
+    const idx = Math.max(0, Math.min(dur.length - 1, Math.floor(0.95 * (dur.length - 1))));
+    return dur[idx] ?? null;
+  }, [eventsQ.data?.items]);
+
+  const filteredDetailItems = useMemo(() => {
+    const rows = eventsQ.data?.items ?? [];
+    return rows.filter((row) => {
+      const flags = row.risk_flags ?? [];
+      if (riskOnly && flags.length === 0) return false;
+      if (riskFlagFilter && !flags.includes(riskFlagFilter)) return false;
+      if (p95SlowOnly && p95DurationMs != null) {
+        const d = row.duration_ms ?? 0;
+        if (d < p95DurationMs) return false;
+      }
+      return true;
+    });
+  }, [eventsQ.data?.items, riskOnly, riskFlagFilter, p95SlowOnly, p95DurationMs]);
 
   const topDurationEventRows = useMemo(() => {
     const rows = (eventsQ.data?.items ?? [])
@@ -826,12 +1020,19 @@ export function ResourceAuditDashboard() {
               <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
                 {t("sectionKpi")}
               </Typography.Title>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <ResourceKpiCard
-                  title={t("kpiTotalEvents")}
-                  hint={t("kpiTotalEventsHint")}
-                  value={summary ? summary.total_events.toLocaleString() : "—"}
-                  onView={() => setViewKind("details")}
+                  title={t("kpiTotalEventsMerged")}
+                  hint={t("kpiTotalEventsMergedHint")}
+                  value={
+                    summary
+                      ? `${summary.total_events.toLocaleString()} / ${summary.distinct_traces.toLocaleString()}`
+                      : "—"
+                  }
+                  onView={() => {
+                    setSortMode("time_desc");
+                    setViewKind("details");
+                  }}
                   momLabel={t("kpiMom")}
                   mom={
                     summary && prevStatsQ.data
@@ -844,31 +1045,87 @@ export function ResourceAuditDashboard() {
                   }
                 />
                 <ResourceKpiCard
-                  title={t("kpiDistinctTraces")}
-                  hint={t("kpiDistinctTracesHint")}
-                  value={summary ? summary.distinct_traces.toLocaleString() : "—"}
-                  onView={() => setViewKind("details")}
+                  title={t("kpiSensitivePath")}
+                  hint={t("kpiSensitivePathHint")}
+                  value={
+                    summary
+                      ? `${summary.risk_sensitive_path.toLocaleString()} / ${summary.risk_any.toLocaleString()}`
+                      : "—"
+                  }
+                  onView={() => {
+                    setRiskOnly(true);
+                    setRiskFlagFilter("sensitive_path");
+                    setHintTypeFilterUrl("");
+                    setSortMode("risk_first");
+                    setViewKind("details");
+                  }}
                   momLabel={t("kpiMom")}
                   mom={
                     summary && prevStatsQ.data
-                      ? prevStatsQ.data.summary.distinct_traces > 0
-                        ? ((summary.distinct_traces - prevStatsQ.data.summary.distinct_traces) / prevStatsQ.data.summary.distinct_traces) * 100
-                        : summary.distinct_traces > 0
+                      ? prevStatsQ.data.summary.risk_any > 0
+                        ? ((summary.risk_any - prevStatsQ.data.summary.risk_any) /
+                            prevStatsQ.data.summary.risk_any) *
+                          100
+                        : summary.risk_any > 0
                           ? 100
                           : null
                       : null
                   }
                 />
                 <ResourceKpiCard
-                  title={t("kpiRiskAny")}
-                  hint={t("kpiRiskAnyHint")}
-                  value={summary ? summary.risk_any.toLocaleString() : "—"}
-                  onView={() => setViewKind("details")}
+                  title={t("kpiSensitiveInfo")}
+                  hint={t("kpiSensitiveInfoHint")}
+                  value={
+                    summary
+                      ? `${(
+                          summary.risk_secret_hint +
+                          summary.risk_pii_hint +
+                          summary.risk_credential_hint
+                        ).toLocaleString()} / ${summary.risk_any.toLocaleString()}`
+                      : "—"
+                  }
+                  onView={() => {
+                    setRiskOnly(true);
+                    setRiskFlagFilter("");
+                    setHintTypeFilterUrl("");
+                    setSortMode("risk_first");
+                    setViewKind("details");
+                  }}
                   momLabel={t("kpiMom")}
                   mom={
                     summary && prevStatsQ.data
                       ? prevStatsQ.data.summary.risk_any > 0
-                        ? ((summary.risk_any - prevStatsQ.data.summary.risk_any) / prevStatsQ.data.summary.risk_any) * 100
+                        ? ((summary.risk_any - prevStatsQ.data.summary.risk_any) /
+                            prevStatsQ.data.summary.risk_any) *
+                          100
+                        : summary.risk_any > 0
+                          ? 100
+                          : null
+                      : null
+                  }
+                />
+                <ResourceKpiCard
+                  title={t("kpiLargeRead")}
+                  hint={t("kpiLargeReadHint")}
+                  value={
+                    summary
+                      ? `${summary.risk_large_read.toLocaleString()} / ${summary.risk_any.toLocaleString()}`
+                      : "—"
+                  }
+                  onView={() => {
+                    setRiskOnly(true);
+                    setRiskFlagFilter("large_read");
+                    setHintTypeFilterUrl("");
+                    setSortMode("risk_first");
+                    setViewKind("details");
+                  }}
+                  momLabel={t("kpiMom")}
+                  mom={
+                    summary && prevStatsQ.data
+                      ? prevStatsQ.data.summary.risk_any > 0
+                        ? ((summary.risk_any - prevStatsQ.data.summary.risk_any) /
+                            prevStatsQ.data.summary.risk_any) *
+                          100
                         : summary.risk_any > 0
                           ? 100
                           : null
@@ -977,7 +1234,7 @@ export function ResourceAuditDashboard() {
                   <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
                     {classPieOpt ? (
                       <div className="h-[260px] w-full min-w-0">
-                        <ReactEChart option={classPieOpt} />
+                        <ReactEChart option={classPieOpt} onEvents={classChartEvents} />
                       </div>
                     ) : (
                       <Space direction="vertical" size={8} className="w-full py-4">
@@ -999,7 +1256,7 @@ export function ResourceAuditDashboard() {
                   <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
                     {riskBarOpt ? (
                       <div className="h-[200px] w-full min-w-0">
-                        <ReactEChart option={riskBarOpt} />
+                        <ReactEChart option={riskBarOpt} onEvents={riskChartEvents} />
                       </div>
                     ) : (
                       <Typography.Text type="secondary" className="text-sm">
@@ -1011,7 +1268,7 @@ export function ResourceAuditDashboard() {
                   <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
                     {toolsBarOpt ? (
                       <div className="h-[240px] w-full min-w-0">
-                        <ReactEChart option={toolsBarOpt} />
+                        <ReactEChart option={toolsBarOpt} onEvents={toolsChartEvents} />
                       </div>
                     ) : (
                       <Typography.Text type="secondary" className="text-sm">
@@ -1069,21 +1326,96 @@ export function ResourceAuditDashboard() {
                 <Select.Option value="memory">{t("classMemory")}</Select.Option>
                 <Select.Option value="tool_io">{t("classToolIo")}</Select.Option>
               </Select>
+              <Select
+                size="small"
+                style={{ width: 170 }}
+                value={sortMode}
+                onChange={(v) => {
+                  setSortMode((v as "time_desc" | "risk_first" | "chars_desc") ?? "time_desc");
+                  setPage(1);
+                }}
+              >
+                <Select.Option value="time_desc">{t("sortTimeDesc")}</Select.Option>
+                <Select.Option value="risk_first">{t("sortRiskFirst")}</Select.Option>
+                <Select.Option value="chars_desc">{t("sortCharsDesc")}</Select.Option>
+              </Select>
+              {spanNameFilter ? (
+                <Button size="small" type="outline" onClick={() => setSpanNameFilter("")}>
+                  {`Tool: ${spanNameFilter}`}
+                </Button>
+              ) : null}
             </Space>
           </div>
 
-          {traceFromUrl ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
-              <Tag color="arcoblue" size="small">
-                {t("activeTraceFilter", { id: formatShortId(traceFromUrl) })}
-              </Tag>
-              <LocalizedLink
-                href={`/traces?trace=${encodeURIComponent(traceFromUrl)}`}
-                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="mini"
+              type={riskOnly ? "primary" : "outline"}
+              onClick={() => setRiskOnly((v) => !v)}
+            >
+              {t("chipRiskOnly")}
+            </Button>
+            {[
+              "sensitive_path",
+              "pii_hint",
+              "secret_hint",
+              "credential_hint",
+              "config_hint",
+              "database_hint",
+              "large_read",
+              "redundant_read",
+            ].map((flag) => (
+              <Button
+                key={flag}
+                size="mini"
+                type={riskFlagFilter === flag ? "primary" : "outline"}
+                onClick={() => setRiskFlagFilter((v) => (v === flag ? "" : flag))}
               >
-                {t("openTraceListForFilter")}
-              </LocalizedLink>
-              <Button type="outline" size="mini" onClick={() => setTraceFilterUrl("")}>
+                {flagLabel(t, flag)}
+              </Button>
+            ))}
+            <Button
+              size="mini"
+              type={p95SlowOnly ? "primary" : "outline"}
+              onClick={() => setP95SlowOnly((v) => !v)}
+            >
+              {t("chipP95Slow")}
+            </Button>
+          </div>
+
+          {traceFromUrl || spanFromUrl || hintTypeFromUrl || policyIdFromUrl || uriPrefixFromUrl ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              {traceFromUrl ? (
+                <Tag color="arcoblue" size="small">
+                  {t("activeTraceFilter", { id: formatShortId(traceFromUrl) })}
+                </Tag>
+              ) : null}
+              {spanFromUrl ? <Tag color="purple" size="small">{`span:${formatShortId(spanFromUrl)}`}</Tag> : null}
+              {hintTypeFromUrl ? <Tag color="orangered" size="small">{`hint:${hintTypeFromUrl}`}</Tag> : null}
+              {policyIdFromUrl ? <Tag color="magenta" size="small">{`policy:${formatShortId(policyIdFromUrl)}`}</Tag> : null}
+              {uriPrefixFromUrl ? <Tag color="gold" size="small">{`uri:${maskUri(uriPrefixFromUrl)}`}</Tag> : null}
+              {traceFromUrl ? (
+                <LocalizedLink
+                  href={`/traces?trace=${encodeURIComponent(traceFromUrl)}`}
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {t("openTraceListForFilter")}
+                </LocalizedLink>
+              ) : null}
+              <Button
+                type="outline"
+                size="mini"
+                onClick={() => {
+                  const p = new URLSearchParams(searchParams.toString());
+                  p.delete("trace_id");
+                  p.delete("span_id");
+                  p.delete("hint_type");
+                  p.delete("policy_id");
+                  p.delete("uri_prefix");
+                  const qs = p.toString();
+                  router.replace(qs ? `${pathname}?${qs}` : pathname);
+                }}
+              >
                 {t("clearTraceFilter")}
               </Button>
             </div>
@@ -1099,6 +1431,73 @@ export function ResourceAuditDashboard() {
             </div>
           ) : (
             <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="mini"
+                  type="outline"
+                  disabled={selectedRowKeys.length === 0}
+                  onClick={() => {
+                    setReviewedSpanIds((prev) => {
+                      const next = new Set(prev);
+                      for (const id of selectedRowKeys) next.add(id);
+                      return next;
+                    });
+                  }}
+                >
+                  {t("bulkMarkReviewed")}
+                </Button>
+                <Button
+                  size="mini"
+                  type="outline"
+                  disabled={reviewedSpanIds.size === 0}
+                  onClick={() => setReviewedSpanIds(new Set())}
+                >
+                  {t("bulkClearReviewed")}
+                </Button>
+                <Button
+                  size="mini"
+                  type="outline"
+                  disabled={selectedRowKeys.length === 0}
+                  onClick={() => {
+                    const rows = (filteredDetailItems ?? []).filter((r) => selectedRowKeys.includes(r.span_id));
+                    const csv = [
+                      "trace_id,span_id,resource_uri,flags",
+                      ...rows.map((r) =>
+                        [r.trace_id, r.span_id, JSON.stringify(r.resource_uri), JSON.stringify((r.risk_flags ?? []).join("|"))].join(","),
+                      ),
+                    ].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `resource-audit-selected-${Date.now()}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    Message.success(t("bulkExportSelected"));
+                  }}
+                >
+                  {t("bulkExportSelected")}
+                </Button>
+                <Button
+                  size="mini"
+                  type="outline"
+                  disabled={selectedRowKeys.length === 0}
+                  onClick={() => {
+                    const links = (filteredDetailItems ?? [])
+                      .filter((r) => selectedRowKeys.includes(r.span_id))
+                      .map((r) => `${window.location.origin}/zh-CN/traces?trace=${encodeURIComponent(r.trace_id)}`);
+                    void navigator.clipboard.writeText(links.join("\n"));
+                    Message.success(t("bulkCopyTraceLinks"));
+                  }}
+                >
+                  {t("bulkCopyTraceLinks")}
+                </Button>
+                {selectedRowKeys.length > 0 ? (
+                  <Typography.Text type="secondary" className="text-xs">
+                    {`selected ${selectedRowKeys.length}`}
+                  </Typography.Text>
+                ) : null}
+              </div>
               <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
                 <ScrollableTableFrame
                   variant="neutral"
@@ -1111,8 +1510,18 @@ export function ResourceAuditDashboard() {
                       size="small"
                       border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
                       columns={columns}
-                      data={eventsQ.data?.items ?? []}
+                      data={filteredDetailItems ?? []}
                       rowKey="span_id"
+                      rowSelection={{
+                        type: "checkbox",
+                        selectedRowKeys,
+                        onChange: (keys) => setSelectedRowKeys(keys.map((k) => String(k))),
+                      }}
+                      rowClassName={(record) =>
+                        reviewedSpanIds.has(String((record as ResourceAuditEventRow).span_id))
+                          ? "bg-emerald-50/40 dark:bg-emerald-900/10"
+                          : ""
+                      }
                       pagination={false}
                       scroll={OBSERVE_TABLE_SCROLL_X}
                       hover={true}
@@ -1123,15 +1532,24 @@ export function ResourceAuditDashboard() {
               <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
-                    from: String(eventsQ.data?.items.length ? (page - 1) * pageSize + 1 : 0),
-                    to: String(eventsQ.data?.items.length ? (page - 1) * pageSize + eventsQ.data!.items.length : 0),
-                    total: String(eventsQ.data?.total ?? 0),
+                    from: String(filteredDetailItems.length ? (page - 1) * pageSize + 1 : 0),
+                    to: String(filteredDetailItems.length ? (page - 1) * pageSize + filteredDetailItems.length : 0),
+                    total: String(riskOnly || riskFlagFilter || p95SlowOnly ? filteredDetailItems.length : (eventsQ.data?.total ?? 0)),
                   })}
                 </Typography.Text>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-medium tabular-nums text-muted-foreground">
                     {t("paginationTotalPages", {
-                      count: String(Math.max(1, Math.ceil((eventsQ.data?.total ?? 0) / pageSize) || 1)),
+                      count: String(
+                        Math.max(
+                          1,
+                          Math.ceil(
+                            (riskOnly || riskFlagFilter || p95SlowOnly
+                              ? filteredDetailItems.length
+                              : (eventsQ.data?.total ?? 0)) / pageSize,
+                          ) || 1,
+                        ),
+                      ),
                     })}
                   </span>
                   <Pagination
@@ -1139,7 +1557,7 @@ export function ResourceAuditDashboard() {
                     size="small"
                     current={page}
                     pageSize={pageSize}
-                    total={eventsQ.data?.total ?? 0}
+                    total={riskOnly || riskFlagFilter || p95SlowOnly ? filteredDetailItems.length : (eventsQ.data?.total ?? 0)}
                     onChange={(nextPage, nextPageSize) => {
                       if (nextPageSize && nextPageSize !== pageSize) {
                         setPageSize(nextPageSize);

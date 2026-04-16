@@ -1,7 +1,12 @@
 import type Database from "better-sqlite3";
+import {
+  RESOURCE_AUDIT_HINT_TYPES,
+  loadResourceAuditConfig,
+  type ResourceAuditConfig,
+  type ResourceAuditHintType,
+} from "./resource-audit-config.js";
 
-/** 与 apps/web span-insights 大文件阈值对齐（字符量级）。 */
-export const RESOURCE_AUDIT_LARGE_CHARS = 500_000;
+export const POLICY_HIT_UNTYPED = "policy_hit_untyped";
 
 export type ResourceAuditSemanticFilter = "all" | "file" | "memory" | "tool_io";
 
@@ -19,6 +24,10 @@ export type ResourceAuditListQuery = {
   /** 仅某个 Span */
   span_id?: string;
   workspace_name?: string;
+  hint_type?: string;
+  policy_id?: string;
+  sort_mode?: "time_desc" | "risk_first" | "chars_desc";
+  span_name?: string;
 };
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
@@ -67,26 +76,9 @@ function sqlLikelyFileCommandPredicate(alias: string): string {
   )`;
 }
 
-/** 与 `sensitivePathFlags` 对齐的 URI 条件（用于聚合统计）。 */
-function sqlSensitiveUriPredicate(uriExpr: string): string {
-  const u = `lower(${uriExpr})`;
-  return `(
-    instr(${u}, '/etc/') > 0 OR ${u} LIKE '/etc%'
-    OR instr(${u}, '.ssh') > 0 OR instr(${u}, 'id_rsa') > 0 OR instr(${u}, 'id_ed25519') > 0
-    OR instr(${u}, '.env') > 0 OR ${u} LIKE '%.pem' OR instr(${u}, 'private.key') > 0
-  )`;
-}
-
-/** 与 `piiHintFlags` 对齐：metadata.resource.snippet 与 output 前缀。 */
-function sqlPiiHintPredicate(): string {
-  const snip = `COALESCE(json_extract(s.metadata_json, '$.resource.snippet'), '')`;
-  const outPfx = `substr(COALESCE(s.output_json, ''), 1, 4096)`;
-  const hits = (field: string) => `(
-    instr(upper(${field}), 'API_KEY') > 0 OR instr(upper(${field}), 'APIKEY') > 0
-    OR instr(upper(${field}), 'PASSWORD') > 0 OR instr(upper(${field}), 'SECRET_KEY') > 0
-    OR instr(upper(${field}), 'PRIVATE_KEY') > 0
-  )`;
-  return `(${hits(snip)} OR ${hits(outPfx)})`;
+function normalizePathLike(v: string, caseInsensitive: boolean): string {
+  const s = v.replaceAll("/", "\\").trim();
+  return caseInsensitive ? s.toLowerCase() : s;
 }
 
 function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[] } {
@@ -142,6 +134,35 @@ function buildWhere(q: ResourceAuditListQuery): { sql: string; params: unknown[]
     parts.push(`s.span_id = ?`);
     params.push(spanId);
   }
+  const spanName = q.span_name?.trim();
+  if (spanName) {
+    parts.push(`lower(COALESCE(s.name, '')) = lower(?)`);
+    params.push(spanName);
+  }
+  const hintType = q.hint_type?.trim();
+  if (hintType) {
+    parts.push(`EXISTS (
+      SELECT 1
+      FROM security_audit_logs sal
+      JOIN json_each(sal.findings_json) j
+      WHERE sal.trace_id = s.trace_id
+        AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+        AND lower(COALESCE(json_extract(j.value, '$.hint_type'), '')) = lower(?)
+    )`);
+    params.push(hintType);
+  }
+  const policyId = q.policy_id?.trim();
+  if (policyId) {
+    parts.push(`EXISTS (
+      SELECT 1
+      FROM security_audit_logs sal
+      JOIN json_each(sal.findings_json) j
+      WHERE sal.trace_id = s.trace_id
+        AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+        AND COALESCE(json_extract(j.value, '$.policy_id'), '') = ?
+    )`);
+    params.push(policyId);
+  }
 
   const sc = q.semantic_class ?? "all";
   if (sc === "file") {
@@ -172,32 +193,64 @@ function semanticClassFromRow(meta: Record<string, unknown>, spanType: string): 
   return "other";
 }
 
-export function sensitivePathFlags(uri: string): string[] {
-  const u = uri.toLowerCase();
-  const flags: string[] = [];
-  if (u.includes("/etc/") || u.startsWith("/etc")) {
-    flags.push("sensitive_path");
+function policyHintFlags(
+  r: Record<string, unknown>,
+  config: ResourceAuditConfig,
+): string[] {
+  if (!config.policyLink.enabled) {
+    return [];
   }
-  if (u.includes(".ssh") || u.includes("id_rsa") || u.includes("id_ed25519")) {
-    flags.push("sensitive_path");
+  const raw = String(r.policy_hint_flags ?? "").trim();
+  if (!raw) {
+    return config.policyHintTypes.includeUnlabeledPolicyHit &&
+      String(r.policy_hit_any ?? "0") === "1"
+      ? [POLICY_HIT_UNTYPED]
+      : [];
+  }
+  const allowed = new Set(config.policyHintTypes.enabledHintTypes);
+  const out: string[] = [];
+  for (const x of raw.split(",")) {
+    const n = x.trim() as ResourceAuditHintType;
+    if ((RESOURCE_AUDIT_HINT_TYPES as readonly string[]).includes(n) && allowed.has(n)) {
+      out.push(n);
+    }
+  }
+  if (out.length === 0 && config.policyHintTypes.includeUnlabeledPolicyHit && String(r.policy_hit_any ?? "0") === "1") {
+    out.push(POLICY_HIT_UNTYPED);
+  }
+  return out;
+}
+
+export function sensitivePathFlags(uri: string, config: ResourceAuditConfig): string[] {
+  const caseInsensitive = config.dangerousPathRules.caseInsensitive;
+  const u = normalizePathLike(uri, caseInsensitive);
+  const flags: string[] = [];
+  for (const pref of [
+    ...config.dangerousPathRules.posixPrefixes,
+    ...config.dangerousPathRules.windowsPrefixes,
+  ]) {
+    const p = normalizePathLike(pref, caseInsensitive);
+    if (!p) {
+      continue;
+    }
+    if (u.includes(p) || u.startsWith(p)) {
+      flags.push("sensitive_path");
+      break;
+    }
+  }
+  for (const regex of config.dangerousPathRules.windowsRegex) {
+    try {
+      const re = new RegExp(regex, caseInsensitive ? "i" : "");
+      if (re.test(uri)) {
+        flags.push("sensitive_path");
+        break;
+      }
+    } catch {
+      /* ignore bad regex; already validated on write */
+    }
   }
   if (u.includes(".env") || u.endsWith(".pem") || u.includes("private.key")) {
     flags.push("sensitive_path");
-  }
-  return flags;
-}
-
-export function piiHintFlags(text: string | undefined | null): string[] {
-  if (!text || text.length > 8000) {
-    return [];
-  }
-  const t = text.toUpperCase();
-  const flags: string[] = [];
-  if (t.includes("API_KEY") || t.includes("APIKEY")) {
-    flags.push("pii_hint");
-  }
-  if (t.includes("PASSWORD") || t.includes("SECRET_KEY") || t.includes("PRIVATE_KEY")) {
-    flags.push("pii_hint");
   }
   return flags;
 }
@@ -309,7 +362,10 @@ function commandPathFromParams(params: Record<string, unknown>): string {
   return "";
 }
 
-export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAuditEventJson {
+export function mapRawRowToAuditEvent(
+  r: Record<string, unknown>,
+  config: ResourceAuditConfig,
+): ResourceAuditEventJson {
   const meta = parseJsonObject(r.metadata_json != null ? String(r.metadata_json) : "{}");
   const input = parseJsonObject(r.input_json != null ? String(r.input_json) : "{}");
   const output = parseJsonObject(r.output_json != null ? String(r.output_json) : "{}");
@@ -341,13 +397,9 @@ export function mapRawRowToAuditEvent(r: Record<string, unknown>): ResourceAudit
   const uriRepeat = Number(r.uri_repeat_count ?? 0) || 0;
 
   const risk_flags: string[] = [];
-  risk_flags.push(...sensitivePathFlags(uri));
-  risk_flags.push(...piiHintFlags(snippet));
-  const outStr = typeof r.output_json === "string" ? r.output_json.slice(0, 4096) : "";
-  if (!risk_flags.includes("pii_hint")) {
-    risk_flags.push(...piiHintFlags(outStr));
-  }
-  if (chars != null && chars >= RESOURCE_AUDIT_LARGE_CHARS) {
+  risk_flags.push(...sensitivePathFlags(uri, config));
+  risk_flags.push(...policyHintFlags(r, config));
+  if (chars != null && chars >= config.largeRead.thresholdChars) {
     risk_flags.push("large_read");
   }
   if (uriRepeat > 3) {
@@ -388,6 +440,22 @@ SELECT s.span_id,
        COALESCE(NULLIF(TRIM(t.thread_id), ''), t.trace_id) AS thread_key,
        t.workspace_name,
        t.project_name,
+       (
+         SELECT GROUP_CONCAT(DISTINCT json_extract(j.value, '$.hint_type'))
+         FROM security_audit_logs sal
+         JOIN json_each(sal.findings_json) j
+         WHERE sal.trace_id = s.trace_id
+           AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+           AND COALESCE(NULLIF(TRIM(json_extract(j.value, '$.hint_type')), ''), '') <> ''
+       ) AS policy_hint_flags,
+       (
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM security_audit_logs sal2
+           WHERE sal2.trace_id = s.trace_id
+             AND COALESCE(NULLIF(TRIM(sal2.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+         ) THEN 1 ELSE 0 END
+       ) AS policy_hit_any,
        (SELECT COUNT(*)
         FROM opik_spans s2
         WHERE s2.trace_id = s.trace_id
@@ -411,9 +479,33 @@ export function queryResourceAuditEvents(db: Database.Database, q: ResourceAudit
   const order = q.order === "asc" ? "ASC" : "DESC";
   const lim = Math.min(Math.max(q.limit, 1), 500);
   const off = Math.max(q.offset, 0);
+  const config = loadResourceAuditConfig();
   const sql = `${SPAN_AUDIT_SELECT} ${whereSql} ORDER BY started_at_ms ${order}, s.span_id ${order} LIMIT ${lim} OFFSET ${off}`;
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-  return rows.map(mapRawRowToAuditEvent);
+  const events = rows.map((row) => mapRawRowToAuditEvent(row, config));
+  if (q.sort_mode === "chars_desc") {
+    return events.sort((a, b) => (b.chars ?? -1) - (a.chars ?? -1));
+  }
+  if (q.sort_mode === "risk_first") {
+    const rank = (r: ResourceAuditEventJson): number => {
+      const flags = new Set(r.risk_flags);
+      if (flags.has("sensitive_path")) return 5;
+      if (flags.has("large_read")) return 4;
+      if (flags.has("pii_hint")) return 3;
+      if (flags.has("redundant_read")) return 2;
+      if (r.risk_flags.length > 0) return 1;
+      return 0;
+    };
+    return events.sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      if (rb !== ra) return rb - ra;
+      if ((b.chars ?? -1) !== (a.chars ?? -1)) return (b.chars ?? -1) - (a.chars ?? -1);
+      if ((b.duration_ms ?? -1) !== (a.duration_ms ?? -1)) return (b.duration_ms ?? -1) - (a.duration_ms ?? -1);
+      return b.started_at_ms - a.started_at_ms;
+    });
+  }
+  return events;
 }
 
 export type ResourceAuditStatsJson = {
@@ -421,7 +513,6 @@ export type ResourceAuditStatsJson = {
     total_events: number;
     /** 至少涉及的不同 Trace（消息）条数 */
     distinct_traces: number;
-    sum_chars: number | null;
     avg_duration_ms: number | null;
     risk_sensitive_path: number;
     risk_pii_hint: number;
@@ -430,6 +521,10 @@ export type ResourceAuditStatsJson = {
     risk_redundant_read: number;
     /** 至少命中任一风险启发式的事件数（去重计数行，非标志去重） */
     risk_any: number;
+    risk_secret_hint: number;
+    risk_credential_hint: number;
+    risk_config_hint: number;
+    risk_database_hint: number;
   };
   top_resources: { uri: string; count: number; sum_chars: number | null; avg_duration_ms: number | null }[];
   class_distribution: { semantic_class: string; count: number }[];
@@ -440,36 +535,27 @@ export type ResourceAuditStatsJson = {
   }[];
   top_tools: { span_name: string; count: number }[];
   by_workspace: { workspace_name: string; count: number }[];
+  hint_type_distribution: { hint_type: string; count: number }[];
 };
 
 export function queryResourceAuditStats(db: Database.Database, q: Omit<ResourceAuditListQuery, "limit" | "offset" | "order">): ResourceAuditStatsJson {
   const baseQ: ResourceAuditListQuery = { ...q, limit: 500, offset: 0, order: "desc" };
   const { sql: whereSql, params } = buildWhere(baseQ);
   const uriExpr = sqlCoalesceResourceUri("s");
-  const sensPred = sqlSensitiveUriPredicate(uriExpr);
-  const piiPred = sqlPiiHintPredicate();
-  const largePred = `(
-    CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL) >= ${RESOURCE_AUDIT_LARGE_CHARS}
-  )`;
-  const anyRiskPred = `(${sensPred} OR ${piiPred} OR ${largePred})`;
-  const uriRepeatSub = `(SELECT COUNT(*) FROM opik_spans s2 WHERE s2.trace_id = s.trace_id AND ${sqlCoalesceResourceUri("s2")} = ${uriExpr} AND ${uriExpr} <> '' AND ${sqlCoalesceResourceUri("s2")} <> '')`;
-  const redundantPred = `(${uriRepeatSub} > 3)`;
-
-  const summarySql = `
-SELECT COUNT(*) AS n,
-       COUNT(DISTINCT s.trace_id) AS n_traces,
-       SUM(CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL)) AS sum_chars,
-       AVG(CAST(s.duration_ms AS REAL)) AS avg_dur,
-       SUM(CASE WHEN ${sensPred} THEN 1 ELSE 0 END) AS n_sens,
-       SUM(CASE WHEN ${piiPred} THEN 1 ELSE 0 END) AS n_pii,
-       SUM(CASE WHEN ${largePred} THEN 1 ELSE 0 END) AS n_large,
-       SUM(CASE WHEN ${redundantPred} THEN 1 ELSE 0 END) AS n_redundant,
-       SUM(CASE WHEN ${anyRiskPred} THEN 1 ELSE 0 END) AS n_any_risk
-FROM opik_spans s
-LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
-${whereSql}
-`;
-  const summaryRow = db.prepare(summarySql).get(...params) as Record<string, unknown>;
+  const config = loadResourceAuditConfig();
+  const summaryRows = db
+    .prepare(`${SPAN_AUDIT_SELECT} ${whereSql}`)
+    .all(...params) as Record<string, unknown>[];
+  const allEvents = summaryRows.map((row) => mapRawRowToAuditEvent(row, config));
+  const traces = new Set(allEvents.map((e) => e.trace_id).filter(Boolean));
+  const durRows = allEvents.filter((e) => e.duration_ms != null);
+  const avgDur = durRows.length > 0 ? durRows.reduce((acc, e) => acc + Number(e.duration_ms ?? 0), 0) / durRows.length : null;
+  const countByFlag = (flag: string) => allEvents.filter((e) => e.risk_flags.includes(flag)).length;
+  const riskAny = allEvents.filter((e) => e.risk_flags.length > 0).length;
+  const hintTypeDistribution = RESOURCE_AUDIT_HINT_TYPES.map((hint) => ({
+    hint_type: hint,
+    count: countByFlag(hint),
+  })).filter((x) => x.count > 0);
 
   const topSql = `
 SELECT ${uriExpr} AS uri,
@@ -542,21 +628,18 @@ LIMIT 10
 
   return {
     summary: {
-      total_events: Number(summaryRow?.n ?? 0),
-      distinct_traces: Number(summaryRow?.n_traces ?? 0),
-      sum_chars:
-        summaryRow?.sum_chars != null && String(summaryRow.sum_chars) !== ""
-          ? Number(summaryRow.sum_chars)
-          : null,
-      avg_duration_ms:
-        summaryRow?.avg_dur != null && String(summaryRow.avg_dur) !== ""
-          ? Number(summaryRow.avg_dur)
-          : null,
-      risk_sensitive_path: Number(summaryRow?.n_sens ?? 0),
-      risk_pii_hint: Number(summaryRow?.n_pii ?? 0),
-      risk_large_read: Number(summaryRow?.n_large ?? 0),
-      risk_redundant_read: Number(summaryRow?.n_redundant ?? 0),
-      risk_any: Number(summaryRow?.n_any_risk ?? 0),
+      total_events: allEvents.length,
+      distinct_traces: traces.size,
+      avg_duration_ms: avgDur,
+      risk_sensitive_path: countByFlag("sensitive_path"),
+      risk_pii_hint: countByFlag("pii_hint"),
+      risk_large_read: countByFlag("large_read"),
+      risk_redundant_read: countByFlag("redundant_read"),
+      risk_any: riskAny,
+      risk_secret_hint: countByFlag("secret_hint"),
+      risk_credential_hint: countByFlag("credential_hint"),
+      risk_config_hint: countByFlag("config_hint"),
+      risk_database_hint: countByFlag("database_hint"),
     },
     top_resources: topRows.map((r) => ({
       uri: String(r.uri ?? ""),
@@ -581,5 +664,6 @@ LIMIT 10
       workspace_name: String(r.ws ?? ""),
       count: Number(r.cnt ?? 0),
     })),
+    hint_type_distribution: hintTypeDistribution,
   };
 }

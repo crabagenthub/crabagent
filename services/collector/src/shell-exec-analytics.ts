@@ -2,6 +2,7 @@
  * 从 OpenClaw / Opik tool span 的 input/output 中解析 Shell 执行语义，
  * 用于「指令执行分析」聚合与列表（无独立 shell 表时依赖 JSON 启发式）。
  */
+import type { ResourceAuditConfig } from "./resource-audit-config.js";
 
 export type ShellCommandCategory = "file" | "network" | "system" | "process" | "package" | "other";
 
@@ -25,70 +26,25 @@ export type ParsedShellSpan = {
   envKeys: string[];
   userId: string | null;
   host: string | null;
+  platform: "unix" | "windows_cmd" | "powershell";
+  commandAst: ShellCommandAst;
 };
 
-const TOKEN_RISK_STDOUT_CHARS = 24_000;
+export type ShellCommandAstNode = {
+  kind: "command" | "pipe" | "sequence" | "and" | "or";
+  raw: string;
+  argv: string[];
+  children?: ShellCommandAstNode[];
+};
+
+export type ShellCommandAst = {
+  shell: "unix" | "windows_cmd" | "powershell";
+  nodes: ShellCommandAstNode[];
+};
+
+const TOKEN_RISK_STDOUT_CHARS_DEFAULT = 24_000;
 const TOKEN_APPROX_DIVISOR = 4;
 const USD_PER_MTOK = 0.5;
-
-const FILE_BIN = new Set([
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "find",
-  "grep",
-  "rg",
-  "fd",
-  "cp",
-  "mv",
-  "rm",
-  "mkdir",
-  "rmdir",
-  "touch",
-  "chmod",
-  "chown",
-  "stat",
-  "diff",
-  "wc",
-  "sort",
-  "uniq",
-  "tee",
-  "xargs",
-  "sed",
-  "awk",
-  "readlink",
-  "realpath",
-  "tree",
-]);
-
-const NET_BIN = new Set(["curl", "wget", "ping", "ssh", "scp", "rsync", "nc", "netcat", "telnet", "dig", "nslookup"]);
-
-const SYS_BIN = new Set([
-  "sudo",
-  "su",
-  "systemctl",
-  "service",
-  "mount",
-  "umount",
-  "df",
-  "du",
-  "free",
-  "uname",
-  "whoami",
-  "id",
-  "env",
-  "printenv",
-  "export",
-  "ulimit",
-  "sysctl",
-]);
-
-const PROC_BIN = new Set(["ps", "top", "htop", "kill", "killall", "pkill", "pgrep", "jobs", "fg", "bg", "nohup", "nice"]);
-
-const PKG_BIN = new Set(["npm", "pnpm", "yarn", "bun", "pip", "pip3", "apt", "apt-get", "yum", "dnf", "brew", "cargo", "go"]);
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (raw == null || typeof raw !== "string" || !raw.trim()) {
@@ -150,30 +106,81 @@ function firstToken(cmd: string): string {
   return base.replace(/^\.\//, "").toLowerCase();
 }
 
-export function classifyCommandCategory(cmd: string): ShellCommandCategory {
-  const tok = firstToken(cmd);
+function normalizeToken(tok: string, config: ResourceAuditConfig): string {
+  const key = tok.trim().toLowerCase();
+  return config.shellExec.commandSemantics.aliases[key] ?? key;
+}
+
+function detectPlatform(
+  command: string,
+  metadataJson: string | null | undefined,
+  config: ResourceAuditConfig,
+): "unix" | "windows_cmd" | "powershell" {
+  const spanName = String(parseJsonObject(metadataJson).name ?? "").toLowerCase();
+  const hints = config.shellExec.commandSemantics.platformDetect.spanNameHints;
+  if (config.shellExec.commandSemantics.platformDetect.preferSpanNameHints) {
+    if (hints.powershell.some((h) => spanName.includes(h.toLowerCase()))) return "powershell";
+    if (hints.windows_cmd.some((h) => spanName.includes(h.toLowerCase()))) return "windows_cmd";
+    if (hints.unix.some((h) => spanName.includes(h.toLowerCase()))) return "unix";
+  }
+  const t = firstToken(command);
+  if (["powershell", "pwsh", "get-childitem", "get-content", "remove-item"].includes(t)) {
+    return "powershell";
+  }
+  if (["cmd", "cmd.exe", "dir", "type", "del", "copy", "move", "findstr"].includes(t)) {
+    return "windows_cmd";
+  }
+  return config.shellExec.commandSemantics.defaultPlatform;
+}
+
+export function classifyCommandCategory(cmd: string, config: ResourceAuditConfig): ShellCommandCategory {
+  const tok = normalizeToken(firstToken(cmd), config);
   if (!tok) {
     return "other";
   }
-  if (FILE_BIN.has(tok)) {
+  const categories = config.shellExec.commandSemantics.categories;
+  if (categories.file.includes(tok)) {
     return "file";
   }
-  if (NET_BIN.has(tok)) {
+  if (categories.network.includes(tok)) {
     return "network";
   }
-  if (SYS_BIN.has(tok)) {
+  if (categories.system.includes(tok)) {
     return "system";
   }
-  if (PROC_BIN.has(tok)) {
+  if (categories.process.includes(tok)) {
     return "process";
   }
-  if (PKG_BIN.has(tok)) {
+  if (categories.package.includes(tok)) {
     return "package";
   }
-  if (tok === "cd" || tok === "pwd") {
-    return "file";
-  }
   return "other";
+}
+
+function tokenizeBySpace(input: string): string[] {
+  return input.split(/\s+/).map((x) => x.trim()).filter(Boolean);
+}
+
+function parseCommandAst(command: string, platform: "unix" | "windows_cmd" | "powershell"): ShellCommandAst {
+  const trim = command.trim();
+  if (!trim) {
+    return { shell: platform, nodes: [] };
+  }
+  const splitBy = (src: string, sep: RegExp): string[] => src.split(sep).map((x) => x.trim()).filter(Boolean);
+  const seq = splitBy(trim, /(?:&&|\|\||;)/g);
+  const nodes: ShellCommandAstNode[] = seq.map((raw) => {
+    const pipes = splitBy(raw, /\|/g);
+    if (pipes.length <= 1) {
+      return { kind: "command", raw, argv: tokenizeBySpace(raw) };
+    }
+    return {
+      kind: "pipe",
+      raw,
+      argv: [],
+      children: pipes.map((p) => ({ kind: "command", raw: p, argv: tokenizeBySpace(p) })),
+    };
+  });
+  return { shell: platform, nodes };
 }
 
 function digExitCode(v: unknown, depth = 0): number | null {
@@ -307,7 +314,7 @@ export function parseShellSpanRow(row: {
   error_info_json: string | null;
   metadata_json: string | null;
   thread_metadata_json?: string | null;
-}): ParsedShellSpan {
+}, config: ResourceAuditConfig, opts?: { tokenRiskStdoutChars?: number }): ParsedShellSpan {
   const input = parseJsonObject(row.input_json);
   const outputRoot = parseJsonObject(row.output_json);
   const innerResult =
@@ -323,7 +330,9 @@ export function parseShellSpanRow(row: {
 
   const command = extractCommandFromInput(input);
   const commandKey = command.replace(/\s+/g, " ").trim().slice(0, 512);
-  const category = classifyCommandCategory(command);
+  const category = classifyCommandCategory(command, config);
+  const platform = detectPlatform(command, row.metadata_json, config);
+  const commandAst = parseCommandAst(command, platform);
   const { cwd, envKeys } = extractCwdEnv(params);
 
   const exitCode = digExitCode(innerResult);
@@ -332,13 +341,17 @@ export function parseShellSpanRow(row: {
   const stderrLen = stderrText.length + (errStr ? errStr.length : 0);
 
   const commandNotFound =
-    /command not found|not found as command|No such file or directory.*command/i.test(errStr) ||
-    /command not found/i.test(stdoutText + stderrText);
+    config.shellExec.commandSemantics.diagnosticPatterns.commandNotFound.some((pat) =>
+      new RegExp(pat, "i").test(errStr + "\n" + stdoutText + "\n" + stderrText),
+    );
   const permissionDenied =
-    /permission denied|EACCES|Operation not permitted/i.test(errStr) ||
-    /permission denied/i.test(stdoutText + stderrText);
+    config.shellExec.commandSemantics.diagnosticPatterns.permissionDenied.some((pat) =>
+      new RegExp(pat, "i").test(errStr + "\n" + stdoutText + "\n" + stderrText),
+    );
   const illegalArgHint =
-    /illegal option|invalid option|unrecognized option|syntax error|usage:/i.test(errStr + stdoutText + stderrText);
+    config.shellExec.commandSemantics.diagnosticPatterns.illegalArgHint.some((pat) =>
+      new RegExp(pat, "i").test(errStr + "\n" + stdoutText + "\n" + stderrText),
+    );
 
   const hasSpanError = errStr.trim().length > 0;
   let success: boolean | null = null;
@@ -352,7 +365,13 @@ export function parseShellSpanRow(row: {
 
   const estTokens = Math.ceil((stdoutLen + stderrLen) / TOKEN_APPROX_DIVISOR);
   const estUsd = (estTokens / 1_000_000) * USD_PER_MTOK;
-  const tokenRisk = stdoutLen >= TOKEN_RISK_STDOUT_CHARS;
+  const tokenRiskStdoutChars =
+    opts?.tokenRiskStdoutChars != null &&
+    Number.isFinite(opts.tokenRiskStdoutChars) &&
+    opts.tokenRiskStdoutChars >= 0
+      ? Math.floor(opts.tokenRiskStdoutChars)
+      : TOKEN_RISK_STDOUT_CHARS_DEFAULT;
+  const tokenRisk = stdoutLen >= tokenRiskStdoutChars;
 
   const { userId, host } = threadMetaUserHost(row.thread_metadata_json ?? null);
 
@@ -378,6 +397,8 @@ export function parseShellSpanRow(row: {
     envKeys,
     userId,
     host,
+    platform,
+    commandAst,
   };
 }
 
@@ -401,6 +422,7 @@ export type ParsedShellSpanLite = {
   cwd: string | null;
   userId: string | null;
   host: string | null;
+  platform: "unix" | "windows_cmd" | "powershell";
 };
 
 export function toParsedShellSpanLite(p: ParsedShellSpan): ParsedShellSpanLite {
@@ -419,5 +441,6 @@ export function toParsedShellSpanLite(p: ParsedShellSpan): ParsedShellSpanLite {
     cwd: p.cwd,
     userId: p.userId,
     host: p.host,
+    platform: p.platform,
   };
 }

@@ -852,7 +852,7 @@ export function CommandAnalysisDashboard() {
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionBehavior")}
             </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-1">
               <Card bordered={false} className={kpiShellClass} title={t("sectionLoops")}>
                 {s?.loop_alerts?.length ? (
                   <ul className="space-y-2 text-sm">
@@ -874,46 +874,9 @@ export function CommandAnalysisDashboard() {
                   <p className="text-sm text-muted-foreground">{t("noLoops")}</p>
                 )}
               </Card>
-              <Card bordered={false} className={kpiShellClass} title={t("sectionChain")}>
-                {s?.chain_preview?.steps?.length ? (
-                  <div className="flex flex-wrap items-center gap-1 text-xs">
-                    {s.chain_preview.steps.map((st, i) => (
-                      <span key={`${st.kind}-${i}-${st.name}`} className="flex items-center gap-1">
-                        {i > 0 ? <span className="text-muted-foreground">→</span> : null}
-                        <Tag size="small" color={st.kind === "llm" ? "arcoblue" : "gray"}>
-                          {st.kind}:{st.name.slice(0, 40)}
-                        </Tag>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("noChain")}</p>
-                )}
-                {s?.chain_preview?.trace_id ? (
-                  <LocalizedLink className="mt-2 inline-block text-xs text-primary" href={`/messages/${encodeURIComponent(s.chain_preview.trace_id)}`}>
-                    {t("openTrace")}
-                  </LocalizedLink>
-                ) : null}
-              </Card>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card bordered={false} className={kpiShellClass} title={t("sectionIdempotency")}>
-                {s?.idempotency_samples?.length ? (
-                  <ul className="space-y-2 text-sm">
-                    {s.idempotency_samples.map((x) => (
-                      <li key={x.command_key} className="border-b border-border/60 pb-2 last:border-0">
-                        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-                          {x.command_key}
-                        </Typography.Text>
-                        <div className="mt-1 text-xs text-muted-foreground">{t("idempoHint", { traces: x.traces, outcomes: x.outcomes })}</div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("noIdempo")}</p>
-                )}
-              </Card>
+            <div className="grid gap-4 lg:grid-cols-1">
               <Card bordered={false} className={kpiShellClass} title={t("sectionRedundant")}>
                 {s?.redundant_read_hints?.length ? (
                   <ul className="space-y-2 text-sm">

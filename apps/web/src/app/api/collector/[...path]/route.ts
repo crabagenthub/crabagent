@@ -20,8 +20,8 @@ function isAllowedSubpath(sub: string): boolean {
  * 仅允许 `health` 与 `v1/*`。
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
-  const { path } = await ctx.params;
-  const sub = (path ?? []).join("/");
+  const { path: pathSegments } = await ctx.params;
+  const sub = (pathSegments ?? []).join("/");
   if (!sub || !isAllowedSubpath(sub)) {
     return NextResponse.json({ error: "forbidden_path" }, { status: 403 });
   }

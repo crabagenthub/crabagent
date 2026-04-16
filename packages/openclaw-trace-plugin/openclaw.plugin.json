@@ -41,8 +41,8 @@
       },
       "opikWorkspaceName": {
         "type": "string",
-        "default": "default",
-        "description": "Opik workspace name stored in opik_threads / opik_traces."
+        "default": "OpenClaw",
+        "description": "Opik workspace name stored in opik_threads / opik_traces (match Crabagent UI workspace filter)."
       },
       "opikProjectName": {
         "type": "string",

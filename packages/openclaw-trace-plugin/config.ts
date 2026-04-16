@@ -17,7 +17,7 @@ export type CrabagentTracePluginConfig = {
   policySyncIntervalMs: number;
   memoryQueueMax: number;
   sampleRateBps: number;
-  /** Opik workspace（与 opik-openclaw 一致，默认 default）。 */
+  /** Opik workspace（与 Crabagent Web 默认筛选一致，默认 OpenClaw）。 */
   opikWorkspaceName: string;
   /** Opik project（默认 openclaw）。 */
   opikProjectName: string;
@@ -124,7 +124,7 @@ export function resolvePluginConfig(raw: Record<string, unknown> | undefined): C
   const opikWorkspaceName =
     typeof c.opikWorkspaceName === "string" && c.opikWorkspaceName.trim().length > 0
       ? c.opikWorkspaceName.trim()
-      : "default";
+      : "OpenClaw";
   const opikProjectName =
     typeof c.opikProjectName === "string" && c.opikProjectName.trim().length > 0
       ? c.opikProjectName.trim()

@@ -14,6 +14,7 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { MessageHint } from "@/shared/components/message-hint";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import { buildAuditLink } from "@/lib/audit-linkage";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
@@ -70,6 +71,8 @@ export function SecurityAuditDashboard() {
   const searchParams = useSearchParams();
   const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
   const spanFromUrl = searchParams.get("span_id")?.trim() ?? "";
+  const hintTypeFromUrl = searchParams.get("hint_type")?.trim() ?? "";
+  const policyIdFromUrl = searchParams.get("policy_id")?.trim() ?? "";
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -120,8 +123,10 @@ export function SecurityAuditDashboard() {
       untilMs: untilMs ?? undefined,
       traceId: traceFromUrl || undefined,
       spanId: spanFromUrl || undefined,
+      hintType: hintTypeFromUrl || undefined,
+      policyId: policyIdFromUrl || undefined,
     }),
-    [page, pageSize, sinceMs, untilMs, traceFromUrl, spanFromUrl],
+    [page, pageSize, sinceMs, untilMs, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl],
   );
 
   const analyticsParams = useMemo(
@@ -133,14 +138,18 @@ export function SecurityAuditDashboard() {
       untilMs: untilMs ?? undefined,
       traceId: traceFromUrl || undefined,
       spanId: spanFromUrl || undefined,
+      hintType: hintTypeFromUrl || undefined,
+      policyId: policyIdFromUrl || undefined,
     }),
-    [sinceMs, untilMs, traceFromUrl, spanFromUrl],
+    [sinceMs, untilMs, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl],
   );
 
   const clearTraceSpanFilters = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete("trace_id");
     p.delete("span_id");
+    p.delete("hint_type");
+    p.delete("policy_id");
     const qs = p.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
     setPage(1);
@@ -259,8 +268,36 @@ export function SecurityAuditDashboard() {
           );
         },
       },
+      {
+        title: t("colLink"),
+        width: 120,
+        render: (_: unknown, row: SecurityAuditEventRow) => {
+          const findings = parseSecurityAuditFindings(row.findings_json);
+          const first = findings[0];
+          return (
+            <Button
+              type="text"
+              size="mini"
+              className="!h-auto !px-0 text-xs text-primary"
+              onClick={() =>
+                router.push(
+                  buildAuditLink("/resource-access", {
+                    source: "policy",
+                    trace_id: row.trace_id,
+                    span_id: row.span_id ?? undefined,
+                    policy_id: first?.policy_id || undefined,
+                    hint_type: first?.hint_type || undefined,
+                  }),
+                )
+              }
+            >
+              {t("securityToResource")}
+            </Button>
+          );
+        },
+      },
     ],
-    [t],
+    [t, router],
   );
 
   const riskTrendChart =
