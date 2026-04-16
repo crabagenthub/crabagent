@@ -16,13 +16,21 @@ import {
   Tag,
   Typography,
 } from "@arco-design/web-react";
-import { IconApps, IconList, IconRefresh } from "@arco-design/web-react/icon";
+import {
+  IconApps,
+  IconArrowFall,
+  IconArrowRise,
+  IconList,
+  IconRefresh,
+  IconShareExternal,
+} from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppPageShell } from "@/shared/components/app-page-shell";
+import { TitleHintIcon } from "@/shared/components/message-hint";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
@@ -58,6 +66,105 @@ const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
 
 type CommandAnalysisViewKind = "metrics" | "details";
+
+type MomTagTone = "green" | "red" | "gray";
+
+function fmtPct(n: number | null | undefined, digits = 2): string {
+  if (n == null || !Number.isFinite(n)) {
+    return "—";
+  }
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(digits)}%`;
+}
+
+function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
+  if (n == null || !Number.isFinite(n)) {
+    return { text: "—", color: "gray" };
+  }
+  if (Math.abs(n) < 0.005) {
+    return { text: "0.00%", color: "gray" };
+  }
+  if (n > 0) {
+    return { text: fmtPct(n), color: "green" };
+  }
+  return { text: fmtPct(n), color: "red" };
+}
+
+function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
+  const palette =
+    tone === "green"
+      ? "bg-[#E8FFEA] text-[#00B42A]"
+      : tone === "red"
+        ? "bg-[#FFECE8] text-[#F53F3F]"
+        : "bg-[#F2F3F5] text-[#86909C]";
+  return (
+    <span className={cn("inline-flex items-center gap-0.5 rounded px-2 py-0.5 text-xs font-medium tabular-nums", palette)}>
+      {tone === "green" ? <IconArrowRise className="size-3 shrink-0" aria-hidden /> : null}
+      {tone === "red" ? <IconArrowFall className="size-3 shrink-0" aria-hidden /> : null}
+      {text}
+    </span>
+  );
+}
+
+function shellKpiMomPercent(current: number, prev: number | undefined): number | null {
+  if (prev === undefined) {
+    return null;
+  }
+  if (prev > 0) {
+    return ((current - prev) / prev) * 100;
+  }
+  if (current > 0) {
+    return 100;
+  }
+  return null;
+}
+
+function CommandKpiCard({
+  title,
+  hint,
+  value,
+  onView,
+  mom,
+}: {
+  title: string;
+  hint?: string;
+  value: ReactNode;
+  onView: () => void;
+  mom: number | null;
+}) {
+  const t = useTranslations("CommandAnalysis");
+  const momM = momTagMeta(mom);
+  return (
+    <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass, "group")} bodyStyle={{ padding: "16px" }}>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">{title}</Typography.Text>
+          {hint ? (
+            <TitleHintIcon
+              tooltipText={hint}
+              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+              className="shrink-0"
+            />
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onView}
+          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium text-primary opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+          aria-label={t("kpiViewDetailsAria")}
+        >
+          <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
+          {t("kpiViewDetails")}
+        </button>
+      </div>
+      <div className="text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">{value}</div>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <Typography.Text className="text-[11px] text-[#86909C] dark:text-muted-foreground">{t("kpiMom")}</Typography.Text>
+        <KpiMomPill tone={momM.color} text={momM.text} />
+      </div>
+    </Card>
+  );
+}
 
 function topRankColorClass(rank: number): string {
   if (rank <= 3) {
@@ -202,6 +309,31 @@ export function CommandAnalysisDashboard() {
     queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, shellQuery],
     enabled: mounted && Boolean(baseUrl.trim()),
     queryFn: () => loadShellExecSummary(baseUrl, apiKey, shellQuery),
+  });
+
+  const prevWindow = useMemo(() => {
+    if (sinceMs == null || untilMs == null || untilMs <= sinceMs) {
+      return null;
+    }
+    const width = untilMs - sinceMs;
+    return { sinceMs: Math.max(0, sinceMs - width), untilMs: sinceMs };
+  }, [sinceMs, untilMs]);
+
+  const prevShellQuery = useMemo(() => {
+    if (!prevWindow) {
+      return null;
+    }
+    return {
+      ...shellQuery,
+      sinceMs: prevWindow.sinceMs,
+      untilMs: prevWindow.untilMs,
+    };
+  }, [prevWindow, shellQuery]);
+
+  const prevSummaryQuery = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, "prev", prevShellQuery],
+    enabled: mounted && Boolean(baseUrl.trim()) && prevShellQuery != null,
+    queryFn: () => loadShellExecSummary(baseUrl, apiKey, prevShellQuery!),
   });
 
   const listQuery = useQuery({
@@ -442,13 +574,6 @@ export function CommandAnalysisDashboard() {
   const showRuleMismatchHint =
     summaryQuery.isSuccess && snap != null && snap.tool_spans > 0 && snap.shell_like_spans === 0;
   const showEmptyDbHint = summaryQuery.isSuccess && snap != null && snap.tool_spans === 0;
-  const viewCounts = useMemo(
-    () => ({
-      metrics: s?.totals.commands ?? 0,
-      details: totalRows,
-    }),
-    [s?.totals.commands, totalRows],
-  );
 
   if (!mounted) {
     return (
@@ -487,9 +612,10 @@ export function CommandAnalysisDashboard() {
             <Button
               type="outline"
               icon={<IconRefresh />}
-              loading={summaryQuery.isFetching || listQuery.isFetching}
+              loading={summaryQuery.isFetching || listQuery.isFetching || prevSummaryQuery.isFetching}
               onClick={() => {
                 void summaryQuery.refetch();
+                void prevSummaryQuery.refetch();
                 void listQuery.refetch();
                 void facetsQuery.refetch();
               }}
@@ -543,7 +669,6 @@ export function CommandAnalysisDashboard() {
               { id: "details" as const, label: t("viewDetails"), Icon: IconList },
             ] satisfies Array<{ id: CommandAnalysisViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
               const selected = viewKind === opt.id;
-              const count = viewCounts[opt.id];
               return (
                 <button
                   key={opt.id}
@@ -567,14 +692,6 @@ export function CommandAnalysisDashboard() {
                     aria-hidden
                   />
                   <span className="whitespace-nowrap">{opt.label}</span>
-                  <span
-                    className={cn(
-                      "tabular-nums text-[13px]",
-                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
-                    )}
-                  >
-                    {`(${count.toLocaleString()})`}
-                  </span>
                 </button>
               );
             })}
@@ -584,19 +701,62 @@ export function CommandAnalysisDashboard() {
         {viewKind === "metrics" ? (
           <>
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { label: t("kpiCommands"), value: s?.totals.commands },
-                { label: t("kpiTraces"), value: s?.totals.distinct_traces },
-                { label: t("kpiSuccess"), value: s?.totals.success },
-                { label: t("kpiFailed"), value: s?.totals.failed },
-              ].map((k) => (
-                <Card key={k.label} bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "14px 16px" }}>
-                  <div className="text-xs text-muted-foreground">{k.label}</div>
-                  <div className="mt-1 text-2xl font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                    {summaryQuery.isLoading ? <Spin size={20} /> : (k.value ?? 0).toLocaleString()}
-                  </div>
-                </Card>
-              ))}
+              <CommandKpiCard
+                title={t("kpiCommands")}
+                hint={t("kpiCommandsHint")}
+                value={
+                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.commands ?? 0).toLocaleString()
+                }
+                onView={() => setViewKind("details")}
+                mom={
+                  s && prevSummaryQuery.data
+                    ? shellKpiMomPercent(s.totals.commands, prevSummaryQuery.data.totals.commands)
+                    : null
+                }
+              />
+              <CommandKpiCard
+                title={t("kpiTraces")}
+                hint={t("kpiTracesHint")}
+                value={
+                  summaryQuery.isLoading && !s ? (
+                    <Spin size={20} />
+                  ) : (
+                    (s?.totals.distinct_traces ?? 0).toLocaleString()
+                  )
+                }
+                onView={() => setViewKind("details")}
+                mom={
+                  s && prevSummaryQuery.data
+                    ? shellKpiMomPercent(s.totals.distinct_traces, prevSummaryQuery.data.totals.distinct_traces)
+                    : null
+                }
+              />
+              <CommandKpiCard
+                title={t("kpiSuccess")}
+                hint={t("kpiSuccessHint")}
+                value={
+                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.success ?? 0).toLocaleString()
+                }
+                onView={() => setViewKind("details")}
+                mom={
+                  s && prevSummaryQuery.data
+                    ? shellKpiMomPercent(s.totals.success, prevSummaryQuery.data.totals.success)
+                    : null
+                }
+              />
+              <CommandKpiCard
+                title={t("kpiFailed")}
+                hint={t("kpiFailedHint")}
+                value={
+                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.failed ?? 0).toLocaleString()
+                }
+                onView={() => setViewKind("details")}
+                mom={
+                  s && prevSummaryQuery.data
+                    ? shellKpiMomPercent(s.totals.failed, prevSummaryQuery.data.totals.failed)
+                    : null
+                }
+              />
             </section>
 
             <div className="grid gap-4 lg:grid-cols-3">

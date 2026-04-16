@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Script from "next/script";
+import type { AbstractIntlMessages } from "next-intl";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import en from "../../../messages/en.json";
 import { ArcoProvider } from "@/components/arco-provider";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { DocumentLang } from "@/components/document-lang";
@@ -11,6 +13,7 @@ import { QueryProvider } from "@/components/query-provider";
 import { SiteNavNoSSR } from "@/components/site-nav-no-ssr";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
+import { deepMergeMessages } from "@/i18n/merge-messages";
 import { type AppLocale, routing } from "@/i18n/routing";
 import { SIDEBAR_COLLAPSED_STORAGE_KEY } from "@/lib/sidebar-storage";
 import { CA_THEME_STORAGE_KEY } from "@/lib/theme-storage";
@@ -39,15 +42,23 @@ export default async function LocaleLayout({
     notFound();
   }
   setRequestLocale(locale);
-  const messages = await getMessages();
+  const rawMessages = await getMessages();
   const appLocale: AppLocale = locale as AppLocale;
+  /** 与 `i18n/request.ts` 一致：zh-CN 以 en 为底合并，避免序列化/缓存路径下漏键导致 MISSING_MESSAGE。 */
+  const messages =
+    appLocale === "zh-CN"
+      ? (deepMergeMessages(
+          en as Record<string, unknown>,
+          rawMessages as Record<string, unknown>,
+        ) as AbstractIntlMessages)
+      : rawMessages;
 
   const sidebarInitScript = `(function(){try{var k=${JSON.stringify(SIDEBAR_COLLAPSED_STORAGE_KEY)};var v=localStorage.getItem(k);document.documentElement.setAttribute("data-sidebar-collapsed",v==="1"?"1":"0");}catch(e){document.documentElement.setAttribute("data-sidebar-collapsed","0");}})();`;
 
   const themeInitScript = `(function(){function p(v){return v==="light"||v==="dark"||v==="system"?v:"system";}function r(a,b){if(a==="dark")return true;if(a==="light")return false;return b;}try{var k=${JSON.stringify(CA_THEME_STORAGE_KEY)};var pref=p(localStorage.getItem(k));var sys=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",r(pref,sys));}catch(e){document.documentElement.classList.remove("dark");}})();`;
 
   return (
-    <NextIntlClientProvider messages={messages}>
+    <NextIntlClientProvider locale={appLocale} messages={messages}>
       <Script id="ca-sidebar-collapsed-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: sidebarInitScript }} />
       <Script id="ca-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       <DocumentLang locale={appLocale} />

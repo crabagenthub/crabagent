@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
-import { IconApps, IconList, IconCopy, IconRefresh } from "@arco-design/web-react/icon";
+import { IconApps, IconList, IconCopy, IconRefresh, IconArrowFall, IconArrowRise, IconShareExternal } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -26,7 +26,7 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
-import { MessageHint } from "@/shared/components/message-hint";
+import { MessageHint, TitleHintIcon } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
@@ -218,6 +218,94 @@ function topRankColorClass(rank: number): string {
   return "text-[#FF7D00]";
 }
 
+type MomTagTone = "green" | "red" | "gray";
+
+function fmtPct(n: number | null | undefined, digits = 2): string {
+  if (n == null || !Number.isFinite(n)) {
+    return "—";
+  }
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(digits)}%`;
+}
+
+function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
+  if (n == null || !Number.isFinite(n)) {
+    return { text: "—", color: "gray" };
+  }
+  if (Math.abs(n) < 0.005) {
+    return { text: "0.00%", color: "gray" };
+  }
+  if (n > 0) {
+    return { text: fmtPct(n), color: "green" };
+  }
+  return { text: fmtPct(n), color: "red" };
+}
+
+function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
+  const palette =
+    tone === "green"
+      ? "bg-[#E8FFEA] text-[#00B42A]"
+      : tone === "red"
+        ? "bg-[#FFECE8] text-[#F53F3F]"
+        : "bg-[#F2F3F5] text-[#86909C]";
+  return (
+    <span className={cn("inline-flex items-center gap-0.5 rounded px-2 py-0.5 text-xs font-medium tabular-nums", palette)}>
+      {tone === "green" ? <IconArrowRise className="size-3 shrink-0" aria-hidden /> : null}
+      {tone === "red" ? <IconArrowFall className="size-3 shrink-0" aria-hidden /> : null}
+      {text}
+    </span>
+  );
+}
+
+function ResourceKpiCard({
+  title,
+  hint,
+  value,
+  onView,
+  momLabel,
+  mom,
+}: {
+  title: string;
+  hint?: string;
+  value: string;
+  onView: () => void;
+  momLabel: string;
+  mom: number | null;
+}) {
+  const t = useTranslations("ResourceAudit");
+  const momM = momTagMeta(mom);
+  return (
+    <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass, "group")} bodyStyle={{ padding: "16px" }}>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">{title}</Typography.Text>
+          {hint ? (
+            <TitleHintIcon
+              tooltipText={hint}
+              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
+              className="shrink-0"
+            />
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onView}
+          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium text-primary opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+          aria-label={t("kpiViewDetailsAria")}
+        >
+          <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
+          {t("kpiViewDetails")}
+        </button>
+      </div>
+      <div className="text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">{value}</div>
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <Typography.Text className="text-[11px] text-[#86909C] dark:text-muted-foreground">{momLabel}</Typography.Text>
+        <KpiMomPill tone={momM.color} text={momM.text} />
+      </div>
+    </Card>
+  );
+}
+
 export function ResourceAuditDashboard() {
   const t = useTranslations("ResourceAudit");
   const queryClient = useQueryClient();
@@ -314,6 +402,26 @@ export function ResourceAuditDashboard() {
     queryKey: [COLLECTOR_QUERY_SCOPE.resourceAuditStats, baseUrl, apiKey, statsParams],
     queryFn: () => loadResourceAuditStats(baseUrl, apiKey, statsParams),
     enabled,
+    staleTime: 20_000,
+  });
+
+  const prevWindow = useMemo(() => {
+    if (sinceMs == null || untilMs == null || untilMs <= sinceMs) {
+      return null;
+    }
+    const width = untilMs - sinceMs;
+    return { sinceMs: Math.max(0, sinceMs - width), untilMs: sinceMs };
+  }, [sinceMs, untilMs]);
+
+  const prevStatsQ = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.resourceAuditStats, baseUrl, apiKey, "prev", prevWindow, statsParams.search, statsParams.semantic_class, statsParams.uri_prefix, statsParams.trace_id],
+    queryFn: () =>
+      loadResourceAuditStats(baseUrl, apiKey, {
+        ...statsParams,
+        sinceMs: prevWindow?.sinceMs,
+        untilMs: prevWindow?.untilMs,
+      }),
+    enabled: enabled && prevWindow != null,
     staleTime: 20_000,
   });
 
@@ -611,13 +719,6 @@ export function ResourceAuditDashboard() {
     return rows;
   }, [eventsQ.data?.items]);
 
-  const viewCounts = useMemo(
-    () => ({
-      metrics: statsQ.data?.summary?.total_events ?? null,
-      details: eventsQ.data?.total ?? null,
-    }),
-    [eventsQ.data?.total, statsQ.data?.summary?.total_events],
-  );
   const summary = statsQ.data?.summary;
   const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
 
@@ -690,7 +791,6 @@ export function ResourceAuditDashboard() {
               { id: "details" as const, label: t("viewDetails"), Icon: IconList },
             ] satisfies Array<{ id: ResourceAuditViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
               const selected = viewKind === opt.id;
-              const count = viewCounts[opt.id];
               return (
                 <button
                   key={opt.id}
@@ -714,14 +814,6 @@ export function ResourceAuditDashboard() {
                     aria-hidden
                   />
                   <span className="whitespace-nowrap">{opt.label}</span>
-                  <span
-                    className={cn(
-                      "tabular-nums text-[13px]",
-                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
-                    )}
-                  >
-                    {count === null ? "(…)" : `(${count.toLocaleString()})`}
-                  </span>
                 </button>
               );
             })}
@@ -735,41 +827,54 @@ export function ResourceAuditDashboard() {
                 {t("sectionKpi")}
               </Typography.Title>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-                  <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
-                    {t("kpiTotalEvents")}
-                  </Typography.Text>
-                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                    {summary ? summary.total_events.toLocaleString() : "—"}
-                  </div>
-                </Card>
-                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-                  <Tooltip content={t("kpiDistinctTracesHint")}>
-                    <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
-                      {t("kpiDistinctTraces")}
-                    </Typography.Text>
-                  </Tooltip>
-                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                    {summary ? summary.distinct_traces.toLocaleString() : "—"}
-                  </div>
-                </Card>
-                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-                  <Tooltip content={t("kpiRiskAnyHint")}>
-                    <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
-                      {t("kpiRiskAny")}
-                    </Typography.Text>
-                  </Tooltip>
-                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                    {summary ? summary.risk_any.toLocaleString() : "—"}
-                  </div>
-                  {summary && summary.total_events > 0 ? (
-                    <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
-                      {t("kpiRiskShare", {
-                        pct: String(Math.round((summary.risk_any / summary.total_events) * 1000) / 10),
-                      })}
-                    </div>
-                  ) : null}
-                </Card>
+                <ResourceKpiCard
+                  title={t("kpiTotalEvents")}
+                  hint={t("kpiTotalEventsHint")}
+                  value={summary ? summary.total_events.toLocaleString() : "—"}
+                  onView={() => setViewKind("details")}
+                  momLabel={t("kpiMom")}
+                  mom={
+                    summary && prevStatsQ.data
+                      ? prevStatsQ.data.summary.total_events > 0
+                        ? ((summary.total_events - prevStatsQ.data.summary.total_events) / prevStatsQ.data.summary.total_events) * 100
+                        : summary.total_events > 0
+                          ? 100
+                          : null
+                      : null
+                  }
+                />
+                <ResourceKpiCard
+                  title={t("kpiDistinctTraces")}
+                  hint={t("kpiDistinctTracesHint")}
+                  value={summary ? summary.distinct_traces.toLocaleString() : "—"}
+                  onView={() => setViewKind("details")}
+                  momLabel={t("kpiMom")}
+                  mom={
+                    summary && prevStatsQ.data
+                      ? prevStatsQ.data.summary.distinct_traces > 0
+                        ? ((summary.distinct_traces - prevStatsQ.data.summary.distinct_traces) / prevStatsQ.data.summary.distinct_traces) * 100
+                        : summary.distinct_traces > 0
+                          ? 100
+                          : null
+                      : null
+                  }
+                />
+                <ResourceKpiCard
+                  title={t("kpiRiskAny")}
+                  hint={t("kpiRiskAnyHint")}
+                  value={summary ? summary.risk_any.toLocaleString() : "—"}
+                  onView={() => setViewKind("details")}
+                  momLabel={t("kpiMom")}
+                  mom={
+                    summary && prevStatsQ.data
+                      ? prevStatsQ.data.summary.risk_any > 0
+                        ? ((summary.risk_any - prevStatsQ.data.summary.risk_any) / prevStatsQ.data.summary.risk_any) * 100
+                        : summary.risk_any > 0
+                          ? 100
+                          : null
+                      : null
+                  }
+                />
               </div>
             </section>
 
