@@ -1,5 +1,5 @@
 /**
- * 与 `services/collector/src/strip-leading-bracket-date.ts` 规则一致：入库前剥文首 `[…日期…]` 时间戳。
+ * 与 Go 侧 `iseeagentc/internal/parser` / model 入库前规范化规则一致：剥文首 `[…日期…]` 时间戳。
  */
 
 // Strip bracket date prefixes at the start of the whole string OR at the start of any new line.

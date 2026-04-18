@@ -4,11 +4,26 @@ node_modules
 dist
 .next
 .turbo
+
+# 数据库（SQLite / DuckDB 及辅助文件）
 *.db
 *.db-wal
 *.db-shm
+*.duckdb
+*.duckdb.wal
+
+# 仓库根目录 data/（已废弃；业务库在 iseeagentc/data/）
+/data/
+
+# 日志与日志目录
+*.log
+*.log.*
+iseeagentc/logs/
+
+# Go vendor（本地 vendor 拷贝，勿提交）
+iseeagentc/vendor/
+
 .env
 .env.local
 .DS_Store
 coverage
-*.log

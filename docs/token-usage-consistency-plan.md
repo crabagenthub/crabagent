@@ -88,7 +88,7 @@
 
 ### 3.4 会话列表 `total_tokens`（Collector SQL）
 
-**文件**：[services/collector/src/thread-records-query.ts](services/collector/src/thread-records-query.ts) + [services/collector/src/opik-tokens-sql.ts](services/collector/src/opik-tokens-sql.ts)
+**实现（Go）**：[iseeagentc/model/thread_records_model.go](../iseeagentc/model/thread_records_model.go) + [iseeagentc/model/sqltokens/tokens.go](../iseeagentc/model/sqltokens/tokens.go)
 
 - 对每个 trace 用 `TRACE_ROW_TOKEN_INTEGER_EXPR`：**优先** metadata / output 上的 **显式 total**，再 **prompt+completion**，再 span 汇总等（长链 COALESCE）。
 - 线程列 `total_tokens` = 该线程下各 trace 上式的 **SUM**。
@@ -118,7 +118,7 @@
 **列表（观测 → 执行步骤）**
 
 - **文件**：[apps/web/src/components/spans-data-table.tsx](apps/web/src/components/spans-data-table.tsx)
-- **数据**：行类型来自 Collector `span-records`（见 [services/collector/src/span-records-query.ts](services/collector/src/span-records-query.ts)），列 **`total_tokens`** 由 `SPAN_ROW_TOKEN_INTEGER_EXPR`（[opik-tokens-sql.ts](services/collector/src/opik-tokens-sql.ts)）对 **单条 span 的 `usage_json` / `output_json` 等** 做 COALESCE 估算。
+- **数据**：行类型来自 Go API `span-records`（见 [iseeagentc/model/span_records_model.go](../iseeagentc/model/span_records_model.go)），列 **`total_tokens`** 由 `SpanRowTokenIntegerExpr` 等（[iseeagentc/model/sqltokens/tokens.go](../iseeagentc/model/sqltokens/tokens.go)）对 **单条 span 的 `usage_json` / `output_json` 等** 做 COALESCE 估算。
 - **含义**：与线程列表类似，**优先显式 total**，否则 **prompt+completion** 等链式回退。
 
 **详情 / 检查（同一 trace 下的 Span）**
@@ -183,7 +183,7 @@
 ### 阶段 C — 采集/入库（可选，治本）
 
 1. 在 **openclaw-trace-plugin / collector** 侧，对仅含 total 的响应尽量 **补全 prompt/completion**（若 provider 可推导）。
-2. 延续 [opik-batch-ingest](services/collector/src/opik-batch-ingest.ts) 中 **merge 保留 usage** 的思路，避免批次合并把分项冲掉。
+2. 延续 [iseeagentc/internal/ingest/opik_batch.go](../iseeagentc/internal/ingest/opik_batch.go) 中 **merge 保留 usage** 的思路，避免批次合并把分项冲掉。
 
 ---
 
@@ -204,7 +204,7 @@
 
 - **回合时间窗口**与 **全会话聚合** 在首尾锚点边界上是否完全划分所有 `llm_output`，需用多样本回归（`buildConversationTurnWindowEvents` vs 全量 merged）。
 - **子代理 thread** 与父 thread 的 **链接字段** 以何为准（metadata / parent thread id）需在实现子阶段对照现有 ingest 字段。
-- **执行图 API**（[execution-graph-query](services/collector/src/execution-graph-query.ts) 等）中节点 token 与 **span 表** 是否同一套解析，需在联调时确认。
+- **执行图 API**（[iseeagentc/model/execution_graph_model.go](../iseeagentc/model/execution_graph_model.go) 等）中节点 token 与 **span 表** 是否同一套解析，需在联调时确认。
 
 ---
 

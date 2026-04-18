@@ -500,6 +500,31 @@ body {
   padding: 10px 28px 22px;
   border-top: 0;
 }
+/* Modal 默认 footer 使用 `shape="square"`：Arco 仍保留小圆角，与弹窗内 12px 输入框不一致；与表单控件对齐。 */
+.policy-edit-modal .arco-modal-footer .arco-btn {
+  border-radius: 12px !important;
+}
+/* 策略弹窗主按钮：黑底、白字、悬停略亮灰（设计稿）。 */
+.policy-edit-modal .arco-modal-footer .arco-btn-primary {
+  background-color: #000000 !important;
+  border-color: #000000 !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+.policy-edit-modal .arco-modal-footer .arco-btn-primary:hover:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #1a1a1a !important;
+  border-color: #1a1a1a !important;
+  color: #ffffff !important;
+}
+.policy-edit-modal .arco-modal-footer .arco-btn-primary:active:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #1a1a1a !important;
+  border-color: #1a1a1a !important;
+}
+.policy-edit-modal .arco-modal-footer .arco-btn-primary.arco-btn-loading {
+  background-color: #000000 !important;
+  border-color: #000000 !important;
+  color: #ffffff !important;
+}
 .policy-modal-form {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-/** 与 Collector `POST /v1/opik/batch` 体一致（见 services/collector/src/opik-batch-ingest.ts）。 */
+/** 与 Go Collector `POST /v1/opik/batch` 体一致（见 `iseeagentc/internal/ingest/opik_batch.go`）。 */
 export type OpikBatchPayload = {
   threads?: Record<string, unknown>[];
   traces?: Record<string, unknown>[];
