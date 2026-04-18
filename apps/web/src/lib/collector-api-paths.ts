@@ -17,6 +17,7 @@ export const COLLECTOR_API = {
   shellExecSummary: "/v1/shell-exec/summary",
   shellExecList: "/v1/shell-exec/list",
   shellExecDetail: "/v1/shell-exec/detail",
+  shellExecReplay: "/v1/shell-exec/replay",
 } as const;
 
 /** React Query cache key prefixes (not URLs; aligned with {@link COLLECTOR_API}). */
@@ -35,6 +36,7 @@ export const COLLECTOR_QUERY_SCOPE = {
   shellExecSummary: "shell-exec-summary",
   shellExecList: "shell-exec-list",
   shellExecDetail: "shell-exec-detail",
+  shellExecReplay: "shell-exec-replay",
 } as const;
 
 /** `GET /v1/conversation/:threadId/trace-graph` — encode thread id for path segment. */

@@ -4,6 +4,7 @@ import "@/lib/arco-react19-setup";
 import {
   Button,
   Card,
+  Collapse,
   Drawer,
   Input,
   Message,
@@ -48,8 +49,10 @@ import { resourceClassPieFromNamed, resourceRiskBarOption } from "@/lib/resource
 import {
   loadShellExecDetail,
   loadShellExecList,
+  loadShellExecReplay,
   loadShellExecSummary,
   type ShellCommandCategory,
+  type ShellExecReplayItem,
   type ShellExecListRow,
   type ShellExecSummary,
 } from "@/lib/shell-exec-api";
@@ -58,6 +61,8 @@ import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/li
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 import type { EChartsOption } from "echarts";
+
+const CollapseItem = Collapse.Item;
 
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
@@ -174,12 +179,19 @@ function topRankColorClass(rank: number): string {
 }
 
 function shellTrendOption(
-  rows: { day: string; total: number; failed: number }[],
+  rows: {
+    day: string;
+    commands: number;
+    failed: number;
+    token_risk_count: number;
+    diagnostic_count: number;
+    network_system_count: number;
+  }[],
   t: (k: string) => string,
 ): EChartsOption {
   const MUTED = "#64748b";
   return {
-    grid: { left: 4, right: 48, top: 28, bottom: 4, containLabel: true },
+    grid: { left: 4, right: 12, top: 28, bottom: 4, containLabel: true },
     tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
     legend: { top: 0, textStyle: { fontSize: 11, color: MUTED } },
     xAxis: {
@@ -188,41 +200,203 @@ function shellTrendOption(
       data: rows.map((r) => r.day),
       axisLabel: { fontSize: 11, color: MUTED },
     },
-    yAxis: [
-      {
-        type: "value",
-        axisLabel: { fontSize: 11, color: MUTED },
-        splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
-      },
-      {
-        type: "value",
-        position: "right",
-        max: 100,
-        axisLabel: { formatter: "{value}%", fontSize: 11, color: MUTED },
-        splitLine: { show: false },
-      },
-    ],
+    yAxis: {
+      type: "value",
+      axisLabel: { fontSize: 11, color: MUTED },
+      splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
+    },
     series: [
       {
         name: t("chartTotalCmd"),
         type: "line",
-        yAxisIndex: 0,
-        data: rows.map((r) => r.total),
+        data: rows.map((r) => r.commands),
         smooth: true,
         symbol: "none",
         lineStyle: { width: 2, color: "#6366f1" },
       },
       {
-        name: t("chartFailRate"),
+        name: t("chartFailedCount"),
         type: "line",
-        yAxisIndex: 1,
-        data: rows.map((r) => (r.total > 0 ? Math.round((100 * r.failed) / r.total) : 0)),
+        data: rows.map((r) => r.failed),
         smooth: true,
         symbol: "none",
         lineStyle: { width: 2, color: "#ef4444" },
       },
+      {
+        name: t("chartTokenRiskCount"),
+        type: "line",
+        data: rows.map((r) => r.token_risk_count),
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 2, color: "#f59e0b" },
+      },
+      {
+        name: t("chartDiagnosticsCount"),
+        type: "line",
+        data: rows.map((r) => r.diagnostic_count),
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 2, color: "#22c55e" },
+      },
+      {
+        name: t("chartNetSysCount"),
+        type: "line",
+        data: rows.map((r) => r.network_system_count),
+        smooth: true,
+        symbol: "none",
+        lineStyle: { width: 2, color: "#94a3b8" },
+      },
     ],
   };
+}
+
+function metricBucketsBarOption(rows: { label: string; value: number }[], subtitle: string): EChartsOption {
+  const MUTED = "#64748b";
+  return {
+    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
+    grid: { left: 4, right: 8, top: 32, bottom: 4, containLabel: true },
+    tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
+    xAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { fontSize: 10, color: MUTED } },
+    yAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 10, color: MUTED } },
+    series: [{ type: "bar", data: rows.map((r) => r.value), itemStyle: { color: "#6366f1", borderRadius: [4, 4, 0, 0] } }],
+  };
+}
+
+function tokenRiskHBarOption(items: { command: string; stdout_chars: number }[], subtitle: string): EChartsOption {
+  const MUTED = "#64748b";
+  const top = items.slice(0, 12);
+  return {
+    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
+    grid: { left: 4, right: 12, top: 32, bottom: 4, containLabel: true },
+    tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
+    xAxis: { type: "value", axisLabel: { fontSize: 10, color: MUTED } },
+    yAxis: {
+      type: "category",
+      data: top.map((_, i) => `#${i + 1}`),
+      inverse: true,
+      axisLabel: { fontSize: 10, color: MUTED },
+    },
+    series: [
+      {
+        type: "bar",
+        data: top.map((x) => x.stdout_chars),
+        itemStyle: { color: "#f59e0b", borderRadius: [0, 4, 4, 0] },
+      },
+    ],
+  };
+}
+
+function redundantReadHBarOption(
+  items: { trace_id: string; command: string; repeats: number }[],
+  subtitle: string,
+): EChartsOption {
+  const MUTED = "#64748b";
+  const top = items.slice(0, 12);
+  return {
+    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
+    grid: { left: 4, right: 12, top: 32, bottom: 4, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      textStyle: { fontSize: 12 },
+      formatter: (p: unknown) => {
+        const arr = p as { data?: number; name?: string }[];
+        const a = arr[0];
+        if (!a?.name) {
+          return "";
+        }
+        const idx = Math.max(0, Number.parseInt(a.name.replace("#", ""), 10) - 1);
+        const row = top[idx];
+        if (!row) {
+          return "";
+        }
+        return `${row.command.slice(0, 120)}<br/>×${a.data ?? ""}`;
+      },
+    },
+    xAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 10, color: MUTED } },
+    yAxis: {
+      type: "category",
+      data: top.map((_, i) => `#${i + 1}`),
+      inverse: true,
+      axisLabel: { fontSize: 10, color: MUTED },
+    },
+    series: [
+      {
+        type: "bar",
+        data: top.map((x) => x.repeats),
+        itemStyle: { color: "#22c55e", borderRadius: [0, 4, 4, 0] },
+      },
+    ],
+  };
+}
+
+function replayTimelineScatterOption(
+  rows: ShellExecReplayItem[],
+  selectedSpanId: string | null,
+  title: string,
+): EChartsOption | null {
+  if (!rows.length) {
+    return null;
+  }
+  const MUTED = "#64748b";
+  const data = rows.map((r, i) => {
+    const x = r.start_time_ms != null && Number.isFinite(Number(r.start_time_ms)) ? Number(r.start_time_ms) : i;
+    const dur = r.duration_ms != null ? Number(r.duration_ms) : 0;
+    const sz = Math.min(42, 10 + dur / 250);
+    const sel = Boolean(selectedSpanId && selectedSpanId === r.span_id);
+    let color = "#94a3b8";
+    if (sel) {
+      color = "#6366f1";
+    } else if (r.token_risk) {
+      color = "#f59e0b";
+    }
+    return { value: [x, i] as [number, number], symbolSize: sz, itemStyle: { color }, cmd: r.command, spanId: r.span_id };
+  });
+  return {
+    title: { text: title, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
+    grid: { left: 52, right: 12, top: 32, bottom: 28, containLabel: true },
+    tooltip: {
+      trigger: "item",
+      textStyle: { fontSize: 12 },
+      formatter: (p: unknown) => {
+        const q = p as { data?: { value?: [number, number]; cmd?: string } };
+        const d = q.data;
+        if (!d?.value) {
+          return "";
+        }
+        const [ms] = d.value;
+        const when = formatTraceDateTimeFromMs(ms);
+        return `${when}<br/>${(d.cmd ?? "").slice(0, 200)}`;
+      },
+    },
+    xAxis: {
+      type: "value",
+      scale: true,
+      axisLabel: {
+        fontSize: 10,
+        color: MUTED,
+        formatter: (v: number) => (Number.isFinite(v) ? formatTraceDateTimeFromMs(v) : String(v)),
+      },
+    },
+    yAxis: {
+      type: "category",
+      data: rows.map((_, i) => String(i + 1)),
+      inverse: true,
+      name: "step",
+      nameTextStyle: { fontSize: 10, color: MUTED },
+      axisLabel: { fontSize: 10, color: MUTED },
+    },
+    series: [{ type: "scatter", data, emphasis: { focus: "self", scale: 1.15 } }],
+  };
+}
+
+const SHELL_CATEGORIES: ShellCommandCategory[] = ["file", "network", "system", "process", "package", "other"];
+
+function replayCategoryLabel(t: (k: string) => string, raw: string): string {
+  const c = raw.trim().toLowerCase();
+  if (SHELL_CATEGORIES.includes(c as ShellCommandCategory)) {
+    return categoryLabel(t, c as ShellCommandCategory);
+  }
+  return raw || categoryLabel(t, "other");
 }
 
 function categoryLabel(t: (k: string) => string, c: ShellCommandCategory): string {
@@ -260,6 +434,7 @@ export function CommandAnalysisDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [drawerSpanId, setDrawerSpanId] = useState<string | null>(null);
+  const [replayExpandedKeys, setReplayExpandedKeys] = useState<string[]>([]);
   const [viewKind, setViewKind] = useState<CommandAnalysisViewKind>("metrics");
 
   useEffect(() => {
@@ -355,6 +530,13 @@ export function CommandAnalysisDashboard() {
       }),
   });
 
+  const replayTraceId = traceFilter.trim() || summaryQuery.data?.chain_preview?.trace_id || "";
+  const replayQuery = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecReplay, baseUrl, apiKey, replayTraceId],
+    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(replayTraceId),
+    queryFn: () => loadShellExecReplay(baseUrl, apiKey, replayTraceId),
+  });
+
   const detailQuery = useQuery({
     queryKey: [COLLECTOR_QUERY_SCOPE.shellExecDetail, baseUrl, apiKey, drawerSpanId],
     enabled: mounted && Boolean(baseUrl.trim()) && Boolean(drawerSpanId),
@@ -404,8 +586,109 @@ export function CommandAnalysisDashboard() {
     if (!summary?.success_trend?.length) {
       return null;
     }
-    return shellTrendOption(summary.success_trend, t);
+    const fallback = summary.success_trend.map((r) => ({
+      day: r.day,
+      commands: r.total,
+      failed: r.failed,
+      token_risk_count: 0,
+      diagnostic_count: 0,
+      network_system_count: 0,
+    }));
+    return shellTrendOption(summary.daily_risk_series?.length ? summary.daily_risk_series : fallback, t);
   }, [summary, t]);
+
+  const loopBucketsOpt = useMemo(() => {
+    const rows = summary?.loop_repeat_buckets;
+    if (!rows?.length) {
+      return null;
+    }
+    return metricBucketsBarOption(rows, t("chartLoopBuckets"));
+  }, [summary?.loop_repeat_buckets, t]);
+
+  const tokenRiskBucketsOpt = useMemo(() => {
+    const rows = summary?.token_risk_stdout_buckets;
+    if (!rows?.length) {
+      return null;
+    }
+    return metricBucketsBarOption(rows, t("chartTokenRiskBuckets"));
+  }, [summary?.token_risk_stdout_buckets, t]);
+
+  const redundantTopOpt = useMemo(() => {
+    const rows = summary?.redundant_read_top?.length ? summary.redundant_read_top : summary?.redundant_read_hints;
+    if (!rows?.length) {
+      return null;
+    }
+    return redundantReadHBarOption(rows, t("chartRedundantTop"));
+  }, [summary?.redundant_read_hints, summary?.redundant_read_top, t]);
+
+  const tokenRiskBarsOpt = useMemo(() => {
+    const tr = summary?.token_risks;
+    if (!tr?.length) {
+      return null;
+    }
+    const sorted = [...tr].sort((a, b) => (b.stdout_chars ?? 0) - (a.stdout_chars ?? 0));
+    return tokenRiskHBarOption(
+      sorted.map((x) => ({ command: x.command, stdout_chars: x.stdout_chars })),
+      t("chartTokenRiskBars"),
+    );
+  }, [summary?.token_risks, t]);
+
+  const replayRows = useMemo(
+    () => (replayQuery.data?.items ?? []) as ShellExecReplayItem[],
+    [replayQuery.data?.items],
+  );
+
+  const replayTimelineOpt = useMemo(() => {
+    if (!replayRows.length || !replayTraceId) {
+      return null;
+    }
+    return replayTimelineScatterOption(replayRows, drawerSpanId, t("chartReplayTimeline"));
+  }, [replayRows, replayTraceId, drawerSpanId, t]);
+
+  const replayChartClick = useMemo(
+    () => ({
+      click: (p: unknown) => {
+        const q = p as { dataIndex?: number };
+        if (q.dataIndex == null || !replayRows[q.dataIndex]) {
+          return;
+        }
+        setDrawerSpanId(replayRows[q.dataIndex]!.span_id);
+      },
+    }),
+    [replayRows],
+  );
+  const replayRowIdsKey = useMemo(() => replayRows.map((r) => r.span_id).join("\x1e"), [replayRows]);
+  const replaySpanIds = useMemo(() => replayRows.map((r) => r.span_id), [replayRows]);
+
+  useEffect(() => {
+    setReplayExpandedKeys([]);
+  }, [replayTraceId]);
+
+  useEffect(() => {
+    const sid = drawerSpanId?.trim();
+    if (!sid) {
+      return;
+    }
+    if (!replaySpanIds.includes(sid)) {
+      return;
+    }
+    setReplayExpandedKeys((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
+  }, [drawerSpanId, replaySpanIds]);
+
+  useEffect(() => {
+    const sid = drawerSpanId?.trim();
+    if (!sid) {
+      return;
+    }
+    const el = document.getElementById(`replay-step-${sid}`);
+    if (!el) {
+      return;
+    }
+    const tmr = window.setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 100);
+    return () => window.clearTimeout(tmr);
+  }, [drawerSpanId, replayRowIdsKey]);
 
   const contextBlocks = useMemo(() => {
     const items = spansContextQuery.data?.items ?? [];
@@ -542,7 +825,14 @@ export function CommandAnalysisDashboard() {
         render: (_: unknown, row) => {
           const sid = String(row.span_id ?? "");
           return (
-            <Button type="text" size="mini" onClick={() => setDrawerSpanId(sid)}>
+            <Button
+              type="text"
+              size="mini"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDrawerSpanId(sid);
+              }}
+            >
               {t("detailBtn")}
             </Button>
           );
@@ -574,6 +864,11 @@ export function CommandAnalysisDashboard() {
   const showRuleMismatchHint =
     summaryQuery.isSuccess && snap != null && snap.tool_spans > 0 && snap.shell_like_spans === 0;
   const showEmptyDbHint = summaryQuery.isSuccess && snap != null && snap.tool_spans === 0;
+  const showExecBackfillHint =
+    summaryQuery.isSuccess &&
+    snap != null &&
+    (snap.exec_command_rows ?? 0) === 0 &&
+    snap.shell_like_spans > 0;
 
   if (!mounted) {
     return (
@@ -618,6 +913,7 @@ export function CommandAnalysisDashboard() {
                 void prevSummaryQuery.refetch();
                 void listQuery.refetch();
                 void facetsQuery.refetch();
+                void replayQuery.refetch();
               }}
             >
               {t("refresh")}
@@ -651,6 +947,15 @@ export function CommandAnalysisDashboard() {
           />
         ) : null}
         {showEmptyDbHint ? <Message type="info" content={t("hintEmptyDb")} /> : null}
+        {showExecBackfillHint ? (
+          <Message
+            type="warning"
+            content={t("hintExecBackfill", {
+              shell: snap!.shell_like_spans,
+              exec: snap!.exec_command_rows ?? 0,
+            })}
+          />
+        ) : null}
         {summaryQuery.isSuccess &&
         (s?.totals.commands ?? 0) === 0 &&
         !showWidenHint &&
@@ -863,6 +1168,19 @@ export function CommandAnalysisDashboard() {
                           <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(lo.trace_id)}`}>
                             {formatShortId(lo.trace_id)}
                           </LocalizedLink>
+                          <Button
+                            type="outline"
+                            size="mini"
+                            onClick={() => {
+                              setTraceFilter(lo.trace_id);
+                              setViewKind("details");
+                              setPage(1);
+                              void listQuery.refetch();
+                              void replayQuery.refetch();
+                            }}
+                          >
+                            {t("focusTraceReplay")}
+                          </Button>
                         </div>
                         <Typography.Text className="mt-1 block text-xs" ellipsis={{ showTooltip: true }}>
                           {lo.command}
@@ -881,11 +1199,24 @@ export function CommandAnalysisDashboard() {
                 {s?.redundant_read_hints?.length ? (
                   <ul className="space-y-2 text-sm">
                     {s.redundant_read_hints.map((r) => (
-                      <li key={`${r.trace_id}-${r.command}`}>
+                      <li key={`${r.trace_id}-${r.command}`} className="flex flex-wrap items-center gap-2">
                         <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}>
                           {formatShortId(r.trace_id)}
                         </LocalizedLink>
-                        <span className="ml-2 text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>
+                        <span className="text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>
+                        <Button
+                          type="outline"
+                          size="mini"
+                          onClick={() => {
+                            setTraceFilter(r.trace_id);
+                            setViewKind("details");
+                            setPage(1);
+                            void listQuery.refetch();
+                            void replayQuery.refetch();
+                          }}
+                        >
+                          {t("focusTraceReplay")}
+                        </Button>
                       </li>
                     ))}
                   </ul>
@@ -910,7 +1241,21 @@ export function CommandAnalysisDashboard() {
                     { title: t("colStdout"), dataIndex: "stdout_chars" },
                     { title: t("colEstTokens"), dataIndex: "est_tokens" },
                     { title: t("colEstUsd"), dataIndex: "est_usd" },
-                    { title: t("colAction"), render: (_, r) => <Button type="text" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>{t("detailBtn")}</Button> },
+                    {
+                      title: t("colAction"),
+                      render: (_, r) => (
+                        <Button
+                          type="text"
+                          size="mini"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDrawerSpanId(r.span_id);
+                          }}
+                        >
+                          {t("detailBtn")}
+                        </Button>
+                      ),
+                    },
                   ]}
                   data={s.token_risks}
                 />
@@ -927,6 +1272,56 @@ export function CommandAnalysisDashboard() {
               <Tag color="red">{t("diagNotFound")}: {s?.diagnostics.command_not_found ?? 0}</Tag>
               <Tag color="orangered">{t("diagPerm")}: {s?.diagnostics.permission_denied ?? 0}</Tag>
               <Tag color="gold">{t("diagArg")}: {s?.diagnostics.illegal_arg_hint ?? 0}</Tag>
+            </div>
+
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionRiskCharts")}
+            </Typography.Title>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px" }}>
+                <div className="h-[220px] w-full min-w-0">
+                  {loopBucketsOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={loopBucketsOpt} style={{ height: 200 }} />
+                  ) : (
+                    <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
+              <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px" }}>
+                <div className="h-[220px] w-full min-w-0">
+                  {tokenRiskBucketsOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={tokenRiskBucketsOpt} style={{ height: 200 }} />
+                  ) : (
+                    <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} bodyStyle={{ padding: "12px" }}>
+                <div className="h-[260px] w-full min-w-0">
+                  {redundantTopOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={redundantTopOpt} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-xs text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} bodyStyle={{ padding: "12px" }}>
+                <div className="h-[260px] w-full min-w-0">
+                  {tokenRiskBarsOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={tokenRiskBarsOpt} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-xs text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
             </div>
           </>
         ) : null}
@@ -1006,6 +1401,9 @@ export function CommandAnalysisDashboard() {
             </Card>
 
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
+              <Typography.Text type="secondary" className="block px-4 pt-3 text-xs">
+                {t("listRowOpenDetail")}
+              </Typography.Text>
               <Table
                 size="small"
                 rowKey="span_id"
@@ -1014,6 +1412,20 @@ export function CommandAnalysisDashboard() {
                 data={listQuery.data?.items ?? []}
                 pagination={false}
                 border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                rowClassName={(record) =>
+                  drawerSpanId && String((record as ShellExecListRow).span_id ?? "") === drawerSpanId
+                    ? "!bg-primary/10 !ring-1 !ring-inset !ring-primary/35"
+                    : ""
+                }
+                onRow={(record) => ({
+                  onClick: () => {
+                    const sid = String((record as ShellExecListRow).span_id ?? "");
+                    if (sid) {
+                      setDrawerSpanId(sid);
+                    }
+                  },
+                  style: { cursor: "pointer" },
+                })}
                 className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
               />
               <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 px-3 py-3">
@@ -1037,6 +1449,120 @@ export function CommandAnalysisDashboard() {
             </Card>
           </>
         ) : null}
+
+        <Card bordered={false} className={kpiShellClass} title={t("sectionReplay")}>
+          {!replayTraceId ? (
+            <Typography.Text type="secondary">{t("replayNeedTraceId")}</Typography.Text>
+          ) : replayQuery.isLoading ? (
+            <Spin />
+          ) : replayQuery.isError ? (
+            <Typography.Text type="error">
+              {t("replayLoadError")}
+              {replayQuery.error instanceof Error && replayQuery.error.message
+                ? ` ${t("loadErrorDetail", { detail: replayQuery.error.message })}`
+                : null}
+            </Typography.Text>
+          ) : replayRows.length === 0 ? (
+            <Typography.Text type="secondary">{t("replayEmpty")}</Typography.Text>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="h-[min(380px,55vh)] min-h-[220px] w-full min-w-0 rounded-lg border border-border/50 p-2">
+                {replayTimelineOpt ? (
+                  <ReactEChart
+                    option={replayTimelineOpt}
+                    style={{ height: "100%", minHeight: 210 }}
+                    onEvents={replayChartClick}
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
+                    —
+                  </div>
+                )}
+              </div>
+              <div className="max-h-[min(520px,70vh)] overflow-y-auto pr-1">
+              <Collapse
+                bordered
+                activeKey={replayExpandedKeys}
+                onChange={(keys) => setReplayExpandedKeys(Array.isArray(keys) ? keys : keys ? [keys] : [])}
+              >
+                {replayRows.map((r, idx) => {
+                  const stepNo = idx + 1;
+                  const isActive = Boolean(drawerSpanId && drawerSpanId === r.span_id);
+                  const ms = r.start_time_ms != null ? Number(r.start_time_ms) : null;
+                  const dur = r.duration_ms != null ? Number(r.duration_ms) : null;
+                  return (
+                    <CollapseItem
+                      key={r.span_id}
+                      name={r.span_id}
+                      header={
+                        <div
+                          id={`replay-step-${r.span_id}`}
+                          className={cn(
+                            "flex min-w-0 flex-col gap-1 rounded-md py-0.5 sm:flex-row sm:items-center sm:gap-3",
+                            isActive && "bg-primary/10 ring-2 ring-primary ring-offset-2 ring-offset-background",
+                          )}
+                          aria-label={isActive ? t("replayHighlightAria") : undefined}
+                        >
+                          <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                            {t("replayStep", { n: stepNo })}
+                          </span>
+                          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                            {ms != null && Number.isFinite(ms) ? formatTraceDateTimeFromMs(ms) : "—"}
+                          </span>
+                          <Typography.Text className="min-w-0 flex-1 text-xs" ellipsis={{ showTooltip: true }}>
+                            {r.command || "—"}
+                          </Typography.Text>
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <Tag size="small">{replayCategoryLabel(t, String(r.category ?? ""))}</Tag>
+                            {r.token_risk ? <Tag color="orangered">{t("riskTag")}</Tag> : null}
+                          </span>
+                        </div>
+                      }
+                    >
+                      <div className="space-y-2 text-xs">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                          <span>
+                            {t("replayTraceLabel")}:{" "}
+                            <LocalizedLink
+                              className="font-mono text-primary underline-offset-2 hover:underline"
+                              href={`/messages/${encodeURIComponent(String(r.trace_id ?? ""))}`}
+                            >
+                              {formatShortId(String(r.trace_id ?? ""))}
+                            </LocalizedLink>
+                          </span>
+                          <span>
+                            {t("colExit")}: {r.exit_code != null ? String(r.exit_code) : "—"}
+                          </span>
+                          <span>
+                            {t("colOk")}:{" "}
+                            {r.success === true ? t("okYes") : r.success === false ? t("okNo") : "—"}
+                          </span>
+                          <span>
+                            {t("replayDur")}: {dur != null && Number.isFinite(dur) ? `${dur} ms` : "—"}
+                          </span>
+                          <span>
+                            {t("replayPlatform")}: {String(r.platform ?? "—")}
+                          </span>
+                        </div>
+                        {r.span_name ? (
+                          <div className="text-muted-foreground">
+                            {t("replaySpanName")}: <span className="font-mono">{r.span_name}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="primary" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>
+                            {t("detailBtn")}
+                          </Button>
+                        </div>
+                      </div>
+                    </CollapseItem>
+                  );
+                })}
+              </Collapse>
+              </div>
+            </div>
+          )}
+        </Card>
 
         <Drawer
           width={520}

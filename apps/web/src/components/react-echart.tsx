@@ -18,7 +18,6 @@ export function ReactEChart({ option, className, style, onEvents }: ReactEChartP
       className={className}
       option={option}
       notMerge
-      lazyUpdate
       onEvents={onEvents}
       style={{ width: "100%", height: "100%", minHeight: 0, ...style }}
     />
