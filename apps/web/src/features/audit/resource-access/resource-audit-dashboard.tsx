@@ -29,6 +29,7 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
+import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
@@ -57,10 +58,12 @@ import {
   type ResourceAuditEventRow,
   type ResourceAuditSemanticClassParam,
 } from "@/lib/resource-audit-records";
-import { loadTraceRecords, traceRecordAgentName, traceRecordChannel } from "@/lib/trace-records";
+import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
+import { loadTraceRecords, traceRecordAgentName, traceRecordChannel, type TraceRecordRow } from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
+import { toast } from "@/components/ui/feedback";
 
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
@@ -230,6 +233,8 @@ export function ResourceAuditDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
+  const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
+  const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
 
   const resourceAuditTabs = [
     { id: "metrics", label: t("tabMetrics") },
@@ -370,6 +375,24 @@ export function ResourceAuditDashboard() {
     [eventsQ.data?.items],
   );
 
+  const openMessageInspectFromAuditRow = useCallback(
+    async (row: ResourceAuditEventRow) => {
+      const traceId = row.trace_id?.trim();
+      const spanId = row.span_id?.trim();
+      if (!traceId || !spanId) {
+        return;
+      }
+      const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, traceId);
+      if (!resolved) {
+        toast.error(t("openMessageInspectFailed"));
+        return;
+      }
+      setMessageInspectInitialSpanId(spanId);
+      setMessageInspectTrace(resolved);
+    },
+    [apiKey, baseUrl, t],
+  );
+
   const traceMetaById = useMemo(() => {
     const m = new Map<string, { agent: string | null; channel: string | null }>();
     for (const row of traceMetaQ.data?.items ?? []) {
@@ -384,10 +407,28 @@ export function ResourceAuditDashboard() {
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
+        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
+        dataIndex: "span_id",
+        key: "span_id",
+        fixed: "left",
+        width: 120,
+        render: (_: unknown, row: ResourceAuditEventRow) => (
+          <Button
+            type="text"
+            size="mini"
+            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+            onClick={() => {
+              void openMessageInspectFromAuditRow(row);
+            }}
+          >
+            {formatShortId(row.span_id)}
+          </Button>
+        ),
+      },
+      {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
         key: "resource_uri",
-        fixed: "left",
         width: 280,
         render: (uri: string) => {
           const displayUri = formatMemorySearchUriForDisplay(uri);
@@ -474,21 +515,6 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
-        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
-        dataIndex: "trace_id",
-        width: 120,
-        render: (_: unknown, row: ResourceAuditEventRow) => (
-          <Button
-            type="text"
-            size="mini"
-            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-            onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(row))}
-          >
-            {formatShortId(row.span_id)}
-          </Button>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colLinkage")} hint={t("colLinkageHint")} />,
         width: 168,
         render: (_: unknown, row: ResourceAuditEventRow) => (
@@ -525,7 +551,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, setTraceFilterUrl, traceMetaById],
+    [t, setTraceFilterUrl, traceMetaById, openMessageInspectFromAuditRow],
   );
 
   const dailyRows = useMemo(() => {
@@ -1021,6 +1047,25 @@ export function ResourceAuditDashboard() {
         row={spanInspectRow}
         rows={spanDrawerRows}
         onNavigate={setSpanInspectRow}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
+
+      <TraceRecordInspectDialog
+        open={messageInspectTrace != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setMessageInspectTrace(null);
+            setMessageInspectInitialSpanId(null);
+          }
+        }}
+        row={messageInspectTrace}
+        initialSpanId={messageInspectInitialSpanId}
+        rows={messageInspectTrace ? [messageInspectTrace] : []}
+        onNavigate={(r) => {
+          setMessageInspectTrace(r);
+          setMessageInspectInitialSpanId(null);
+        }}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />
