@@ -1,4 +1,5 @@
 import { collectorAuthHeaders } from "@/lib/collector";
+import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type SemanticSpanRow = {
@@ -42,15 +43,12 @@ export async function loadSemanticSpans(
   const res = await fetch(`${b}${COLLECTOR_API.traceSpans}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const raw = (await res.json()) as {
+  const raw = await readCollectorFetchResult<{
     trace_id?: string;
     items?: Partial<SemanticSpanRow>[];
     trace_input?: unknown;
-  };
-  const items = (raw.items ?? []).map((r) => normalizeSemanticSpan(r));
+  }>(res, `trace spans HTTP ${res.status}`);
+  const items = collectorItemsArray<Partial<SemanticSpanRow>>(raw.items).map((r) => normalizeSemanticSpan(r));
   const ti = raw.trace_input;
   const trace_input =
     ti && typeof ti === "object" && !Array.isArray(ti) ? (ti as Record<string, unknown>) : null;

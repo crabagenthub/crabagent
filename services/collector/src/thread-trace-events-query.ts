@@ -606,11 +606,45 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
   const events: Record<string, unknown>[] = [];
   let seq = 0;
 
-  const selectAllLlmSpans = db.prepare(
-    `SELECT output_json, usage_json, model, provider FROM opik_spans
-      WHERE trace_id = ? AND span_type = 'llm'
-      ORDER BY COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC`,
-  );
+  const traceIds = rows
+    .map((r) => String(r.trace_id ?? "").trim())
+    .filter((id): id is string => id.length > 0);
+  const llmSpansByTraceId = new Map<
+    string,
+    { output_json: string | null; usage_json: string | null; model: string | null; provider: string | null }[]
+  >();
+  if (traceIds.length > 0) {
+    const uniqueTraceIds = [...new Set(traceIds)];
+    const placeholders = uniqueTraceIds.map(() => "?").join(", ");
+    const spanRows = db
+      .prepare(
+        `SELECT trace_id, output_json, usage_json, model, provider
+         FROM opik_spans
+         WHERE span_type = 'llm' AND trace_id IN (${placeholders})
+         ORDER BY trace_id ASC, COALESCE(sort_index, 999999) ASC, COALESCE(start_time_ms, 0) ASC`,
+      )
+      .all(...uniqueTraceIds) as {
+      trace_id: string;
+      output_json: string | null;
+      usage_json: string | null;
+      model: string | null;
+      provider: string | null;
+    }[];
+    for (const row of spanRows) {
+      const keyTraceId = String(row.trace_id ?? "").trim();
+      if (!keyTraceId) {
+        continue;
+      }
+      const arr = llmSpansByTraceId.get(keyTraceId) ?? [];
+      arr.push({
+        output_json: row.output_json,
+        usage_json: row.usage_json,
+        model: row.model,
+        provider: row.provider,
+      });
+      llmSpansByTraceId.set(keyTraceId, arr);
+    }
+  }
 
   for (const r of rows) {
     const traceId = String(r.trace_id ?? "").trim();
@@ -627,12 +661,7 @@ export function queryThreadTraceEvents(db: Database.Database, threadKey: string)
     seq += 1;
 
     const input = safeObject(r.input_json);
-    const spanRows = selectAllLlmSpans.all(traceId) as {
-      output_json: string | null;
-      usage_json: string | null;
-      model: string | null;
-      provider: string | null;
-    }[];
+    const spanRows = llmSpansByTraceId.get(traceId) ?? [];
     const primarySpanRow = spanRows[0];
     const output = mergeTraceOutputWithPrimaryLlmSpan(safeObject(r.output_json), primarySpanRow?.output_json ?? null);
     const metadata = safeObject(r.metadata_json);

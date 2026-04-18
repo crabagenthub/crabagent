@@ -9,6 +9,7 @@ import { MessageHint } from "@/components/message-hint";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "@/i18n/navigation";
 import { loadCollectorUrl } from "@/lib/collector";
+import { readCollectorHealthResult } from "@/lib/collector-json";
 
 function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
   const t = useTranslations("Home");
@@ -16,10 +17,7 @@ function HealthCheck({ collectorUrl }: { collectorUrl: string }) {
     queryKey: ["health", collectorUrl],
     queryFn: async () => {
       const res = await fetch(`${collectorUrl.replace(/\/+$/, "")}/health`);
-      if (!res.ok) {
-        throw new Error(String(res.status));
-      }
-      return res.json();
+      return readCollectorHealthResult<unknown>(res, String(res.status));
     },
     enabled: collectorUrl.length > 0,
     retry: false,

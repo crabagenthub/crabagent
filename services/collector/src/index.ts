@@ -4,7 +4,9 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
-import { openDatabase } from "./db.js";
+import { loadDeploymentConfig, validateDeploymentConfig } from "./deployment-mode.js";
+import { runHealthProbes } from "./health-probes.js";
+import { initializeRuntimeStorage } from "./storage-runtime.js";
 import { sseSubscribe } from "./sse-hub.js";
 import {
   querySemanticSpansByTraceId,
@@ -51,10 +53,17 @@ const AUTH_BYPASS_LOCAL =
   ["1", "true", "yes"].includes((process.env.CRABAGENT_DISABLE_API_KEY_AUTH ?? "").trim().toLowerCase());
 const collectorPackageRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultDbPath = path.join(collectorPackageRoot, "data", "crabagent.db");
-const DB_PATH = process.env.CRABAGENT_DB_PATH?.trim() || defaultDbPath;
-const DB_PATH_LOG = path.resolve(DB_PATH);
-
-const db = openDatabase(DB_PATH);
+const deployment = loadDeploymentConfig(defaultDbPath);
+const deploymentErrors = validateDeploymentConfig(deployment);
+if (deploymentErrors.length > 0) {
+  throw new Error(
+    `[crabagent-collector] invalid deployment config:\n- ${deploymentErrors.join("\n- ")}`,
+  );
+}
+const storage = initializeRuntimeStorage(deployment);
+const isSqlitePrimary = storage.primary.kind === "sqlite";
+const db = isSqlitePrimary ? storage.primary.db : null;
+const DB_PATH_LOG = storage.primary.locationLabel;
 
 const app = new Hono();
 
@@ -89,6 +98,44 @@ function optionalNonNegativeIntQuery(c: KeyCtx, key: string): number | undefined
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
+function parseEpochMs(raw: string | undefined): number | undefined {
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n) || n <= 0) {
+    return undefined;
+  }
+  return Math.floor(n);
+}
+
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n) || n <= 0) {
+    return fallback;
+  }
+  return Math.floor(n);
+}
+
+function resolveTimeRangeWithDefault(c: Context): { sinceMs?: number; untilMs?: number } {
+  const sinceMs = parseEpochMs(c.req.query("since_ms"));
+  const untilMs = parseEpochMs(c.req.query("until_ms"));
+  const now = Date.now();
+  const maxWindowMs = Math.min(
+    parsePositiveIntEnv("CRABAGENT_MAX_TIME_WINDOW_MS", 30 * 24 * 60 * 60 * 1000),
+    365 * 24 * 60 * 60 * 1000,
+  );
+  const defaultRange = {
+    sinceMs: now - storage.capabilities.defaultTimeWindowMs,
+    untilMs: now,
+  };
+  const out = sinceMs != null || untilMs != null ? { sinceMs, untilMs } : defaultRange;
+  const s = out.sinceMs;
+  const u = out.untilMs;
+  if (s != null && u != null && u > 0 && s > 0 && u - s > maxWindowMs) {
+    return { sinceMs: u - maxWindowMs, untilMs: u };
+  }
+  return out;
+}
+
 function parseObserveListSort(raw: string | undefined): "time" | "tokens" {
   const s = String(raw ?? "time").trim().toLowerCase();
   return s === "tokens" ? "tokens" : "time";
@@ -112,8 +159,47 @@ function checkApiKey(c: KeyCtx): boolean {
   return q === API_KEY;
 }
 
-app.get("/health", (c) => c.json({ ok: true, service: "crabagent-collector" }));
+app.get("/health", async (c) => {
+  const probes =
+    deployment.mode === "enterprise"
+      ? await runHealthProbes({
+          pgUrl: deployment.primary.pgUrl,
+          clickhouseUrl: deployment.analytics.clickhouseUrl,
+        })
+      : {};
+  return c.json({
+    ok: true,
+    service: "crabagent-collector",
+    deployment_mode: deployment.mode,
+    primary_db: storage.primary.kind,
+    primary_ready: storage.primary.ready,
+    primary_message: storage.primary.message,
+    analytics_db: storage.analytics.kind,
+    analytics_ready: storage.analytics.ready,
+    analytics_message: storage.analytics.message,
+    default_time_window_ms: storage.capabilities.defaultTimeWindowMs,
+    max_time_window_ms: Math.min(
+      parsePositiveIntEnv("CRABAGENT_MAX_TIME_WINDOW_MS", 30 * 24 * 60 * 60 * 1000),
+      365 * 24 * 60 * 60 * 1000,
+    ),
+    probes,
+  });
+});
 
+if (!isSqlitePrimary || db == null) {
+  app.all("/v1/*", (c) =>
+    c.json(
+      {
+        error: "not_implemented",
+        hint: "Enterprise mode is not fully implemented yet; only /health is available for now.",
+        deployment_mode: deployment.mode,
+        primary_db: storage.primary.kind,
+        analytics_db: storage.analytics.kind,
+      },
+      501,
+    ),
+  );
+} else {
 /** Interception policies CRUD */
 app.get("/v1/policies", (c) => {
   if (!checkApiKey(c)) return c.json({ error: "unauthorized" }, 401);
@@ -274,12 +360,7 @@ const handleConversationTraces = (c: Context) => {
   const minToolCalls = Number(c.req.query("min_tool_calls") ?? "");
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
@@ -327,12 +408,7 @@ const handleThreadRecords = (c: Context) => {
   const sort = parseObserveListSort(c.req.query("sort"));
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
@@ -449,12 +525,7 @@ const handleSpanRecords = (c: Context) => {
   const sort = parseObserveListSort(c.req.query("sort"));
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
 
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
@@ -489,12 +560,7 @@ const handleShellExecSummary = (c: Context) => {
   if (!checkApiKey(c)) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
   const traceId = optionalQueryString(c, "trace_id");
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
@@ -530,12 +596,7 @@ const handleShellExecList = (c: Context) => {
   const offset = Math.max(Number(c.req.query("offset") ?? "0") || 0, 0);
   const orderRaw = String(c.req.query("order") ?? "desc").toLowerCase();
   const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
   const traceId = optionalQueryString(c, "trace_id");
   const channel = optionalQueryString(c, "channel");
   const agent = optionalQueryString(c, "agent");
@@ -595,12 +656,7 @@ const handleResourceAuditEvents = (c: Context) => {
   const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
   const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
@@ -641,12 +697,7 @@ const handleResourceAuditStats = (c: Context) => {
   }
   const rawSearch = c.req.query("search");
   const search = typeof rawSearch === "string" ? rawSearch : undefined;
-  const sinceRaw = Number(c.req.query("since_ms") ?? "");
-  const sinceMs =
-    Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : undefined;
-  const untilRaw = Number(c.req.query("until_ms") ?? "");
-  const untilMs =
-    Number.isFinite(untilRaw) && untilRaw > 0 ? Math.floor(untilRaw) : undefined;
+  const { sinceMs, untilMs } = resolveTimeRangeWithDefault(c);
   const semantic_class = parseResourceAuditSemanticClass(optionalQueryString(c, "semantic_class"));
   const uri_prefix = optionalQueryString(c, "uri_prefix");
   const trace_id = optionalQueryString(c, "trace_id");
@@ -787,9 +838,10 @@ app.get("/v1/traces/:traceRootId/stream", (c) => {
     },
   });
 });
+}
 
 console.log(
-  `[crabagent-collector] listening on http://127.0.0.1:${PORT} db=${DB_PATH_LOG} auth=${AUTH_BYPASS_LOCAL ? "bypassed" : API_KEY ? "on" : "off"}`,
+  `[crabagent-collector] listening on http://127.0.0.1:${PORT} mode=${deployment.mode} primary=${deployment.primary.kind} analytics=${deployment.analytics.kind} db=${DB_PATH_LOG} auth=${AUTH_BYPASS_LOCAL ? "bypassed" : API_KEY ? "on" : "off"}`,
 );
 
 serve({ fetch: app.fetch, port: PORT });

@@ -188,7 +188,7 @@ const ExecFlowNode = memo(function ExecFlowNodeFn(props: NodeProps) {
 
   const { main: callTimeMain, dur: callTimeDur } = callTimeLabel(d);
   const batchMode = d.tool_execution_mode ?? null;
-  const showToolBatch =
+  const showiseeagentcch =
     batchMode === "parallel" || batchMode === "sequential";
 
   const ci = !isTrace ? (d.crabagent_interception ?? null) : null;
@@ -292,19 +292,19 @@ const ExecFlowNode = memo(function ExecFlowNodeFn(props: NodeProps) {
             </div>
           </>
         )}
-        {isTrace && showToolBatch ? (
+        {isTrace && showiseeagentcch ? (
           <div className="mt-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-1 py-0.5 text-[9px] leading-tight text-foreground">
-            <span className="text-muted-foreground">{t("execNodeToolBatch")}</span>
+            <span className="text-muted-foreground">{t("execNodeiseeagentcch")}</span>
             <span className="ml-1 font-semibold">
-              {batchMode === "parallel" ? t("execToolBatchParallel") : t("execToolBatchSequential")}
+              {batchMode === "parallel" ? t("execiseeagentcchParallel") : t("execiseeagentcchSequential")}
             </span>
           </div>
         ) : null}
-        {!isTrace && d.kind === "LLM" && showToolBatch ? (
+        {!isTrace && d.kind === "LLM" && showiseeagentcch ? (
           <div className="mt-0.5 rounded border border-sky-500/30 bg-sky-500/10 px-1 py-0.5 text-[9px] leading-tight">
-            <span className="text-muted-foreground">{t("execNodeToolBatch")}</span>
+            <span className="text-muted-foreground">{t("execNodeiseeagentcch")}</span>
             <span className="ml-1 font-semibold text-foreground">
-              {batchMode === "parallel" ? t("execToolBatchParallel") : t("execToolBatchSequential")}
+              {batchMode === "parallel" ? t("execiseeagentcchParallel") : t("execiseeagentcchSequential")}
             </span>
           </div>
         ) : null}
@@ -472,7 +472,7 @@ function ExecutionTraceFlowInner({
         sourceHandle: "out",
         targetHandle: "in",
         animated: true,
-        data: { edgeKind: e.edge_kind, toolBatchMode: e.tool_batch_mode ?? null },
+        data: { edgeKind: e.edge_kind, iseeagentcchMode: e.tool_batch_mode ?? null },
         markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: stroke },
         style: { strokeWidth: 1.35, stroke },
         ...(showFanoutLabel && label

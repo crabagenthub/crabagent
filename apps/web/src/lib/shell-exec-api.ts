@@ -1,4 +1,5 @@
 import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
+import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ShellCommandCategory = "file" | "network" | "system" | "process" | "package" | "other";
@@ -125,11 +126,7 @@ export async function loadShellExecSummary(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  const body = (await res.json()) as ShellExecSummary;
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return body;
+  return readCollectorFetchResult<ShellExecSummary>(res, `shell summary HTTP ${res.status}`);
 }
 
 export async function loadShellExecList(
@@ -147,11 +144,11 @@ export async function loadShellExecList(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const raw = (await res.json()) as { items?: ShellExecListRow[]; total?: number };
-  return { items: raw.items ?? [], total: raw.total ?? 0 };
+  const raw = await readCollectorFetchResult<{ items?: ShellExecListRow[]; total?: number }>(
+    res,
+    `shell list HTTP ${res.status}`,
+  );
+  return { items: collectorItemsArray<ShellExecListRow>(raw.items), total: raw.total ?? 0 };
 }
 
 export async function loadShellExecDetail(
@@ -166,8 +163,5 @@ export async function loadShellExecDetail(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return (await res.json()) as ShellExecDetail;
+  return readCollectorFetchResult<ShellExecDetail>(res, `shell detail HTTP ${res.status}`);
 }

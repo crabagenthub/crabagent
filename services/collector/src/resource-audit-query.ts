@@ -538,20 +538,97 @@ export type ResourceAuditStatsJson = {
   hint_type_distribution: { hint_type: string; count: number }[];
 };
 
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n) || n <= 0) {
+    return fallback;
+  }
+  return Math.floor(n);
+}
+
 export function queryResourceAuditStats(db: Database.Database, q: Omit<ResourceAuditListQuery, "limit" | "offset" | "order">): ResourceAuditStatsJson {
   const baseQ: ResourceAuditListQuery = { ...q, limit: 500, offset: 0, order: "desc" };
   const { sql: whereSql, params } = buildWhere(baseQ);
   const uriExpr = sqlCoalesceResourceUri("s");
   const config = loadResourceAuditConfig();
-  const summaryRows = db
-    .prepare(`${SPAN_AUDIT_SELECT} ${whereSql}`)
-    .all(...params) as Record<string, unknown>[];
-  const allEvents = summaryRows.map((row) => mapRawRowToAuditEvent(row, config));
-  const traces = new Set(allEvents.map((e) => e.trace_id).filter(Boolean));
-  const durRows = allEvents.filter((e) => e.duration_ms != null);
-  const avgDur = durRows.length > 0 ? durRows.reduce((acc, e) => acc + Number(e.duration_ms ?? 0), 0) / durRows.length : null;
-  const countByFlag = (flag: string) => allEvents.filter((e) => e.risk_flags.includes(flag)).length;
-  const riskAny = allEvents.filter((e) => e.risk_flags.length > 0).length;
+  const riskScanCap = Math.min(parsePositiveIntEnv("CRABAGENT_RESOURCE_AUDIT_STATS_SCAN_CAP", 8000), 50_000);
+  const summarySql = `
+SELECT COUNT(*) AS total_events,
+       COUNT(DISTINCT s.trace_id) AS distinct_traces,
+       AVG(CAST(s.duration_ms AS REAL)) AS avg_duration_ms
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+ORDER BY COALESCE(s.start_time_ms, t.created_at_ms, 0) DESC, s.span_id DESC
+LIMIT ${riskScanCap}
+`;
+  const summaryRow = db.prepare(summarySql).get(...params) as Record<string, unknown> | undefined;
+  const totalEvents = Number(summaryRow?.total_events ?? 0);
+  const distinctTraces = Number(summaryRow?.distinct_traces ?? 0);
+  const avgDurRaw = summaryRow?.avg_duration_ms;
+  const avgDur = avgDurRaw != null && String(avgDurRaw) !== "" ? Number(avgDurRaw) : null;
+
+  const riskRowsSql = `
+SELECT s.span_id,
+       ${uriExpr} AS resource_uri,
+       CAST(NULLIF(TRIM(json_extract(s.metadata_json, '$.resource.chars')), '') AS REAL) AS chars,
+       (
+         SELECT COUNT(*)
+         FROM opik_spans s2
+         WHERE s2.trace_id = s.trace_id
+           AND ${sqlCoalesceResourceUri("s2")} = ${uriExpr}
+           AND ${uriExpr} <> ''
+           AND ${sqlCoalesceResourceUri("s2")} <> ''
+       ) AS uri_repeat_count,
+       (
+         SELECT GROUP_CONCAT(DISTINCT json_extract(j.value, '$.hint_type'))
+         FROM security_audit_logs sal
+         JOIN json_each(sal.findings_json) j
+         WHERE sal.trace_id = s.trace_id
+           AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+           AND COALESCE(NULLIF(TRIM(json_extract(j.value, '$.hint_type')), ''), '') <> ''
+       ) AS policy_hint_flags,
+       (
+         SELECT CASE WHEN EXISTS (
+           SELECT 1
+           FROM security_audit_logs sal2
+           WHERE sal2.trace_id = s.trace_id
+             AND COALESCE(NULLIF(TRIM(sal2.span_id), ''), '') = COALESCE(NULLIF(TRIM(s.span_id), ''), '')
+         ) THEN 1 ELSE 0 END
+       ) AS policy_hit_any
+FROM opik_spans s
+LEFT JOIN opik_traces t ON t.trace_id = s.trace_id
+${whereSql}
+`;
+  const riskRows = db.prepare(riskRowsSql).all(...params) as Record<string, unknown>[];
+  const flagCounts = new Map<string, number>();
+  let riskAny = 0;
+  for (const row of riskRows) {
+    const uri = String(row.resource_uri ?? "");
+    const chars =
+      row.chars != null && String(row.chars) !== "" && Number.isFinite(Number(row.chars))
+        ? Number(row.chars)
+        : null;
+    const uriRepeatCount = Number(row.uri_repeat_count ?? 0);
+    const flags: string[] = [];
+    flags.push(...sensitivePathFlags(uri, config));
+    flags.push(...policyHintFlags(row, config));
+    if (chars != null && chars >= config.largeRead.thresholdChars) {
+      flags.push("large_read");
+    }
+    if (uriRepeatCount > 3) {
+      flags.push("redundant_read");
+    }
+    const uniq = new Set(flags);
+    if (uniq.size > 0) {
+      riskAny += 1;
+    }
+    for (const flag of uniq) {
+      flagCounts.set(flag, (flagCounts.get(flag) ?? 0) + 1);
+    }
+  }
+  const countByFlag = (flag: string): number => flagCounts.get(flag) ?? 0;
   const hintTypeDistribution = RESOURCE_AUDIT_HINT_TYPES.map((hint) => ({
     hint_type: hint,
     count: countByFlag(hint),
@@ -628,8 +705,8 @@ LIMIT 10
 
   return {
     summary: {
-      total_events: allEvents.length,
-      distinct_traces: traces.size,
+      total_events: totalEvents,
+      distinct_traces: distinctTraces,
       avg_duration_ms: avgDur,
       risk_sensitive_path: countByFlag("sensitive_path"),
       risk_pii_hint: countByFlag("pii_hint"),

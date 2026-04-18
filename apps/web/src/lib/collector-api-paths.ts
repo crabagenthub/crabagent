@@ -1,6 +1,7 @@
 /**
- * Collector HTTP paths — keep in sync with `services/collector/src/index.ts`.
- * Use these for all `fetch` URLs so the network tab matches the server routes.
+ * Collector HTTP paths — 以 `iseeagentc/controller/router/router_trace.go` 为准。
+ * SSE：`GET /v1/traces/:traceRootId/stream`（见 `streamUrl` in `@/lib/collector.ts`；非 JSON，不走 `readCollectorFetchResult`）。
+ * JSON 响应：仅接受 Go 信封，用 `readCollectorFetchResult` / `readCollectorHealthResult` 解包。
  */
 export const COLLECTOR_API = {
   conversationList: "/v1/conversation/list",

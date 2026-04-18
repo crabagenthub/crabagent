@@ -2,56 +2,48 @@ const URL_KEY = "crabagent_collector_url";
 const API_KEY_KEY = "crabagent_api_key";
 const WORKSPACE_KEY = "crabagent_workspace_name";
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const DEFAULT_COLLECTOR_URL = "http://127.0.0.1:8087";
 
-function isHttpLoopbackUrl(urlStr: string): boolean {
-  try {
-    const u = new URL(urlStr.trim());
-    return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
-  } catch {
-    return false;
+/**
+ * 清除 localStorage 里曾保存的 Next 同源 `/api/collector` 代理根路径，避免继续打到已移除的代理。
+ */
+function stripObsoleteNextCollectorProxyFromStorage(stored: string): string {
+  if (!stored || typeof window === "undefined") {
+    return stored;
   }
+  try {
+    const u = new URL(stored.trim(), window.location.origin);
+    if (u.origin !== window.location.origin) {
+      return stored;
+    }
+    const p = u.pathname.replace(/\/+$/, "") || "/";
+    if (p === "/api/collector" || p.startsWith("/api/collector/")) {
+      window.localStorage.removeItem(URL_KEY);
+      return "";
+    }
+  } catch {
+    return stored;
+  }
+  return stored;
 }
 
 /**
- * 开发态：页面与 Collector URL 同为 loopback，但 hostname 一个是 `localhost`、一个是 `127.0.0.1` 时，
- * Chrome PNA 会把跨主机请求打成 `TypeError: Failed to fetch`（与 Collector 是否启动无关）。
- * 此时强制走 Next 同源代理。
+ * 浏览器端 Collector 根地址：优先 `NEXT_PUBLIC_COLLECTOR_URL`，否则为设置里保存的 URL，最后默认直连 iseeagentc（`DEFAULT_COLLECTOR_URL`）。
  */
-function devUseSameOriginCollectorProxy(stored: string): boolean {
-  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") {
-    return false;
-  }
-  if (!isHttpLoopbackUrl(stored) || !LOOPBACK_HOSTS.has(window.location.hostname)) {
-    return false;
-  }
-  try {
-    return new URL(stored.trim()).hostname !== window.location.hostname;
-  } catch {
-    return false;
-  }
-}
-
 export function loadCollectorUrl(): string {
-  if (typeof window === "undefined") {
-    return process.env.NEXT_PUBLIC_COLLECTOR_URL?.trim() || "http://127.0.0.1:8787";
-  }
-  const stored = window.localStorage.getItem(URL_KEY)?.trim();
-  if (stored) {
-    if (devUseSameOriginCollectorProxy(stored)) {
-      return `${window.location.origin.replace(/\/+$/, "")}/api/collector`;
-    }
-    return stored;
-  }
   const fromEnv = process.env.NEXT_PUBLIC_COLLECTOR_URL?.trim();
+  if (typeof window === "undefined") {
+    return fromEnv || DEFAULT_COLLECTOR_URL;
+  }
   if (fromEnv) {
     return fromEnv;
   }
-  /** 开发环境默认走 Next 同源代理，避免浏览器拦截 localhost → 127.0.0.1 的跨站请求（含 Chrome PNA）。 */
-  if (process.env.NODE_ENV === "development") {
-    return `${window.location.origin.replace(/\/+$/, "")}/api/collector`;
+  const storedRaw = window.localStorage.getItem(URL_KEY)?.trim() ?? "";
+  const cleaned = stripObsoleteNextCollectorProxyFromStorage(storedRaw);
+  if (cleaned) {
+    return cleaned;
   }
-  return "http://127.0.0.1:8787";
+  return DEFAULT_COLLECTOR_URL;
 }
 
 export function saveCollectorUrl(url: string): void {

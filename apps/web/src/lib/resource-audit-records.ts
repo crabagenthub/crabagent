@@ -1,4 +1,5 @@
 import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
+import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ResourceAuditSemanticClassParam = "all" | "file" | "memory" | "tool_io";
@@ -265,11 +266,11 @@ export async function loadResourceAuditEvents(
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditEvents}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const raw = (await res.json()) as { items?: unknown[]; total?: number };
-  const items = (raw.items ?? []).map((x) =>
+  const raw = await readCollectorFetchResult<{ items?: unknown[]; total?: number }>(
+    res,
+    `resource audit events HTTP ${res.status}`,
+  );
+  const items = collectorItemsArray<unknown>(raw.items).map((x) =>
     normalizeEvent(x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}),
   );
   return { items, total: Number(raw.total ?? 0) };
@@ -313,10 +314,7 @@ export async function loadResourceAuditStats(
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const json = await res.json();
+  const json = await readCollectorFetchResult<unknown>(res, `resource audit stats HTTP ${res.status}`);
   return normalizeStatsPayload(json);
 }
 

@@ -1,4 +1,5 @@
 import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
+import { readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 /** Collector `findings_json` 解析后单项（无明文、无 vault 原文）。 */
@@ -98,10 +99,10 @@ export async function loadSecurityAuditEvents(
   appendWorkspaceNameParam(sp);
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as { items?: unknown[]; total?: number };
+  const data = await readCollectorFetchResult<{ items?: unknown[]; total?: number }>(
+    res,
+    `security audit events HTTP ${res.status}`,
+  );
   const items = Array.isArray(data.items)
     ? data.items.map((r) => {
         const o = r as Record<string, unknown>;
@@ -132,10 +133,10 @@ export async function loadSecurityAuditPolicyEventCounts(
   appendWorkspaceNameParam(sp);
   const url = `${b}${COLLECTOR_API.securityAuditPolicyEventCounts}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const data = (await res.json()) as { items?: unknown[] };
+  const data = await readCollectorFetchResult<{ items?: unknown[] }>(
+    res,
+    `security audit policy counts HTTP ${res.status}`,
+  );
   if (!Array.isArray(data.items)) {
     return [];
   }

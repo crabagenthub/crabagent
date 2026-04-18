@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { loadApiKey, loadCollectorUrl, saveApiKey, saveCollectorUrl } from "@/lib/collector";
+import { readCollectorHealthResult } from "@/lib/collector-json";
 
 import "@/lib/arco-react19-setup";
 
@@ -18,10 +19,7 @@ function HealthStrip({ collectorUrl }: { collectorUrl: string }) {
     queryKey: ["health", collectorUrl],
     queryFn: async () => {
       const res = await fetch(`${collectorUrl.replace(/\/+$/, "")}/health`);
-      if (!res.ok) {
-        throw new Error(String(res.status));
-      }
-      return res.json();
+      return readCollectorHealthResult<unknown>(res, String(res.status));
     },
     enabled: collectorUrl.length > 0,
     retry: false,
@@ -95,10 +93,7 @@ export function CollectorSettingsForm() {
         queryKey: ["health", urlT],
         queryFn: async () => {
           const res = await fetch(`${urlT.replace(/\/+$/, "")}/health`);
-          if (!res.ok) {
-            throw new Error(String(res.status));
-          }
-          return res.json();
+          return readCollectorHealthResult<unknown>(res, String(res.status));
         },
       });
       setSaveBanner("ok");
@@ -136,7 +131,7 @@ export function CollectorSettingsForm() {
             className="mt-1.5"
             value={url}
             onChange={setUrl}
-            placeholder="http://127.0.0.1:8787"
+            placeholder="http://127.0.0.1:8087"
             allowClear
           />
         </div>

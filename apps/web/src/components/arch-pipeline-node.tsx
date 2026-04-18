@@ -88,7 +88,7 @@ export const ArchPipelineNode = memo(function ArchPipelineNodeFn(props: NodeProp
   if (d.stage === "tools") {
     if (d.toolMode === "parallel" || d.toolMode === "sequential") {
       lines.push(
-        `${t("execNodeToolBatch")}: ${d.toolMode === "parallel" ? t("execToolBatchParallel") : t("execToolBatchSequential")}`,
+        `${t("execNodeiseeagentcch")}: ${d.toolMode === "parallel" ? t("execiseeagentcchParallel") : t("execiseeagentcchSequential")}`,
       );
     }
     if (d.toolNames.length > 0) {

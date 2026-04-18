@@ -1,4 +1,5 @@
 import { collectorAuthHeaders } from "@/lib/collector";
+import { readCollectorFetchResult } from "@/lib/collector-json";
 import { conversationExecutionGraphPath, traceExecutionGraphPath } from "@/lib/collector-api-paths";
 
 /**
@@ -69,19 +70,13 @@ export async function loadExecutionGraph(
     const q = sp.toString();
     const url = q ? `${b}${path}?${q}` : `${b}${path}`;
     const res = await fetch(url, { headers: collectorAuthHeaders(apiKey) });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    return (await res.json()) as ExecutionGraphResponseDto;
+    return readCollectorFetchResult<ExecutionGraphResponseDto>(res, `execution graph HTTP ${res.status}`);
   }
   if (traceId) {
     sp.set("trace_id", traceId);
     const url = `${b}${traceExecutionGraphPath()}?${sp.toString()}`;
     const res = await fetch(url, { headers: collectorAuthHeaders(apiKey) });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    return (await res.json()) as ExecutionGraphResponseDto;
+    return readCollectorFetchResult<ExecutionGraphResponseDto>(res, `trace execution graph HTTP ${res.status}`);
   }
   throw new Error("loadExecutionGraph: threadId or traceId required");
 }

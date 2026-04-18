@@ -1,4 +1,5 @@
 import { collectorAuthHeaders } from "@/lib/collector";
+import { readCollectorFetchResult } from "@/lib/collector-json";
 import { conversationTraceGraphPath } from "@/lib/collector-api-paths";
 
 export type TraceGraphSkillSummary = {
@@ -62,8 +63,5 @@ export async function loadTraceGraph(
   const path = conversationTraceGraphPath(threadId);
   const url = q ? `${b}${path}?${q}` : `${b}${path}`;
   const res = await fetch(url, { headers: collectorAuthHeaders(apiKey) });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return (await res.json()) as TraceGraphResponseDto;
+  return readCollectorFetchResult<TraceGraphResponseDto>(res, `trace graph HTTP ${res.status}`);
 }

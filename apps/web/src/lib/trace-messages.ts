@@ -1,4 +1,5 @@
 import { collectorAuthHeaders } from "@/lib/collector";
+import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
 
 export type TraceMessageRow = {
@@ -46,11 +47,11 @@ export async function loadTraceMessages(
   const res = await fetch(`${b}/v1/trace-messages?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const j = (await res.json()) as { items?: TraceMessageRow[] };
-  return { items: j.items ?? [] };
+  const j = await readCollectorFetchResult<{ items?: TraceMessageRow[] }>(
+    res,
+    `trace-messages HTTP ${res.status}`,
+  );
+  return { items: collectorItemsArray<TraceMessageRow>(j.items) };
 }
 
 export function traceMessagePreviewText(row: TraceMessageRow, maxChars: number): string {

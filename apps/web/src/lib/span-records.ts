@@ -1,4 +1,5 @@
 import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
+import { readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 
@@ -186,11 +187,20 @@ export async function loadSpanRecords(
   const res = await fetch(`${b}${COLLECTOR_API.spanList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const j = (await res.json()) as { items?: Record<string, unknown>[]; total?: number };
-  const items = (j.items ?? []).map(normalizeSpanRecord);
-  const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;
+  const j = await readCollectorFetchResult<{ items?: Record<string, unknown>[]; total?: number | string | null }>(
+    res,
+    `span list HTTP ${res.status}`,
+  );
+  const rawItems = Array.isArray(j.items) ? j.items : [];
+  const items = rawItems
+    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object" && !Array.isArray(x))
+    .map(normalizeSpanRecord);
+  const st: unknown = j.total;
+  const total =
+    typeof st === "number" && Number.isFinite(st)
+      ? Math.max(0, Math.floor(st))
+      : typeof st === "string" && st.trim() !== "" && Number.isFinite(Number(st))
+        ? Math.max(0, Math.floor(Number(st)))
+        : items.length;
   return { items, total };
 }

@@ -27,6 +27,7 @@ import {
 } from "@arco-design/web-react";
 import { IconEdit, IconDelete, IconQuestionCircleFill, IconFilter } from "@arco-design/web-react/icon";
 import { appendWorkspaceNameParam, loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
+import { readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -297,11 +298,10 @@ export function InterceptorPoliciesManager({
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
       };
       const resp = await fetch(url, { headers });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error || `Failed to fetch policies (HTTP ${resp.status})`);
-      }
-      return resp.json() as Promise<InterceptionPolicy[]>;
+      return readCollectorFetchResult<InterceptionPolicy[]>(
+        resp,
+        `Failed to fetch policies (HTTP ${resp.status})`,
+      );
     },
     enabled: !!collectorUrl,
   });
@@ -463,11 +463,7 @@ export function InterceptorPoliciesManager({
         headers,
         body: JSON.stringify(policy),
       });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error || `Failed to save policy (HTTP ${resp.status})`);
-      }
-      return resp.json();
+      return readCollectorFetchResult<unknown>(resp, `Failed to save policy (HTTP ${resp.status})`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["interception-policies"] });
@@ -490,11 +486,7 @@ export function InterceptorPoliciesManager({
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
       };
       const resp = await fetch(url, { method: "DELETE", headers });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error || `Failed to delete policy (HTTP ${resp.status})`);
-      }
-      return resp.json();
+      return readCollectorFetchResult<unknown>(resp, `Failed to delete policy (HTTP ${resp.status})`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["interception-policies"] });
