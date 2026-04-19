@@ -252,6 +252,14 @@ export function OverviewDashboard() {
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
 
+  /** 有明确起止时间时，统计指标按日图表对无数据日补 0（与 overview-metrics 内 dayKeyLocal 一致）。 */
+  const overviewChartDayRange = useMemo((): { sinceMs: number; untilMs: number } | null => {
+    if (sinceMs != null && untilMs != null && sinceMs > 0 && untilMs >= sinceMs) {
+      return { sinceMs, untilMs };
+    }
+    return null;
+  }, [sinceMs, untilMs]);
+
   const kpiMessagesListHref = useMemo(() => {
     const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
     return buildTracesListDeepLink({ kind: "traces", sinceMs, untilMs, windowAll });
@@ -401,8 +409,9 @@ export function OverviewDashboard() {
       mom.ptk,
       mom.ptc,
       usageOverride,
+      overviewChartDayRange,
     );
-  }, [q.data, model]);
+  }, [q.data, model, overviewChartDayRange]);
 
   const filteredTracesForModelQps = useMemo(() => {
     if (!q.data) {
@@ -412,8 +421,8 @@ export function OverviewDashboard() {
   }, [q.data, model]);
 
   const modelQpsCountByDay = useMemo(
-    () => traceCountByDayForModelQps(filteredTracesForModelQps, modelQpsStatusFilter),
-    [filteredTracesForModelQps, modelQpsStatusFilter],
+    () => traceCountByDayForModelQps(filteredTracesForModelQps, modelQpsStatusFilter, overviewChartDayRange),
+    [filteredTracesForModelQps, modelQpsStatusFilter, overviewChartDayRange],
   );
 
   const modelQpsRows = useMemo(() => {

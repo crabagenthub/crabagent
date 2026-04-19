@@ -57,6 +57,10 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
     }
 
+    if (p === "/command-analysis" || p.startsWith("/command-analysis?")) {
+      return [{ label: tNav("groupAudit") }, { label: tNav("commandAnalysis") }];
+    }
+
     if (p === "/logs") {
       return [{ label: tNav("groupObserve") }, { label: tNav("logs") }];
     }

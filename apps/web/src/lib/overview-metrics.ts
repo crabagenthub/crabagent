@@ -3,6 +3,9 @@ import type { TraceRecordRow } from "@/lib/trace-records";
 
 const PAGE = 500;
 
+/** 与资源审计 / Shell 摘要补洞上限对齐，避免极大时间窗撑爆前端。 */
+export const MAX_OVERVIEW_CHART_DAYS = 400;
+
 function dayKeyLocal(ms: number): string {
   const d = new Date(ms);
   const y = d.getFullYear();
@@ -11,12 +14,41 @@ function dayKeyLocal(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * 本地日历的连续 YYYY-MM-DD（含首尾）；与 {@link dayKeyLocal} 一致。
+ * 当跨度超过 maxDays 时，仅保留靠近 until 的最后 maxDays 天。
+ */
+export function enumerateLocalYMDInclusive(sinceMs: number, untilMs: number, maxDays = MAX_OVERVIEW_CHART_DAYS): string[] {
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs < sinceMs) {
+    return [];
+  }
+  const start = new Date(sinceMs);
+  const end = new Date(untilMs);
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  let span = Math.floor((endDay.getTime() - startDay.getTime()) / 86400000) + 1;
+  if (span < 1) {
+    return [];
+  }
+  if (span > maxDays) {
+    startDay.setTime(endDay.getTime() - (maxDays - 1) * 86400000);
+  }
+  const out: string[] = [];
+  const cur = new Date(startDay);
+  while (cur.getTime() <= endDay.getTime()) {
+    out.push(dayKeyLocal(cur.getTime()));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
 /** 模型 QPS / QPM：按 Trace `status` 过滤后按本地日聚合条数（与总览其它按日图一致） */
 export type OverviewModelQpsStatusFilter = "all" | "success" | "fail";
 
 export function traceCountByDayForModelQps(
   traces: TraceRecordRow[],
   filter: OverviewModelQpsStatusFilter,
+  chartDayRange?: { sinceMs: number; untilMs: number } | null,
 ): { day: string; n: number }[] {
   const list =
     filter === "all"
@@ -28,6 +60,18 @@ export function traceCountByDayForModelQps(
   for (const t of list) {
     const k = dayKeyLocal(t.start_time);
     traceByDay.set(k, (traceByDay.get(k) ?? 0) + 1);
+  }
+  if (
+    chartDayRange != null &&
+    chartDayRange.sinceMs > 0 &&
+    chartDayRange.untilMs >= chartDayRange.sinceMs &&
+    Number.isFinite(chartDayRange.sinceMs) &&
+    Number.isFinite(chartDayRange.untilMs)
+  ) {
+    const full = enumerateLocalYMDInclusive(chartDayRange.sinceMs, chartDayRange.untilMs);
+    if (full.length > 0) {
+      return full.map((day) => ({ day, n: traceByDay.get(day) ?? 0 }));
+    }
   }
   const daysSorted = [...traceByDay.keys()].sort();
   return daysSorted.map((day) => ({ day, n: traceByDay.get(day)! }));
@@ -180,6 +224,8 @@ export function buildOverview(
   prevToolCallsSum?: number,
   /** 按模型筛选时用样本内 trace 数；未传则用 `traceTotalFull`（Collector 总条数）。 */
   usageCountOverride?: number,
+  /** 有明确时间窗时，按日图表对区间内无数据的日期补 0（本地日历，与 dayKeyLocal 一致）。 */
+  chartDayRange?: { sinceMs: number; untilMs: number } | null,
 ): { kpis: OverviewKpis; charts: OverviewCharts } {
   const llmSpans = spans.filter((s) => s.span_type === "llm");
   const toolSpans = spans.filter((s) => s.span_type === "tool");
@@ -244,17 +290,34 @@ export function buildOverview(
     traceByDay.set(k, cur);
   }
 
-  const daysSorted = [...traceByDay.keys()].sort();
+  const emptyAgg = (): { tokens: number; count: number; durSum: number; loops: number; tools: number } => ({
+    tokens: 0,
+    count: 0,
+    durSum: 0,
+    loops: 0,
+    tools: 0,
+  });
+  const bucket = (day: string) => traceByDay.get(day) ?? emptyAgg();
+
+  const rangeKeys =
+    chartDayRange != null &&
+    chartDayRange.sinceMs > 0 &&
+    chartDayRange.untilMs >= chartDayRange.sinceMs &&
+    Number.isFinite(chartDayRange.sinceMs) &&
+    Number.isFinite(chartDayRange.untilMs)
+      ? enumerateLocalYMDInclusive(chartDayRange.sinceMs, chartDayRange.untilMs)
+      : null;
+  const daysSorted = rangeKeys != null && rangeKeys.length > 0 ? rangeKeys : [...traceByDay.keys()].sort();
 
   const tokensByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     /** Heuristic split when prompt/completion not in API (aligns dual-line trend shape). */
     const inputWan = (b.tokens * 0.58) / 10_000;
     const outputWan = (b.tokens * 0.42) / 10_000;
     return { day, inputWan, outputWan, total: b.tokens };
   });
 
-  const traceCountByDay = daysSorted.map((day) => ({ day, n: traceByDay.get(day)!.count }));
+  const traceCountByDay = daysSorted.map((day) => ({ day, n: bucket(day).count }));
 
   const modelSuccessByDay = daysSorted.map((day) => {
     const dayTraces = traces.filter((t) => dayKeyLocal(t.start_time) === day);
@@ -266,18 +329,18 @@ export function buildOverview(
 
   const secsPerDay = 86400;
   const modelTokenRateByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     return { day, tps: b.tokens / secsPerDay };
   });
 
   const modelDurationSumByDay = daysSorted.map((day) => ({
     day,
-    ms: traceByDay.get(day)!.durSum,
+    ms: bucket(day).durSum,
   }));
 
   const toolVolumeByDay = daysSorted.map((day) => ({
     day,
-    n: traceByDay.get(day)!.tools,
+    n: bucket(day).tools,
   }));
 
   const toolLatencyMap = new Map<string, { sum: number; n: number }>();
@@ -302,7 +365,10 @@ export function buildOverview(
     toolOkMap.set(k, okC);
   }
 
-  const toolDays = [...new Set([...daysSorted, ...toolLatencyMap.keys(), ...toolOkMap.keys()])].sort();
+  const toolDays =
+    rangeKeys != null && rangeKeys.length > 0
+      ? [...rangeKeys]
+      : [...new Set([...daysSorted, ...toolLatencyMap.keys(), ...toolOkMap.keys()])].sort();
 
   const toolLatencyByDay = toolDays.map((day) => {
     const cur = toolLatencyMap.get(day);
@@ -317,13 +383,13 @@ export function buildOverview(
   });
 
   const agentStepsByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     const avg = b.count > 0 ? b.loops / b.count : 0;
     return { day, avg };
   });
 
   const agentToolsByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     const avg = b.count > 0 ? b.tools / b.count : 0;
     return { day, avg };
   });
@@ -342,7 +408,7 @@ export function buildOverview(
   }
 
   const agentModelsByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     const perTraceLlms = llmByTraceDay.get(day);
     const avg =
       perTraceLlms && perTraceLlms.traces.size > 0 ? perTraceLlms.llm / perTraceLlms.traces.size : b.count > 0 ? b.loops / b.count : 0;
@@ -357,19 +423,19 @@ export function buildOverview(
     threadKeysByDay.set(k, set);
   }
 
-  const traceReportByDay = daysSorted.map((day) => ({ day, n: traceByDay.get(day)!.count }));
+  const traceReportByDay = daysSorted.map((day) => ({ day, n: bucket(day).count }));
   const uniqueThreadsByDay = daysSorted.map((day) => ({
     day,
     n: (threadKeysByDay.get(day) ?? new Set()).size,
   }));
 
   const serviceQpsByDay = daysSorted.map((day) => {
-    const n = traceByDay.get(day)!.count;
+    const n = bucket(day).count;
     return { day, qps: n / secsPerDay };
   });
 
   const serviceLatencyByDay = daysSorted.map((day) => {
-    const b = traceByDay.get(day)!;
+    const b = bucket(day);
     const avg = b.count > 0 ? b.durSum / b.count : 0;
     return { day, avgMs: avg };
   });
@@ -421,7 +487,10 @@ export function buildOverview(
     }
   }
 
-  const chartDays = [...new Set([...daysSorted, ...ttftMap.keys(), ...tpotMap.keys()])].sort();
+  const chartDays =
+    rangeKeys != null && rangeKeys.length > 0
+      ? [...rangeKeys]
+      : [...new Set([...daysSorted, ...ttftMap.keys(), ...tpotMap.keys()])].sort();
   const ttftByDay = chartDays.map((day) => {
     const cur = ttftMap.get(day);
     return { day, ms: cur && cur.n > 0 ? cur.sum / cur.n : 0 };

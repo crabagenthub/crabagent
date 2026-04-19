@@ -4,8 +4,6 @@ import "@/lib/arco-react19-setup";
 import {
   Button,
   Card,
-  Collapse,
-  Drawer,
   Input,
   Message,
   Pagination,
@@ -31,9 +29,13 @@ import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppPageShell } from "@/shared/components/app-page-shell";
+import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TitleHintIcon } from "@/shared/components/message-hint";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/shared/components/localized-link";
+import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
+import { toast } from "@/components/ui/feedback";
+import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
@@ -45,24 +47,20 @@ import {
   writeCommandAnalysisDateRange,
 } from "@/lib/command-analysis-date-range";
 import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
-import { resourceClassPieFromNamed, resourceRiskBarOption } from "@/lib/resource-audit-echarts-options";
+import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/observe-table-style";
+import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
+import type { TraceRecordRow } from "@/lib/trace-records";
+import { resourceRiskBarOption } from "@/lib/resource-audit-echarts-options";
 import {
-  loadShellExecDetail,
   loadShellExecList,
-  loadShellExecReplay,
   loadShellExecSummary,
-  type ShellCommandCategory,
-  type ShellExecReplayItem,
   type ShellExecListRow,
   type ShellExecSummary,
 } from "@/lib/shell-exec-api";
-import { loadSemanticSpans, type SemanticSpanRow } from "@/lib/semantic-spans";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 import type { EChartsOption } from "echarts";
-
-const CollapseItem = Collapse.Item;
 
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
@@ -329,95 +327,59 @@ function redundantReadHBarOption(
   };
 }
 
-function replayTimelineScatterOption(
-  rows: ShellExecReplayItem[],
-  selectedSpanId: string | null,
-  title: string,
-): EChartsOption | null {
-  if (!rows.length) {
-    return null;
+/** 步骤 ID：短 ID + 复制；点击短 ID 在当前页打开消息详情并定位到该 span，不整页跳转。 */
+function ShellExecSpanIdCell({
+  spanId,
+  traceId,
+  onOpenMessageInspect,
+  canOpen,
+}: {
+  spanId: string;
+  traceId: string;
+  onOpenMessageInspect: (traceId: string, spanId: string) => void;
+  canOpen: boolean;
+}) {
+  const t = useTranslations("CommandAnalysis");
+  const tTr = useTranslations("Traces");
+  const sid = spanId.trim();
+  const tid = traceId.trim();
+  if (!sid) {
+    return <span className="text-neutral-400">—</span>;
   }
-  const MUTED = "#64748b";
-  const data = rows.map((r, i) => {
-    const x = r.start_time_ms != null && Number.isFinite(Number(r.start_time_ms)) ? Number(r.start_time_ms) : i;
-    const dur = r.duration_ms != null ? Number(r.duration_ms) : 0;
-    const sz = Math.min(42, 10 + dur / 250);
-    const sel = Boolean(selectedSpanId && selectedSpanId === r.span_id);
-    let color = "#94a3b8";
-    if (sel) {
-      color = "#6366f1";
-    } else if (r.token_risk) {
-      color = "#f59e0b";
-    }
-    return { value: [x, i] as [number, number], symbolSize: sz, itemStyle: { color }, cmd: r.command, spanId: r.span_id };
-  });
-  return {
-    title: { text: title, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
-    grid: { left: 52, right: 12, top: 32, bottom: 28, containLabel: true },
-    tooltip: {
-      trigger: "item",
-      textStyle: { fontSize: 12 },
-      formatter: (p: unknown) => {
-        const q = p as { data?: { value?: [number, number]; cmd?: string } };
-        const d = q.data;
-        if (!d?.value) {
-          return "";
-        }
-        const [ms] = d.value;
-        const when = formatTraceDateTimeFromMs(ms);
-        return `${when}<br/>${(d.cmd ?? "").slice(0, 200)}`;
-      },
-    },
-    xAxis: {
-      type: "value",
-      scale: true,
-      axisLabel: {
-        fontSize: 10,
-        color: MUTED,
-        formatter: (v: number) => (Number.isFinite(v) ? formatTraceDateTimeFromMs(v) : String(v)),
-      },
-    },
-    yAxis: {
-      type: "category",
-      data: rows.map((_, i) => String(i + 1)),
-      inverse: true,
-      name: "step",
-      nameTextStyle: { fontSize: 10, color: MUTED },
-      axisLabel: { fontSize: 10, color: MUTED },
-    },
-    series: [{ type: "scatter", data, emphasis: { focus: "self", scale: 1.15 } }],
-  };
-}
-
-const SHELL_CATEGORIES: ShellCommandCategory[] = ["file", "network", "system", "process", "package", "other"];
-
-function replayCategoryLabel(t: (k: string) => string, raw: string): string {
-  const c = raw.trim().toLowerCase();
-  if (SHELL_CATEGORIES.includes(c as ShellCommandCategory)) {
-    return categoryLabel(t, c as ShellCommandCategory);
-  }
-  return raw || categoryLabel(t, "other");
-}
-
-function categoryLabel(t: (k: string) => string, c: ShellCommandCategory): string {
-  switch (c) {
-    case "file":
-      return t("catFile");
-    case "network":
-      return t("catNetwork");
-    case "system":
-      return t("catSystem");
-    case "process":
-      return t("catProcess");
-    case "package":
-      return t("catPackage");
-    default:
-      return t("catOther");
-  }
+  const clickable = canOpen && Boolean(tid);
+  const idEl = clickable ? (
+    <button
+      type="button"
+      onClick={() => onOpenMessageInspect(tid, sid)}
+      className="block min-w-0 truncate whitespace-nowrap text-left text-xs text-primary underline-offset-2 hover:underline"
+      title={sid}
+      aria-label={t("spanStepOpenMessageInspectAria")}
+    >
+      {formatShortId(sid)}
+    </button>
+  ) : (
+    <span className="block min-w-0 truncate whitespace-nowrap text-xs text-neutral-700 dark:text-neutral-200" title={sid}>
+      {formatShortId(sid)}
+    </span>
+  );
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {idEl}
+      <TraceCopyIconButton
+        text={sid}
+        ariaLabel={tTr("traceInspectCopySpanId")}
+        tooltipLabel={tTr("copy")}
+        successLabel={tTr("copySuccessToast")}
+        className="p-1 hover:bg-neutral-100"
+        stopPropagation
+      />
+    </div>
+  );
 }
 
 export function CommandAnalysisDashboard() {
   const t = useTranslations("CommandAnalysis");
+  const tTr = useTranslations("Traces");
   const searchParams = useSearchParams();
   const urlTraceId = searchParams.get("trace_id")?.trim() ?? "";
 
@@ -433,9 +395,27 @@ export function CommandAnalysisDashboard() {
   const [traceFilter, setTraceFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [drawerSpanId, setDrawerSpanId] = useState<string | null>(null);
-  const [replayExpandedKeys, setReplayExpandedKeys] = useState<string[]>([]);
   const [viewKind, setViewKind] = useState<CommandAnalysisViewKind>("metrics");
+  const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
+  const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
+
+  const openMessageInspectFromShellRow = useCallback(
+    async (traceId: string, spanId: string) => {
+      const tid = traceId.trim();
+      const sid = spanId.trim();
+      if (!tid || !sid || !baseUrl.trim()) {
+        return;
+      }
+      const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, tid);
+      if (!resolved) {
+        toast.error(t("openMessageInspectFailed"));
+        return;
+      }
+      setMessageInspectInitialSpanId(sid);
+      setMessageInspectTrace(resolved);
+    },
+    [apiKey, baseUrl, t],
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -530,44 +510,7 @@ export function CommandAnalysisDashboard() {
       }),
   });
 
-  const replayTraceId = traceFilter.trim() || summaryQuery.data?.chain_preview?.trace_id || "";
-  const replayQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecReplay, baseUrl, apiKey, replayTraceId],
-    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(replayTraceId),
-    queryFn: () => loadShellExecReplay(baseUrl, apiKey, replayTraceId),
-  });
-
-  const detailQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecDetail, baseUrl, apiKey, drawerSpanId],
-    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(drawerSpanId),
-    queryFn: () => loadShellExecDetail(baseUrl, apiKey, drawerSpanId!),
-  });
-
-  const contextTraceId =
-    detailQuery.data && typeof detailQuery.data.trace_id === "string"
-      ? detailQuery.data.trace_id.trim()
-      : "";
-
-  const spansContextQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, contextTraceId, "ctx"],
-    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(contextTraceId) && Boolean(drawerSpanId),
-    queryFn: () => loadSemanticSpans(baseUrl, apiKey, contextTraceId),
-  });
-
   const summary = summaryQuery.data;
-  const categoryPie = useMemo(() => {
-    if (!summary) {
-      return null;
-    }
-    const items = (Object.keys(summary.category_breakdown) as ShellCommandCategory[])
-      .map((k) => ({
-        name: categoryLabel(t, k),
-        value: summary.category_breakdown[k] ?? 0,
-      }))
-      .filter((x) => x.value > 0);
-    return resourceClassPieFromNamed(items);
-  }, [summary, t]);
-
   const durationBar = useMemo(() => {
     if (!summary) {
       return null;
@@ -633,90 +576,6 @@ export function CommandAnalysisDashboard() {
     );
   }, [summary?.token_risks, t]);
 
-  const replayRows = useMemo(
-    () => (replayQuery.data?.items ?? []) as ShellExecReplayItem[],
-    [replayQuery.data?.items],
-  );
-
-  const replayTimelineOpt = useMemo(() => {
-    if (!replayRows.length || !replayTraceId) {
-      return null;
-    }
-    return replayTimelineScatterOption(replayRows, drawerSpanId, t("chartReplayTimeline"));
-  }, [replayRows, replayTraceId, drawerSpanId, t]);
-
-  const replayChartClick = useMemo(
-    () => ({
-      click: (p: unknown) => {
-        const q = p as { dataIndex?: number };
-        if (q.dataIndex == null || !replayRows[q.dataIndex]) {
-          return;
-        }
-        setDrawerSpanId(replayRows[q.dataIndex]!.span_id);
-      },
-    }),
-    [replayRows],
-  );
-  const replayRowIdsKey = useMemo(() => replayRows.map((r) => r.span_id).join("\x1e"), [replayRows]);
-  const replaySpanIds = useMemo(() => replayRows.map((r) => r.span_id), [replayRows]);
-
-  useEffect(() => {
-    setReplayExpandedKeys([]);
-  }, [replayTraceId]);
-
-  useEffect(() => {
-    const sid = drawerSpanId?.trim();
-    if (!sid) {
-      return;
-    }
-    if (!replaySpanIds.includes(sid)) {
-      return;
-    }
-    setReplayExpandedKeys((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
-  }, [drawerSpanId, replaySpanIds]);
-
-  useEffect(() => {
-    const sid = drawerSpanId?.trim();
-    if (!sid) {
-      return;
-    }
-    const el = document.getElementById(`replay-step-${sid}`);
-    if (!el) {
-      return;
-    }
-    const tmr = window.setTimeout(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }, 100);
-    return () => window.clearTimeout(tmr);
-  }, [drawerSpanId, replayRowIdsKey]);
-
-  const contextBlocks = useMemo(() => {
-    const items = spansContextQuery.data?.items ?? [];
-    const target = drawerSpanId;
-    if (!target || items.length === 0) {
-      return { before: null as SemanticSpanRow | null, after: null as SemanticSpanRow | null };
-    }
-    const idx = items.findIndex((s) => s.span_id === target);
-    if (idx < 0) {
-      return { before: null, after: null };
-    }
-    let before: SemanticSpanRow | null = null;
-    for (let i = idx - 1; i >= 0; i--) {
-      if (items[i]!.type === "llm") {
-        before = items[i]!;
-        break;
-      }
-    }
-    let after: SemanticSpanRow | null = null;
-    for (let i = idx + 1; i < items.length; i++) {
-      if (items[i]!.type === "llm") {
-        after = items[i]!;
-        break;
-      }
-    }
-    return { before, after };
-  }, [spansContextQuery.data, drawerSpanId]);
-
   const onDateChange = useCallback((next: ObserveDateRange) => {
     setDateRange(next);
     writeCommandAnalysisDateRange(next);
@@ -726,6 +585,22 @@ export function CommandAnalysisDashboard() {
   const listColumns: TableColumnProps<ShellExecListRow>[] = useMemo(
     () => [
       {
+        title: tTr("spansColSpanId"),
+        width: 230,
+        fixed: "left" as const,
+        render: (_: unknown, row) => {
+          const r = row as ShellExecListRow;
+          return (
+            <ShellExecSpanIdCell
+              spanId={String(r.span_id ?? "")}
+              traceId={String(r.trace_id ?? "")}
+              onOpenMessageInspect={openMessageInspectFromShellRow}
+              canOpen={mounted && Boolean(baseUrl.trim())}
+            />
+          );
+        },
+      },
+      {
         title: t("colTime"),
         width: 168,
         render: (_: unknown, row) => {
@@ -734,21 +609,6 @@ export function CommandAnalysisDashboard() {
             <span className="whitespace-nowrap text-xs text-muted-foreground">
               {ms != null && Number.isFinite(ms) ? formatTraceDateTimeFromMs(ms) : "—"}
             </span>
-          );
-        },
-      },
-      {
-        title: t("colTrace"),
-        width: 120,
-        render: (_: unknown, row) => {
-          const tid = String(row.trace_id ?? "");
-          return (
-            <LocalizedLink
-              className="font-mono text-xs text-primary underline-offset-2 hover:underline"
-              href={`/messages/${encodeURIComponent(tid)}`}
-            >
-              {formatShortId(tid)}
-            </LocalizedLink>
           );
         },
       },
@@ -764,36 +624,6 @@ export function CommandAnalysisDashboard() {
         },
       },
       {
-        title: t("colCategory"),
-        width: 100,
-        render: (_: unknown, row) => {
-          const c = row.parsed?.category;
-          return c ? <Tag size="small">{categoryLabel(t, c)}</Tag> : "—";
-        },
-      },
-      {
-        title: t("colExit"),
-        width: 72,
-        render: (_: unknown, row) => {
-          const ec = row.parsed?.exitCode;
-          return <span className="font-mono text-xs">{ec != null ? String(ec) : "—"}</span>;
-        },
-      },
-      {
-        title: t("colOk"),
-        width: 72,
-        render: (_: unknown, row) => {
-          const ok = row.parsed?.success;
-          if (ok === true) {
-            return <Tag color="green">{t("okYes")}</Tag>;
-          }
-          if (ok === false) {
-            return <Tag color="red">{t("okNo")}</Tag>;
-          }
-          return "—";
-        },
-      },
-      {
         title: t("colDur"),
         width: 88,
         render: (_: unknown, row) => {
@@ -806,11 +636,35 @@ export function CommandAnalysisDashboard() {
         },
       },
       {
-        title: t("colStdout"),
-        width: 88,
+        title: t("colStatus"),
+        width: 108,
         render: (_: unknown, row) => {
-          const n = row.parsed?.stdoutLen ?? 0;
-          return <span className="text-xs tabular-nums">{n.toLocaleString()}</span>;
+          const ok = row.parsed?.success;
+          const ec = row.parsed?.exitCode;
+          if (ok === true) {
+            return <Tag color="green">{t("okYes")}</Tag>;
+          }
+          if (ok === false) {
+            return (
+              <span className="inline-flex flex-wrap items-center gap-1">
+                <Tag color="red">{t("okNo")}</Tag>
+                {ec != null ? <span className="font-mono text-[11px] text-muted-foreground">({ec})</span> : null}
+              </span>
+            );
+          }
+          if (ec != null) {
+            return <span className="font-mono text-xs tabular-nums">{String(ec)}</span>;
+          }
+          return "—";
+        },
+      },
+      {
+        title: t("colCategory"),
+        width: 100,
+        render: (_: unknown, row) => {
+          const raw = row.parsed?.category;
+          const s = raw != null && String(raw).trim() !== "" ? String(raw) : "";
+          return s ? <Tag size="small">{s}</Tag> : "—";
         },
       },
       {
@@ -819,27 +673,8 @@ export function CommandAnalysisDashboard() {
         render: (_: unknown, row) =>
           row.parsed?.tokenRisk ? <Tag color="orangered">{t("riskTag")}</Tag> : "—",
       },
-      {
-        title: t("colAction"),
-        width: 96,
-        render: (_: unknown, row) => {
-          const sid = String(row.span_id ?? "");
-          return (
-            <Button
-              type="text"
-              size="mini"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDrawerSpanId(sid);
-              }}
-            >
-              {t("detailBtn")}
-            </Button>
-          );
-        },
-      },
     ],
-    [t],
+    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl],
   );
   const s: ShellExecSummary | undefined = summaryQuery.data;
   const totalRows = listQuery.data?.total ?? 0;
@@ -913,7 +748,6 @@ export function CommandAnalysisDashboard() {
                 void prevSummaryQuery.refetch();
                 void listQuery.refetch();
                 void facetsQuery.refetch();
-                void replayQuery.refetch();
               }}
             >
               {t("refresh")}
@@ -1037,21 +871,8 @@ export function CommandAnalysisDashboard() {
                 }
               />
               <CommandKpiCard
-                title={t("kpiSuccess")}
-                hint={t("kpiSuccessHint")}
-                value={
-                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.success ?? 0).toLocaleString()
-                }
-                onView={() => setViewKind("details")}
-                mom={
-                  s && prevSummaryQuery.data
-                    ? shellKpiMomPercent(s.totals.success, prevSummaryQuery.data.totals.success)
-                    : null
-                }
-              />
-              <CommandKpiCard
-                title={t("kpiFailed")}
-                hint={t("kpiFailedHint")}
+                title={t("kpiExecFailed")}
+                hint={t("kpiExecFailedHint")}
                 value={
                   summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.failed ?? 0).toLocaleString()
                 }
@@ -1062,32 +883,39 @@ export function CommandAnalysisDashboard() {
                     : null
                 }
               />
+              <CommandKpiCard
+                title={t("kpiTokenRiskTotal")}
+                hint={t("kpiTokenRiskTotalHint")}
+                value={
+                  summaryQuery.isLoading && !s ? (
+                    <Spin size={20} />
+                  ) : (
+                    Number(s?.totals.token_risk_total ?? 0).toLocaleString()
+                  )
+                }
+                onView={() => setViewKind("details")}
+                mom={
+                  s && prevSummaryQuery.data
+                    ? shellKpiMomPercent(
+                        Number(s?.totals.token_risk_total ?? 0),
+                        Number(prevSummaryQuery.data.totals.token_risk_total ?? 0),
+                      )
+                    : null
+                }
+              />
             </section>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-1")} title={t("sectionCategory")}>
-                <div className="h-[260px] w-full min-w-0">
-                  {categoryPie && summaryQuery.isSuccess ? (
-                    <ReactEChart option={categoryPie} style={{ height: 240 }} />
-                  ) : (
-                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} title={t("sectionTrend")}>
-                <div className="h-[260px] w-full min-w-0">
-                  {trendOpt && summaryQuery.isSuccess ? (
-                    <ReactEChart option={trendOpt} style={{ height: 240 }} />
-                  ) : (
-                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </div>
+            <Card bordered={false} className={kpiShellClass} title={t("sectionTrend")}>
+              <div className="h-[260px] w-full min-w-0">
+                {trendOpt && summaryQuery.isSuccess ? (
+                  <ReactEChart option={trendOpt} style={{ height: 240 }} />
+                ) : (
+                  <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                  </div>
+                )}
+              </div>
+            </Card>
 
             <Card bordered={false} className={kpiShellClass} title={t("sectionDuration")}>
               <div className="h-[220px] w-full max-w-xl min-w-0">
@@ -1130,11 +958,7 @@ export function CommandAnalysisDashboard() {
                   {s?.slowest?.length ? (
                     s.slowest.map((x, idx) => (
                       <li key={x.span_id} className="last:border-0">
-                        <button
-                          type="button"
-                          className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                          onClick={() => setDrawerSpanId(x.span_id)}
-                        >
+                        <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                           <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
                             {idx + 1}
                           </span>
@@ -1144,7 +968,7 @@ export function CommandAnalysisDashboard() {
                             </Typography.Text>
                           </Popover>
                           <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{x.duration_ms} ms</span>
-                        </button>
+                        </div>
                       </li>
                     ))
                   ) : (
@@ -1176,10 +1000,9 @@ export function CommandAnalysisDashboard() {
                               setViewKind("details");
                               setPage(1);
                               void listQuery.refetch();
-                              void replayQuery.refetch();
                             }}
                           >
-                            {t("focusTraceReplay")}
+                            {t("focusTraceDetails")}
                           </Button>
                         </div>
                         <Typography.Text className="mt-1 block text-xs" ellipsis={{ showTooltip: true }}>
@@ -1212,10 +1035,9 @@ export function CommandAnalysisDashboard() {
                             setViewKind("details");
                             setPage(1);
                             void listQuery.refetch();
-                            void replayQuery.refetch();
                           }}
                         >
-                          {t("focusTraceReplay")}
+                          {t("focusTraceDetails")}
                         </Button>
                       </li>
                     ))}
@@ -1241,21 +1063,6 @@ export function CommandAnalysisDashboard() {
                     { title: t("colStdout"), dataIndex: "stdout_chars" },
                     { title: t("colEstTokens"), dataIndex: "est_tokens" },
                     { title: t("colEstUsd"), dataIndex: "est_usd" },
-                    {
-                      title: t("colAction"),
-                      render: (_, r) => (
-                        <Button
-                          type="text"
-                          size="mini"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDrawerSpanId(r.span_id);
-                          }}
-                        >
-                          {t("detailBtn")}
-                        </Button>
-                      ),
-                    },
                   ]}
                   data={s.token_risks}
                 />
@@ -1401,270 +1208,92 @@ export function CommandAnalysisDashboard() {
             </Card>
 
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
-              <Typography.Text type="secondary" className="block px-4 pt-3 text-xs">
-                {t("listRowOpenDetail")}
-              </Typography.Text>
-              <Table
-                size="small"
-                rowKey="span_id"
-                loading={listQuery.isLoading}
-                columns={listColumns}
-                data={listQuery.data?.items ?? []}
-                pagination={false}
-                border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                rowClassName={(record) =>
-                  drawerSpanId && String((record as ShellExecListRow).span_id ?? "") === drawerSpanId
-                    ? "!bg-primary/10 !ring-1 !ring-inset !ring-primary/35"
-                    : ""
-                }
-                onRow={(record) => ({
-                  onClick: () => {
-                    const sid = String((record as ShellExecListRow).span_id ?? "");
-                    if (sid) {
-                      setDrawerSpanId(sid);
-                    }
-                  },
-                  style: { cursor: "pointer" },
-                })}
-                className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
-              />
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 px-3 py-3">
-                <Pagination
-                  size="small"
-                  total={totalRows}
-                  current={page}
-                  pageSize={pageSize}
-                  showTotal={(tot) => t("paginationTotal", { total: tot })}
-                  pageSizeChangeResetCurrent={false}
-                  sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                  onChange={(p, ps) => {
-                    setPage(p);
-                    if (ps !== pageSize) {
-                      setPageSize(ps);
-                      writeStoredPageSize(ps);
-                    }
-                  }}
-                />
+              <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+                <ScrollableTableFrame
+                  variant="neutral"
+                  contentKey={`${page}-${listQuery.data?.items.length ?? 0}`}
+                  scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+                >
+                  <div className="min-w-0 w-full">
+                    <Table
+                      tableLayoutFixed
+                      size="small"
+                      rowKey="span_id"
+                      loading={listQuery.isLoading}
+                      columns={listColumns}
+                      data={listQuery.data?.items ?? []}
+                      pagination={false}
+                      border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                      scroll={OBSERVE_TABLE_SCROLL_X}
+                      hover={true}
+                      className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
+                    />
+                  </div>
+                </ScrollableTableFrame>
+              </div>
+              <div className="flex flex-col items-center gap-2 px-3 pb-3 pt-4 sm:flex-row sm:justify-between">
+                <Typography.Text type="secondary" className="text-xs">
+                  {t("showingOfTotal", {
+                    from: String(listQuery.data?.items.length ? (page - 1) * pageSize + 1 : 0),
+                    to: String(
+                      listQuery.data?.items.length
+                        ? (page - 1) * pageSize + listQuery.data!.items.length
+                        : 0,
+                    ),
+                    total: String(listQuery.data?.total ?? 0),
+                  })}
+                </Typography.Text>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                    {t("paginationTotalPages", {
+                      count: String(Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize) || 1)),
+                    })}
+                  </span>
+                  <Pagination
+                    className="resource-audit-audit-log-pagination"
+                    size="small"
+                    current={page}
+                    pageSize={pageSize}
+                    total={totalRows}
+                    onChange={(nextPage, nextPageSize) => {
+                      if (nextPageSize && nextPageSize !== pageSize) {
+                        setPageSize(nextPageSize);
+                        writeStoredPageSize(nextPageSize);
+                      }
+                      setPage(nextPage);
+                    }}
+                    showTotal
+                    bufferSize={1}
+                    sizeCanChange
+                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                    showJumper
+                    disabled={listQuery.isFetching}
+                  />
+                </div>
               </div>
             </Card>
           </>
         ) : null}
-
-        <Card bordered={false} className={kpiShellClass} title={t("sectionReplay")}>
-          {!replayTraceId ? (
-            <Typography.Text type="secondary">{t("replayNeedTraceId")}</Typography.Text>
-          ) : replayQuery.isLoading ? (
-            <Spin />
-          ) : replayQuery.isError ? (
-            <Typography.Text type="error">
-              {t("replayLoadError")}
-              {replayQuery.error instanceof Error && replayQuery.error.message
-                ? ` ${t("loadErrorDetail", { detail: replayQuery.error.message })}`
-                : null}
-            </Typography.Text>
-          ) : replayRows.length === 0 ? (
-            <Typography.Text type="secondary">{t("replayEmpty")}</Typography.Text>
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="h-[min(380px,55vh)] min-h-[220px] w-full min-w-0 rounded-lg border border-border/50 p-2">
-                {replayTimelineOpt ? (
-                  <ReactEChart
-                    option={replayTimelineOpt}
-                    style={{ height: "100%", minHeight: 210 }}
-                    onEvents={replayChartClick}
-                  />
-                ) : (
-                  <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
-                    —
-                  </div>
-                )}
-              </div>
-              <div className="max-h-[min(520px,70vh)] overflow-y-auto pr-1">
-              <Collapse
-                bordered
-                activeKey={replayExpandedKeys}
-                onChange={(keys) => setReplayExpandedKeys(Array.isArray(keys) ? keys : keys ? [keys] : [])}
-              >
-                {replayRows.map((r, idx) => {
-                  const stepNo = idx + 1;
-                  const isActive = Boolean(drawerSpanId && drawerSpanId === r.span_id);
-                  const ms = r.start_time_ms != null ? Number(r.start_time_ms) : null;
-                  const dur = r.duration_ms != null ? Number(r.duration_ms) : null;
-                  return (
-                    <CollapseItem
-                      key={r.span_id}
-                      name={r.span_id}
-                      header={
-                        <div
-                          id={`replay-step-${r.span_id}`}
-                          className={cn(
-                            "flex min-w-0 flex-col gap-1 rounded-md py-0.5 sm:flex-row sm:items-center sm:gap-3",
-                            isActive && "bg-primary/10 ring-2 ring-primary ring-offset-2 ring-offset-background",
-                          )}
-                          aria-label={isActive ? t("replayHighlightAria") : undefined}
-                        >
-                          <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
-                            {t("replayStep", { n: stepNo })}
-                          </span>
-                          <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                            {ms != null && Number.isFinite(ms) ? formatTraceDateTimeFromMs(ms) : "—"}
-                          </span>
-                          <Typography.Text className="min-w-0 flex-1 text-xs" ellipsis={{ showTooltip: true }}>
-                            {r.command || "—"}
-                          </Typography.Text>
-                          <span className="flex shrink-0 flex-wrap items-center gap-1">
-                            <Tag size="small">{replayCategoryLabel(t, String(r.category ?? ""))}</Tag>
-                            {r.token_risk ? <Tag color="orangered">{t("riskTag")}</Tag> : null}
-                          </span>
-                        </div>
-                      }
-                    >
-                      <div className="space-y-2 text-xs">
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-                          <span>
-                            {t("replayTraceLabel")}:{" "}
-                            <LocalizedLink
-                              className="font-mono text-primary underline-offset-2 hover:underline"
-                              href={`/messages/${encodeURIComponent(String(r.trace_id ?? ""))}`}
-                            >
-                              {formatShortId(String(r.trace_id ?? ""))}
-                            </LocalizedLink>
-                          </span>
-                          <span>
-                            {t("colExit")}: {r.exit_code != null ? String(r.exit_code) : "—"}
-                          </span>
-                          <span>
-                            {t("colOk")}:{" "}
-                            {r.success === true ? t("okYes") : r.success === false ? t("okNo") : "—"}
-                          </span>
-                          <span>
-                            {t("replayDur")}: {dur != null && Number.isFinite(dur) ? `${dur} ms` : "—"}
-                          </span>
-                          <span>
-                            {t("replayPlatform")}: {String(r.platform ?? "—")}
-                          </span>
-                        </div>
-                        {r.span_name ? (
-                          <div className="text-muted-foreground">
-                            {t("replaySpanName")}: <span className="font-mono">{r.span_name}</span>
-                          </div>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2">
-                          <Button type="primary" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>
-                            {t("detailBtn")}
-                          </Button>
-                        </div>
-                      </div>
-                    </CollapseItem>
-                  );
-                })}
-              </Collapse>
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Drawer
-          width={520}
-          title={t("drawerTitle")}
-          visible={drawerSpanId != null}
-          onCancel={() => setDrawerSpanId(null)}
-          footer={null}
-        >
-          {detailQuery.isLoading ? (
-            <Spin className="block py-10" />
-          ) : detailQuery.isError ? (
-            <Typography.Text type="error">{t("detailError")}</Typography.Text>
-          ) : (
-            <div className="space-y-4 text-sm">
-              {(() => {
-                const d = detailQuery.data;
-                const p = d?.parsed as Record<string, unknown> | undefined;
-                if (!d) {
-                  return null;
-                }
-                return (
-                  <>
-                    <div>
-                      <div className="text-xs text-muted-foreground">{t("lblCommand")}</div>
-                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
-                        {String(p?.command ?? "")}
-                      </pre>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">{t("lblExit")}</span>{" "}
-                        {p?.exitCode != null ? String(p.exitCode) : "—"}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("lblCwd")}</span>{" "}
-                        {p?.cwd != null ? String(p.cwd) : "—"}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("lblUser")}</span>{" "}
-                        {p?.userId != null ? String(p.userId) : "—"}
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">{t("lblHost")}</span>{" "}
-                        {p?.host != null ? String(p.host) : "—"}
-                      </div>
-                    </div>
-                    {Array.isArray(p?.envKeys) && (p.envKeys as string[]).length > 0 ? (
-                      <div>
-                        <div className="text-xs text-muted-foreground">{t("lblEnvKeys")}</div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(p.envKeys as string[]).slice(0, 24).map((k) => (
-                            <Tag key={k} size="small">
-                              {k}
-                            </Tag>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div>
-                      <div className="text-xs text-muted-foreground">{t("lblStdout")}</div>
-                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
-                        {p?.stdoutPreview != null ? String(p.stdoutPreview) : "—"}
-                      </pre>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">{t("lblStderr")}</div>
-                      <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
-                        {p?.stderrPreview != null ? String(p.stderrPreview) : "—"}
-                      </pre>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-xs font-semibold">{t("lblContext")}</div>
-                      {spansContextQuery.isLoading ? (
-                        <Spin />
-                      ) : (
-                        <div className="space-y-2 rounded-md border border-border/60 p-2">
-                          <div>
-                            <div className="text-xs text-muted-foreground">{t("lblPromptBefore")}</div>
-                            <pre className="mt-1 max-h-32 overflow-auto text-xs text-muted-foreground">
-                              {contextBlocks.before
-                                ? JSON.stringify(contextBlocks.before.input ?? {}, null, 2).slice(0, 4000)
-                                : t("noContext")}
-                            </pre>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground">{t("lblModelAfter")}</div>
-                            <pre className="mt-1 max-h-32 overflow-auto text-xs text-muted-foreground">
-                              {contextBlocks.after
-                                ? JSON.stringify(contextBlocks.after.output ?? {}, null, 2).slice(0, 4000)
-                                : t("noContext")}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-        </Drawer>
       </main>
+
+      <TraceRecordInspectDialog
+        open={messageInspectTrace != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setMessageInspectTrace(null);
+            setMessageInspectInitialSpanId(null);
+          }
+        }}
+        row={messageInspectTrace}
+        initialSpanId={messageInspectInitialSpanId}
+        rows={messageInspectTrace ? [messageInspectTrace] : []}
+        onNavigate={(r) => {
+          setMessageInspectTrace(r);
+          setMessageInspectInitialSpanId(null);
+        }}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
     </AppPageShell>
   );
 }

@@ -41,6 +41,8 @@ export type ShellExecSummary = {
     success: number;
     failed: number;
     unknown: number;
+    /** 当前摘要扫描范围内命中 Token 风险启发式的条数（与 token_risks 列表 TopN 无关）。 */
+    token_risk_total?: number;
   };
   category_breakdown: Record<ShellCommandCategory, number>;
   duration_buckets: { lt100ms: number; ms100to1s: number; gt1s: number };
@@ -84,6 +86,9 @@ export type ShellExecSummary = {
 export type ShellExecListRow = Record<string, unknown> & {
   span_id?: string;
   trace_id?: string;
+  /** 与观测「执行步骤列表」一致，用于步骤 ID 列副标题 */
+  span_type?: string | null;
+  name?: string | null;
   parsed?: ShellParsedLite;
 };
 
