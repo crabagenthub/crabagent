@@ -71,7 +71,6 @@ export function SecurityAuditDashboard() {
   const searchParams = useSearchParams();
   const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
   const spanFromUrl = searchParams.get("span_id")?.trim() ?? "";
-  const hintTypeFromUrl = searchParams.get("hint_type")?.trim() ?? "";
   const policyIdFromUrl = searchParams.get("policy_id")?.trim() ?? "";
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
@@ -123,10 +122,9 @@ export function SecurityAuditDashboard() {
       untilMs: untilMs ?? undefined,
       traceId: traceFromUrl || undefined,
       spanId: spanFromUrl || undefined,
-      hintType: hintTypeFromUrl || undefined,
       policyId: policyIdFromUrl || undefined,
     }),
-    [page, pageSize, sinceMs, untilMs, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl],
+    [page, pageSize, sinceMs, untilMs, traceFromUrl, spanFromUrl, policyIdFromUrl],
   );
 
   const analyticsParams = useMemo(
@@ -138,17 +136,15 @@ export function SecurityAuditDashboard() {
       untilMs: untilMs ?? undefined,
       traceId: traceFromUrl || undefined,
       spanId: spanFromUrl || undefined,
-      hintType: hintTypeFromUrl || undefined,
       policyId: policyIdFromUrl || undefined,
     }),
-    [sinceMs, untilMs, traceFromUrl, spanFromUrl, hintTypeFromUrl, policyIdFromUrl],
+    [sinceMs, untilMs, traceFromUrl, spanFromUrl, policyIdFromUrl],
   );
 
   const clearTraceSpanFilters = useCallback(() => {
     const p = new URLSearchParams(searchParams.toString());
     p.delete("trace_id");
     p.delete("span_id");
-    p.delete("hint_type");
     p.delete("policy_id");
     const qs = p.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
@@ -286,7 +282,6 @@ export function SecurityAuditDashboard() {
                     trace_id: row.trace_id,
                     span_id: row.span_id ?? undefined,
                     policy_id: first?.policy_id || undefined,
-                    hint_type: first?.hint_type || undefined,
                   }),
                 )
               }

@@ -56,7 +56,6 @@ export type ResourceAuditStats = {
   }[];
   top_tools: { span_name: string; count: number }[];
   by_workspace: { workspace_name: string; count: number }[];
-  hint_type_distribution: { hint_type: string; count: number }[];
 };
 
 const EMPTY_SUMMARY: ResourceAuditStatsSummary = {
@@ -107,7 +106,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
       daily_io: [],
       top_tools: [],
       by_workspace: [],
-      hint_type_distribution: [],
     };
   }
   const o = raw as Record<string, unknown>;
@@ -153,12 +151,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
         count: Number(r.count ?? 0),
       }))
     : [];
-  const hint_type_distribution = Array.isArray(o.hint_type_distribution)
-    ? (o.hint_type_distribution as Record<string, unknown>[]).map((r) => ({
-        hint_type: String(r.hint_type ?? ""),
-        count: Number(r.count ?? 0),
-      }))
-    : [];
 
   return {
     summary: parseSummary(o.summary),
@@ -167,7 +159,6 @@ function normalizeStatsPayload(raw: unknown): ResourceAuditStats {
     daily_io,
     top_tools,
     by_workspace,
-    hint_type_distribution,
   };
 }
 
@@ -182,7 +173,6 @@ export type LoadResourceAuditEventsParams = {
   uri_prefix?: string;
   trace_id?: string;
   span_id?: string;
-  hint_type?: string;
   policy_id?: string;
   span_name?: string;
   sort_mode?: "time_desc" | "risk_first" | "chars_desc";
@@ -250,9 +240,6 @@ export async function loadResourceAuditEvents(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
-  if (params.hint_type?.trim()) {
-    sp.set("hint_type", params.hint_type.trim());
-  }
   if (params.policy_id?.trim()) {
     sp.set("policy_id", params.policy_id.trim());
   }
@@ -303,9 +290,6 @@ export async function loadResourceAuditStats(
   }
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
-  }
-  if (params.hint_type?.trim()) {
-    sp.set("hint_type", params.hint_type.trim());
   }
   if (params.policy_id?.trim()) {
     sp.set("policy_id", params.policy_id.trim());

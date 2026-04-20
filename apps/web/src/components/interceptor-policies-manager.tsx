@@ -245,7 +245,6 @@ export function InterceptorPoliciesManager({
   const [createdSortOrder, setCreatedSortOrder] = useState<"ascend" | "descend">("descend");
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
   const [actionFilters, setActionFilters] = useState<string[]>([]);
-  const [hintTypeFilters, setHintTypeFilters] = useState<string[]>([]);
   const [targetsFilters, setTargetsFilters] = useState<string[]>([]);
   const [enabledFilters, setEnabledFilters] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -275,7 +274,6 @@ export function InterceptorPoliciesManager({
       pattern: templatePolicy.pattern ?? "",
       severity: tp?.severity ?? "high",
       policy_action: tp?.policy_action ?? "data_mask",
-      hint_type: tp?.hint_type ?? "",
       detection_kind: "regex",
       targets: templatePolicy.targets ?? ["prompt", "assistantTexts"],
       enabled: templatePolicy.enabled !== 0,
@@ -364,7 +362,7 @@ export function InterceptorPoliciesManager({
     return policies.filter((policy) => {
       if (normalizedSearch) {
         const idLower = policy.id.toLowerCase();
-        const searchIn = [policy.name, policy.description || "", policy.pattern, policy.targets_json, policy.hint_type ?? ""]
+        const searchIn = [policy.name, policy.description || "", policy.pattern, policy.targets_json]
           .join(" ")
           .toLowerCase();
         if (!idLower.includes(normalizedSearch) && !searchIn.includes(normalizedSearch)) {
@@ -381,10 +379,6 @@ export function InterceptorPoliciesManager({
       if (actionFilters.length > 0 && !actionFilters.includes(action)) {
         return false;
       }
-      const hintType = String(policy.hint_type ?? "").toLowerCase();
-      if (hintTypeFilters.length > 0 && !hintTypeFilters.includes(hintType)) {
-        return false;
-      }
 
       const targets = parseTargets(policy.targets_json);
       if (targetsFilters.length > 0 && !targets.some((target) => targetsFilters.includes(target))) {
@@ -398,7 +392,7 @@ export function InterceptorPoliciesManager({
 
       return true;
     });
-  }, [policies, normalizedSearch, severityFilters, actionFilters, hintTypeFilters, targetsFilters, enabledFilters, parseTargets]);
+  }, [policies, normalizedSearch, severityFilters, actionFilters, targetsFilters, enabledFilters, parseTargets]);
 
   const sortedPolicies = useMemo(() => {
     const arr = [...filteredPolicies];
@@ -417,7 +411,7 @@ export function InterceptorPoliciesManager({
 
   useEffect(() => {
     setPage(1);
-  }, [normalizedSearch, severityFilters, actionFilters, hintTypeFilters, targetsFilters, enabledFilters, createdSortOrder, pageSize]);
+  }, [normalizedSearch, severityFilters, actionFilters, targetsFilters, enabledFilters, createdSortOrder, pageSize]);
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(sortedPolicies.length / pageSize));
@@ -506,7 +500,6 @@ export function InterceptorPoliciesManager({
         targets: JSON.parse(policy.targets_json || "[]"),
         severity: policy.severity ?? "high",
         policy_action: policy.policy_action ?? "data_mask",
-        hint_type: policy.hint_type ?? "",
         detection_kind: policy.detection_kind === "model" ? "model" : (policy.detection_kind ?? "regex"),
       });
       setIsModalVisible(true);
@@ -535,7 +528,6 @@ export function InterceptorPoliciesManager({
         detection_kind?: string;
         severity?: string;
         policy_action?: string;
-        hint_type?: string;
         targets?: string[];
         enabled?: boolean;
       };
@@ -547,7 +539,6 @@ export function InterceptorPoliciesManager({
         pattern: dk === "regex" ? String(v.pattern ?? "").trim() : "",
         severity: v.severity,
         policy_action: v.policy_action,
-        hint_type: v.hint_type?.trim() ? v.hint_type.trim() : null,
         enabled: v.enabled ? 1 : 0,
         targets_json: JSON.stringify(v.targets || []),
         detection_kind: dk,
@@ -759,31 +750,6 @@ export function InterceptorPoliciesManager({
         },
       },
       {
-        title: (
-          <PolicySingleFilterHeader
-            label="Hint Type"
-            value={hintTypeFilters[0] ?? ""}
-            onChange={(next) => setHintTypeFilters(next ? [next] : [])}
-            clearLabel={t("clearFilters")}
-            options={[
-              { text: "pii_hint", value: "pii_hint" },
-              { text: "secret_hint", value: "secret_hint" },
-              { text: "credential_hint", value: "credential_hint" },
-              { text: "config_hint", value: "config_hint" },
-              { text: "database_hint", value: "database_hint" },
-            ]}
-          />
-        ),
-        dataIndex: "hint_type",
-        key: "hint_type",
-        width: 150,
-        render: (hintType: string | null | undefined) => (
-          <span className="block max-w-[9rem] truncate text-xs text-neutral-800 dark:text-neutral-200">
-            {hintType?.trim() || "—"}
-          </span>
-        ),
-      },
-      {
         title: <ObserveTableHeaderLabel>{t("policyCreatedAt")}</ObserveTableHeaderLabel>,
         dataIndex: "created_at_ms",
         key: "created_at_ms",
@@ -906,7 +872,6 @@ export function InterceptorPoliciesManager({
       deleteMutation,
       severityFilters,
       actionFilters,
-      hintTypeFilters,
       targetsFilters,
       enabledFilters,
       parseTargets,
@@ -1098,20 +1063,6 @@ export function InterceptorPoliciesManager({
                   </Radio>
                 ))}
               </Radio.Group>
-            </Form.Item>
-
-            <Form.Item
-              label="Hint Type"
-              field="hint_type"
-              className="policy-modal-field-full"
-            >
-              <Select allowClear placeholder="Optional risk hint classification">
-                <Option value="pii_hint">pii_hint</Option>
-                <Option value="secret_hint">secret_hint</Option>
-                <Option value="credential_hint">credential_hint</Option>
-                <Option value="config_hint">config_hint</Option>
-                <Option value="database_hint">database_hint</Option>
-              </Select>
             </Form.Item>
 
             <Form.Item

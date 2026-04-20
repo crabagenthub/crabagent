@@ -8,7 +8,6 @@ export type AuditLinkContext = {
   until_ms?: number;
   risk_flags?: string[];
   policy_id?: string;
-  hint_type?: string;
   uri_prefix?: string;
   source?: AuditLinkSource;
 };

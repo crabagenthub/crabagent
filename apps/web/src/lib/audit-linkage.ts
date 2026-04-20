@@ -13,7 +13,6 @@ export function buildAuditLink(pathname: string, ctx: AuditLinkContext): string 
   if (ctx.until_ms != null) sp.set("until_ms", String(ctx.until_ms));
   if (ctx.risk_flags?.length) sp.set("risk_flags", ctx.risk_flags.join(","));
   if (ctx.policy_id) sp.set("policy_id", ctx.policy_id);
-  if (ctx.hint_type) sp.set("hint_type", ctx.hint_type);
   if (ctx.uri_prefix) sp.set("uri_prefix", ctx.uri_prefix);
   if (ctx.source) sp.set("source", ctx.source);
   const qs = sp.toString();
