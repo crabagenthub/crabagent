@@ -704,6 +704,16 @@ export function OverviewDashboard() {
               />
             </section>
 
+            {/* 活动时间线部分 */}
+            <section aria-label={t("activityTimeline")}>
+              <ActivityTimeline
+                totalTokens={activityQuery.data?.totalTokens}
+                dayData={activityQuery.data?.dayData}
+                hourData={activityQuery.data?.hourData}
+                loading={activityQuery.isFetching}
+              />
+            </section>
+
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Space size={8} className="items-center">
                 <Typography.Text type="secondary" className="text-sm">
@@ -723,9 +733,6 @@ export function OverviewDashboard() {
                   ))}
                 </Select>
               </Space>
-              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                {t("sampleNote", { spans: q.data?.spans.length ?? 0, traces: q.data?.traces.length ?? 0 })}
-              </Typography.Text>
             </div>
 
             <section className="space-y-3" aria-label={t("sectionTokens")}>
@@ -876,16 +883,6 @@ export function OverviewDashboard() {
                   </div>
                 </div>
               </ChartCard>
-            </section>
-
-            {/* 活动时间线部分 */}
-            <section aria-label={t("activityTimeline")}>
-              <ActivityTimeline
-                totalTokens={activityQuery.data?.totalTokens}
-                dayData={activityQuery.data?.dayData}
-                hourData={activityQuery.data?.hourData}
-                loading={activityQuery.isFetching}
-              />
             </section>
 
             <section aria-label={t("sectionModel")} className="space-y-3">

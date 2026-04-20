@@ -92,7 +92,6 @@
     "sectionServiceTop": "服务调用",
     "filterModel": "模型",
     "filterModelAll": "全部模型",
-    "sampleNote": "当前已加载 trace {traces} 条、span {spans} 条用于图表（分页上限内）。",
     "noChartData": "该时间窗内无数据",
     "tokenTotal": "Tokens 消耗",
     "tokenInputEst": "Input Tokens 消耗",
