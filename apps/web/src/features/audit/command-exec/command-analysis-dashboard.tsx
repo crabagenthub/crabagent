@@ -892,20 +892,10 @@ export function CommandAnalysisDashboard() {
               />
             </section>
 
-            <Card bordered={false} className={kpiShellClass} title={t("sectionTrend")}>
-              <div className="h-[260px] w-full min-w-0">
-                {trendOpt && summaryQuery.isSuccess ? (
-                  <ReactEChart option={trendOpt} style={{ height: 240 }} />
-                ) : (
-                  <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                  </div>
-                )}
-              </div>
-            </Card>
-
-
-
+          <section aria-label={t("sectionRankings")} className="space-y-3">
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionRankings")}
+            </Typography.Title>
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
                 <ul className="space-y-1.5">
@@ -954,7 +944,26 @@ export function CommandAnalysisDashboard() {
                 </ul>
               </Card>
             </div>
+          </section>
 
+          <section aria-label={t("sectionTrend")} className="space-y-3">
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionTrend")}
+            </Typography.Title>
+            <Card bordered={false} className={kpiShellClass}>
+              <div className="h-[260px] w-full min-w-0">
+                {trendOpt && summaryQuery.isSuccess ? (
+                  <ReactEChart option={trendOpt} style={{ height: 240 }} />
+                ) : (
+                  <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                  </div>
+                )}
+              </div>
+            </Card>
+          </section>
+
+          <section aria-label={t("sectionBehavior")} className="space-y-3">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionBehavior")}
             </Typography.Title>
@@ -1025,29 +1034,28 @@ export function CommandAnalysisDashboard() {
               </Card>
             </div>
 
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-              {t("sectionEfficiency")}
-            </Typography.Title>
-            <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
-              {s?.token_risks?.length ? (
-                <Table
-                  size="small"
-                  pagination={false}
-                  rowKey="span_id"
-                  columns={[
-                    { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
-                    { title: t("colCommand"), render: (_, r) => <Typography.Text className="text-xs" ellipsis>{r.command}</Typography.Text> },
-                    { title: t("colStdout"), dataIndex: "stdout_chars" },
-                    { title: t("colEstTokens"), dataIndex: "est_tokens" },
-                    { title: t("colEstUsd"), dataIndex: "est_usd" },
-                  ]}
-                  data={s.token_risks}
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
-              )}
-              <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
-            </Card>
+            <div className="grid gap-4 lg:grid-cols-1">
+              <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
+                {s?.token_risks?.length ? (
+                  <Table
+                    size="small"
+                    pagination={false}
+                    rowKey="span_id"
+                    columns={[
+                      { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
+                      { title: t("colCommand"), render: (_, r) => <Typography.Text className="text-xs" ellipsis>{r.command}</Typography.Text> },
+                      { title: t("colStdout"), dataIndex: "stdout_chars" },
+                      { title: t("colEstTokens"), dataIndex: "est_tokens" },
+                      { title: t("colEstUsd"), dataIndex: "est_usd" },
+                    ]}
+                    data={s.token_risks}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
+                )}
+                <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
+              </Card>
+            </div>
 
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionDiagnostics")}
@@ -1107,6 +1115,7 @@ export function CommandAnalysisDashboard() {
                 </div>
               </Card>
             </div>
+          </section>
           </>
         ) : null}
 
