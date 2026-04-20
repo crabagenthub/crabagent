@@ -115,7 +115,10 @@ export function ActivityTimeline({
 
   if (loading) {
     return (
-      <div className={cn("rounded-lg border border-border bg-white p-4", className)}>
+      <div className={cn(
+        "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md p-4",
+        className
+      )}>
         <div className="flex items-center justify-center h-48">
           <div className="text-sm text-muted-foreground">加载中...</div>
         </div>
@@ -124,14 +127,14 @@ export function ActivityTimeline({
   }
 
   return (
-    <div className={cn("rounded-lg border border-border bg-white p-4", className)}>
+    <div className={cn(
+      "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md p-4",
+      className
+    )}>
       {/* 标题区域 */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <Typography.Text bold className="text-base block mb-1">
-            {t("activityTimelineTitle")}
-          </Typography.Text>
-          <Typography.Text type="secondary" className="text-xs">
+          <Typography.Text type="secondary" className="text-xs block mb-1">
             {t("activityTimelineSubtitle")}
           </Typography.Text>
         </div>

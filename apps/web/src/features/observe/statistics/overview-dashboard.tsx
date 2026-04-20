@@ -705,7 +705,10 @@ export function OverviewDashboard() {
             </section>
 
             {/* 活动时间线部分 */}
-            <section aria-label={t("activityTimeline")}>
+            <section className="space-y-3" aria-label={t("activityTimeline")}>
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+                {t("activityTimelineTitle")}
+              </Typography.Title>
               <ActivityTimeline
                 totalTokens={activityQuery.data?.totalTokens}
                 dayData={activityQuery.data?.dayData}
