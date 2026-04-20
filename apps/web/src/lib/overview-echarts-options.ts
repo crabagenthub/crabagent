@@ -237,7 +237,7 @@ export function areaSingleOption(
       }
     : yAxisValue();
   return {
-    grid: GRID,
+    grid: GRID_LEGEND,
     tooltip: {
       ...axisTooltip(),
       formatter: (params) => {
@@ -245,6 +245,11 @@ export function areaSingleOption(
         const v = Number(p.value);
         return `${axisTickLabel(p)}<br/>${p.marker} ${fmt(v)}`;
       },
+    },
+    legend: {
+      bottom: 0,
+      textStyle: { fontSize: 12, color: MUTED },
+      data: [valueLabel],
     },
     xAxis: xAxisCategory(days),
     yAxis,
@@ -269,11 +274,13 @@ export function lineSingleOption(
   color = OV_CHART_PRIMARY,
   valueFormatter?: (n: number) => string,
   integerY?: boolean,
+  legendName?: string,
 ): EChartsOption {
   const days = rows.map((r) => r.day);
   const fmt = valueFormatter ?? ((n: number) => String(n));
+  const seriesName = legendName ?? "Value";
   return {
-    grid: GRID,
+    grid: GRID_LEGEND,
     tooltip: {
       ...axisTooltip(),
       formatter: (params) => {
@@ -282,11 +289,17 @@ export function lineSingleOption(
         return `${axisTickLabel(p)}<br/>${p.marker} ${fmt(v)}`;
       },
     },
+    legend: {
+      bottom: 0,
+      textStyle: { fontSize: 12, color: MUTED },
+      data: [seriesName],
+    },
     xAxis: xAxisCategory(days),
     yAxis: yAxisValue(integerY ? { minInterval: 1 } : {}),
     series: [
       {
         type: "line",
+        name: seriesName,
         smooth: true,
         symbol: showDot ? "circle" : "none",
         symbolSize: showDot ? 6 : 0,
@@ -301,7 +314,7 @@ export function lineSingleOption(
 export function areaPercentOption(rows: { day: string; rate: number }[], rateLabel: string): EChartsOption {
   const days = rows.map((r) => r.day);
   return {
-    grid: GRID,
+    grid: GRID_LEGEND,
     tooltip: {
       ...axisTooltip(),
       formatter: (params) => {
@@ -309,6 +322,11 @@ export function areaPercentOption(rows: { day: string; rate: number }[], rateLab
         const v = Number(p.value);
         return `${axisTickLabel(p)}<br/>${p.marker} ${v.toFixed(1)}%`;
       },
+    },
+    legend: {
+      bottom: 0,
+      textStyle: { fontSize: 12, color: MUTED },
+      data: [rateLabel],
     },
     xAxis: xAxisCategory(days),
     yAxis: yAxisValue({
