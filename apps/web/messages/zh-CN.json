@@ -678,6 +678,7 @@
     "emptyStateTitle": "当前范围内暂无访问审计记录",
     "emptyStateBody": "Collector 已连通，但在所选时间与筛选条件下没有匹配的访问审计事件。",
     "emptyStateTraceBody": "已限定单条消息（Trace），但该 Trace 下没有可展示的访问审计记录。",
+    "emptyWidget": "暂无数据",
     "emptyChecklistPlugin": "确认 OpenClaw Trace 插件已启用并成功上报，且工具 Span 带有 resource / semantic_kind 等元数据。",
     "emptyChecklistRange": "尝试放宽日期范围，或切换到「全部」时间再试。",
     "emptyChecklistFilters": "清空 URI 前缀、语义类型筛选与搜索关键字。",

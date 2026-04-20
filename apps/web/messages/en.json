@@ -677,6 +677,7 @@
     "emptyStateTitle": "No access-audit events in this range",
     "emptyStateBody": "The Collector is reachable, but no access-audit events matched your time range and filters.",
     "emptyStateTraceBody": "This trace is filtered, but it has no access-audit rows to show.",
+    "emptyWidget": "No data in this range.",
     "emptyChecklistPlugin": "Verify the OpenClaw trace plugin is enabled and tool spans carry resource / semantic_kind metadata.",
     "emptyChecklistRange": "Widen the date range or try “All time”.",
     "emptyChecklistFilters": "Clear URI prefix, semantic-class filter, and search text.",

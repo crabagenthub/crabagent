@@ -650,7 +650,7 @@ export function ResourceAuditDashboard() {
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
-        —
+        {t("emptyWidget")}
       </Typography.Text>
     );
 
@@ -753,21 +753,6 @@ export function ResourceAuditDashboard() {
           </div>
         </section>
 
-        {isEmptyRange ? (
-          <Card className="border-dashed shadow-none" title={t("emptyStateTitle")}>
-            <Typography.Paragraph type="secondary" className="!mb-3 text-sm">
-              {traceFromUrl ? t("emptyStateTraceBody") : t("emptyStateBody")}
-            </Typography.Paragraph>
-            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-              <li>{t("emptyChecklistPlugin")}</li>
-              <li>{t("emptyChecklistRange")}</li>
-              <li>{t("emptyChecklistFilters")}</li>
-              <li>{t("emptyChecklistDb")}</li>
-            </ul>
-          </Card>
-        ) : null}
-
-        {!isEmptyRange ? (
           <section aria-label={t("sectionDashboard")} className="space-y-3">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionDashboard")}
@@ -776,7 +761,7 @@ export function ResourceAuditDashboard() {
               <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
                 <ul className="space-y-1.5">
                   {(statsQ.data?.top_resources ?? []).length === 0 ? (
-                    <li className="text-sm text-muted-foreground">—</li>
+                    <li className="text-sm text-muted-foreground">{t("emptyWidget")}</li>
                   ) : (
                     statsQ.data!.top_resources.map((r, idx) => (
                       <li key={r.uri} className="last:border-0">
@@ -812,7 +797,7 @@ export function ResourceAuditDashboard() {
               <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
                 <ul className="space-y-1.5">
                   {topDurationEventRows.length === 0 ? (
-                    <li className="text-sm text-muted-foreground">—</li>
+                    <li className="text-sm text-muted-foreground">{t("emptyWidget")}</li>
                   ) : (
                     topDurationEventRows.map((r, idx) => (
                       <li key={`${r.span_id}-${idx}`} className="last:border-0">
@@ -854,7 +839,7 @@ export function ResourceAuditDashboard() {
                   <div className="h-[260px] w-full min-w-0">
                     <ReactEChart option={classPieOpt} />
                   </div>
-                ) : (
+                ) : (statsQ.data?.class_distribution?.length ? (
                   <Space direction="vertical" size={8} className="w-full py-4">
                     {(statsQ.data?.class_distribution ?? []).map((c) => (
                       <div key={c.semantic_class} className="flex items-center justify-between text-sm">
@@ -863,10 +848,16 @@ export function ResourceAuditDashboard() {
                       </div>
                     ))}
                   </Space>
-                )}
+                ) : (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    {t("emptyWidget")}
+                  </div>
+                ))}
               </Card>
               <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
-                {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
+                {statsQ.isFetching && !statsQ.data ? (
+                  <Spin className="py-8" />
+                ) : dailyChart}
               </Card>
             </div>
 
@@ -890,13 +881,12 @@ export function ResourceAuditDashboard() {
                   </div>
                 ) : (
                   <Typography.Text type="secondary" className="text-sm">
-                    —
+                    {t("emptyWidget")}
                   </Typography.Text>
                 )}
               </Card>
             </div>
           </section>
-        ) : null}
           </div>
         ) : null}
 
