@@ -624,7 +624,7 @@
     "spanStepOpenMessageInspectAria": "在当前页打开消息详情并定位到该执行步骤"
   },
   "ResourceAudit": {
-    "title": "资源访问审计",
+    "title": "资源访问",
     "subtitle": "把 Agent 对文件、记忆检索与其它工具 I/O 的访问摆到明处：谁在何时、以何种模式、读写了多大体量。",
     "positioningLine": "本页适合作为「数据治理与运维」的主视图之一：快速发现敏感路径触碰、异常大体量读取、以及同一会话内的重复访问模式。",
     "bulletAggregate": "按资源 URI、工作区、工具名（Span 名）聚合，支持前缀筛选与全文检索，便于从「单条流水」缩放到「路径级」复盘。",

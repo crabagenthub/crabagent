@@ -229,18 +229,12 @@ export function ResourceAuditDashboard() {
   const [searchDraft, setSearchDraft] = useState("");
   const [semanticClass, setSemanticClass] = useState<ResourceAuditSemanticClassParam>("all");
   const [uriPrefix, setUriPrefix] = useState("");
-  const [activeTab, setActiveTab] = useState<"metrics" | "details">("metrics");
   const [uriPrefixDraft, setUriPrefixDraft] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
-
-  const resourceAuditTabs = [
-    { id: "metrics", label: t("tabMetrics") },
-    { id: "details", label: t("tabAuditDetails") },
-  ] as const;
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -684,33 +678,7 @@ export function ResourceAuditDashboard() {
           </Space>
         </header>
 
-        <section className="mb-4">
-          <div role="radiogroup" aria-label={t("resourceAuditTabAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {resourceAuditTabs.map((item) => {
-              const selected = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setActiveTab(item.id)}
-                  className={cn(
-                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
-                    selected
-                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
-                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
-                  )}
-                >
-                  <span className="whitespace-nowrap">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {activeTab === "metrics" ? (
-          <div className="space-y-3">
+        <div className="space-y-3">
           <section aria-label={t("sectionKpi")} className="space-y-3">
           <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
             {t("sectionKpi")}
@@ -888,11 +856,8 @@ export function ResourceAuditDashboard() {
               </Card>
             </div>
           </section>
-          </div>
-        ) : null}
 
-        {activeTab === "details" ? (
-          <section aria-label={t("sectionTable")} className="space-y-3">
+        <section aria-label={t("sectionTable")} className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionTable")}
@@ -965,7 +930,7 @@ export function ResourceAuditDashboard() {
             </div>
           ) : (
             <>
-              {eventsQ.data?.items.length === 0 ? (
+              {(eventsQ.data?.items.length ?? 0) === 0 ? (
                 <ListEmptyState title={t("emptyStateTitle")} className="min-h-[300px]" />
               ) : (
                 <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
@@ -1031,7 +996,7 @@ export function ResourceAuditDashboard() {
             </>
           )}
         </section>
-        ) : null}
+        </div>
       </main>
 
       <SpanRecordInspectDrawer
