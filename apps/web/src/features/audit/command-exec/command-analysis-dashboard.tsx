@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TitleHintIcon } from "@/shared/components/message-hint";
+import { ListEmptyState } from "@/components/list-empty-state";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
@@ -783,9 +784,9 @@ export function CommandAnalysisDashboard() {
             </Typography.Title>
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
-                <ul className="space-y-1.5">
-                  {s?.top_commands?.length ? (
-                    s.top_commands.map((x, idx) => (
+                {s?.top_commands?.length ? (
+                  <ul className="space-y-1.5">
+                    {s.top_commands.map((x, idx) => (
                       <li key={x.command} className="last:border-0">
                         <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                           <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
@@ -799,16 +800,16 @@ export function CommandAnalysisDashboard() {
                           <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{Math.round(x.count).toLocaleString()}</span>
                         </div>
                       </li>
-                    ))
-                  ) : (
-                    <li className="text-sm text-muted-foreground">{t("emptyTopCmd")}</li>
-                  )}
-                </ul>
+                    ))}
+                  </ul>
+                ) : (
+                  <ListEmptyState title={t("emptyTopCmd")} className="min-h-[200px]" />
+                )}
               </Card>
               <Card title={t("sectionSlowest")} bordered className="shadow-sm rounded-lg">
-                <ul className="space-y-1.5">
-                  {s?.slowest?.length ? (
-                    s.slowest.map((x, idx) => (
+                {s?.slowest?.length ? (
+                  <ul className="space-y-1.5">
+                    {s.slowest.map((x, idx) => (
                       <li key={x.span_id} className="last:border-0">
                         <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                           <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
@@ -822,11 +823,11 @@ export function CommandAnalysisDashboard() {
                           <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{x.duration_ms} ms</span>
                         </div>
                       </li>
-                    ))
-                  ) : (
-                    <li className="text-sm text-muted-foreground">{t("emptySlowest")}</li>
-                  )}
-                </ul>
+                    ))}
+                  </ul>
+                ) : (
+                  <ListEmptyState title={t("emptySlowest")} className="min-h-[200px]" />
+                )}
               </Card>
             </div>
           </section>
@@ -1030,29 +1031,33 @@ export function CommandAnalysisDashboard() {
             </Card>
 
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
-              <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
-                <ScrollableTableFrame
-                  variant="neutral"
-                  contentKey={`${page}-${listQuery.data?.items.length ?? 0}`}
-                  scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
-                >
-                  <div className="min-w-0 w-full">
-                    <Table
-                      tableLayoutFixed
-                      size="small"
-                      rowKey="span_id"
-                      loading={listQuery.isLoading}
-                      columns={listColumns}
-                      data={listQuery.data?.items ?? []}
-                      pagination={false}
-                      border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                      scroll={OBSERVE_TABLE_SCROLL_X}
-                      hover={true}
-                      className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
-                    />
-                  </div>
-                </ScrollableTableFrame>
-              </div>
+              {listQuery.data?.items.length === 0 && !listQuery.isLoading ? (
+                <ListEmptyState title={t("listTraceRecordsEmpty")} className="min-h-[300px]" />
+              ) : (
+                <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+                  <ScrollableTableFrame
+                    variant="neutral"
+                    contentKey={`${page}-${listQuery.data?.items.length ?? 0}`}
+                    scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+                  >
+                    <div className="min-w-0 w-full">
+                      <Table
+                        tableLayoutFixed
+                        size="small"
+                        rowKey="span_id"
+                        loading={listQuery.isLoading}
+                        columns={listColumns}
+                        data={listQuery.data?.items ?? []}
+                        pagination={false}
+                        border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                        scroll={OBSERVE_TABLE_SCROLL_X}
+                        hover={true}
+                        className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
+                      />
+                    </div>
+                  </ScrollableTableFrame>
+                </div>
+              )}
               <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {

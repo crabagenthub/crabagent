@@ -615,6 +615,7 @@
     "noContext": "未找到相邻 LLM Span。",
     "emptyTopCmd": "样本中无命令。",
     "emptySlowest": "无耗时数据。",
+    "listTraceRecordsEmpty": "暂无执行记录",
     "chartLoopBuckets": "死循环告警 · 重复次数分桶",
     "chartTokenRiskBuckets": "Token 风险 · stdout 体量分桶",
     "chartRedundantTop": "重复「读取类」命令 Top",
