@@ -248,85 +248,6 @@ function shellTrendOption(
   };
 }
 
-function metricBucketsBarOption(rows: { label: string; value: number }[], subtitle: string): EChartsOption {
-  const MUTED = "#64748b";
-  return {
-    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
-    grid: { left: 4, right: 8, top: 32, bottom: 4, containLabel: true },
-    tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
-    xAxis: { type: "category", data: rows.map((r) => r.label), axisLabel: { fontSize: 10, color: MUTED } },
-    yAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 10, color: MUTED } },
-    series: [{ type: "bar", data: rows.map((r) => r.value), itemStyle: { color: "#6366f1", borderRadius: [4, 4, 0, 0] } }],
-  };
-}
-
-function tokenRiskHBarOption(items: { command: string; stdout_chars: number }[], subtitle: string): EChartsOption {
-  const MUTED = "#64748b";
-  const top = items.slice(0, 12);
-  return {
-    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
-    grid: { left: 4, right: 12, top: 32, bottom: 4, containLabel: true },
-    tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
-    xAxis: { type: "value", axisLabel: { fontSize: 10, color: MUTED } },
-    yAxis: {
-      type: "category",
-      data: top.map((_, i) => `#${i + 1}`),
-      inverse: true,
-      axisLabel: { fontSize: 10, color: MUTED },
-    },
-    series: [
-      {
-        type: "bar",
-        data: top.map((x) => x.stdout_chars),
-        itemStyle: { color: "#f59e0b", borderRadius: [0, 4, 4, 0] },
-      },
-    ],
-  };
-}
-
-function redundantReadHBarOption(
-  items: { trace_id: string; command: string; repeats: number }[],
-  subtitle: string,
-): EChartsOption {
-  const MUTED = "#64748b";
-  const top = items.slice(0, 12);
-  return {
-    title: { text: subtitle, left: 0, top: 0, textStyle: { fontSize: 12, color: MUTED, fontWeight: 500 } },
-    grid: { left: 4, right: 12, top: 32, bottom: 4, containLabel: true },
-    tooltip: {
-      trigger: "axis",
-      textStyle: { fontSize: 12 },
-      formatter: (p: unknown) => {
-        const arr = p as { data?: number; name?: string }[];
-        const a = arr[0];
-        if (!a?.name) {
-          return "";
-        }
-        const idx = Math.max(0, Number.parseInt(a.name.replace("#", ""), 10) - 1);
-        const row = top[idx];
-        if (!row) {
-          return "";
-        }
-        return `${row.command.slice(0, 120)}<br/>×${a.data ?? ""}`;
-      },
-    },
-    xAxis: { type: "value", minInterval: 1, axisLabel: { fontSize: 10, color: MUTED } },
-    yAxis: {
-      type: "category",
-      data: top.map((_, i) => `#${i + 1}`),
-      inverse: true,
-      axisLabel: { fontSize: 10, color: MUTED },
-    },
-    series: [
-      {
-        type: "bar",
-        data: top.map((x) => x.repeats),
-        itemStyle: { color: "#22c55e", borderRadius: [0, 4, 4, 0] },
-      },
-    ],
-  };
-}
-
 /** 步骤 ID：短 ID + 复制；点击短 ID 在当前页打开消息详情并定位到该 span，不整页跳转。 */
 function ShellExecSpanIdCell({
   spanId,
@@ -526,42 +447,6 @@ export function CommandAnalysisDashboard() {
     }));
     return shellTrendOption(summary.daily_risk_series?.length ? summary.daily_risk_series : fallback, t);
   }, [summary, t]);
-
-  const loopBucketsOpt = useMemo(() => {
-    const rows = summary?.loop_repeat_buckets;
-    if (!rows?.length) {
-      return null;
-    }
-    return metricBucketsBarOption(rows, t("chartLoopBuckets"));
-  }, [summary?.loop_repeat_buckets, t]);
-
-  const tokenRiskBucketsOpt = useMemo(() => {
-    const rows = summary?.token_risk_stdout_buckets;
-    if (!rows?.length) {
-      return null;
-    }
-    return metricBucketsBarOption(rows, t("chartTokenRiskBuckets"));
-  }, [summary?.token_risk_stdout_buckets, t]);
-
-  const redundantTopOpt = useMemo(() => {
-    const rows = summary?.redundant_read_top?.length ? summary.redundant_read_top : summary?.redundant_read_hints;
-    if (!rows?.length) {
-      return null;
-    }
-    return redundantReadHBarOption(rows, t("chartRedundantTop"));
-  }, [summary?.redundant_read_hints, summary?.redundant_read_top, t]);
-
-  const tokenRiskBarsOpt = useMemo(() => {
-    const tr = summary?.token_risks;
-    if (!tr?.length) {
-      return null;
-    }
-    const sorted = [...tr].sort((a, b) => (b.stdout_chars ?? 0) - (a.stdout_chars ?? 0));
-    return tokenRiskHBarOption(
-      sorted.map((x) => ({ command: x.command, stdout_chars: x.stdout_chars })),
-      t("chartTokenRiskBars"),
-    );
-  }, [summary?.token_risks, t]);
 
   const onDateChange = useCallback((next: ObserveDateRange) => {
     setDateRange(next);
@@ -1066,55 +951,6 @@ export function CommandAnalysisDashboard() {
               <Tag color="gold">{t("diagArg")}: {s?.diagnostics.illegal_arg_hint ?? 0}</Tag>
             </div>
 
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-              {t("sectionRiskCharts")}
-            </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px" }}>
-                <div className="h-[220px] w-full min-w-0">
-                  {loopBucketsOpt && summaryQuery.isSuccess ? (
-                    <ReactEChart option={loopBucketsOpt} style={{ height: 200 }} />
-                  ) : (
-                    <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-              <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: "12px" }}>
-                <div className="h-[220px] w-full min-w-0">
-                  {tokenRiskBucketsOpt && summaryQuery.isSuccess ? (
-                    <ReactEChart option={tokenRiskBucketsOpt} style={{ height: 200 }} />
-                  ) : (
-                    <div className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} bodyStyle={{ padding: "12px" }}>
-                <div className="h-[260px] w-full min-w-0">
-                  {redundantTopOpt && summaryQuery.isSuccess ? (
-                    <ReactEChart option={redundantTopOpt} style={{ height: 240 }} />
-                  ) : (
-                    <div className="flex h-[240px] items-center justify-center text-xs text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} bodyStyle={{ padding: "12px" }}>
-                <div className="h-[260px] w-full min-w-0">
-                  {tokenRiskBarsOpt && summaryQuery.isSuccess ? (
-                    <ReactEChart option={tokenRiskBarsOpt} style={{ height: 240 }} />
-                  ) : (
-                    <div className="flex h-[240px] items-center justify-center text-xs text-muted-foreground">
-                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </div>
           </section>
           </>
         ) : null}
@@ -1217,7 +1053,7 @@ export function CommandAnalysisDashboard() {
                   </div>
                 </ScrollableTableFrame>
               </div>
-              <div className="flex flex-col items-center gap-2 px-3 pb-3 pt-4 sm:flex-row sm:justify-between">
+              <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
                     from: String(listQuery.data?.items.length ? (page - 1) * pageSize + 1 : 0),

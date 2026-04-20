@@ -1221,7 +1221,7 @@
     "listTraceRecordsEmpty": "暂无消息记录。网关侧需 ingest 带 trace_root_id 的事件（trace 插件）后才会写入 traces 表；仅有旧数据未重新上报时此处可能为空。",
     "listTraceRecordsEmptyFiltered": "当前筛选下没有消息记录。可将时间范围改为「全部」、清空搜索或去掉高级筛选。",
     "listEmptyHeading": "暂无入站消息",
-    "listEmptyHeadingFiltered": "无匹配消息",
+    "listEmptyHeadingFiltered": "暂无数据",
     "refreshList": "刷新",
     "columnManagerTitle": "列管理",
     "columnManagerAria": "管理表格列显示",

@@ -29,6 +29,7 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
+import { ListEmptyState } from "@/components/list-empty-state";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -759,11 +760,11 @@ export function ResourceAuditDashboard() {
             </Typography.Title>
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
-                <ul className="space-y-1.5">
-                  {(statsQ.data?.top_resources ?? []).length === 0 ? (
-                    <li className="text-sm text-muted-foreground">{t("emptyWidget")}</li>
-                  ) : (
-                    statsQ.data!.top_resources.map((r, idx) => (
+                {(statsQ.data?.top_resources ?? []).length === 0 ? (
+                  <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
+                ) : (
+                  <ul className="space-y-1.5">
+                    {statsQ.data!.top_resources.map((r, idx) => (
                       <li key={r.uri} className="last:border-0">
                         <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                           <span
@@ -790,16 +791,16 @@ export function ResourceAuditDashboard() {
                           </span>
                         </div>
                       </li>
-                    ))
-                  )}
-                </ul>
+                    ))}
+                  </ul>
+                )}
               </Card>
               <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
-                <ul className="space-y-1.5">
-                  {topDurationEventRows.length === 0 ? (
-                    <li className="text-sm text-muted-foreground">{t("emptyWidget")}</li>
-                  ) : (
-                    topDurationEventRows.map((r, idx) => (
+                {topDurationEventRows.length === 0 ? (
+                  <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
+                ) : (
+                  <ul className="space-y-1.5">
+                    {topDurationEventRows.map((r, idx) => (
                       <li key={`${r.span_id}-${idx}`} className="last:border-0">
                         <button
                           type="button"
@@ -830,9 +831,9 @@ export function ResourceAuditDashboard() {
                           </span>
                         </button>
                       </li>
-                    ))
-                  )}
-                </ul>
+                    ))}
+                  </ul>
+                )}
               </Card>
               <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
                 {classPieOpt ? (
