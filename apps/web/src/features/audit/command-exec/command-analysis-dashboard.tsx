@@ -317,7 +317,6 @@ export function CommandAnalysisDashboard() {
   const [traceFilter, setTraceFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [viewKind, setViewKind] = useState<CommandAnalysisViewKind>("metrics");
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
 
@@ -674,44 +673,7 @@ export function CommandAnalysisDashboard() {
           <Message type="warning" content={t("summaryCapped", { n: s.scanned })} />
         ) : null}
 
-        <section aria-label={t("viewSwitcherAria")} className="space-y-3">
-          <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {([
-              { id: "metrics" as const, label: t("viewMetrics"), Icon: IconApps },
-              { id: "details" as const, label: t("viewDetails"), Icon: IconList },
-            ] satisfies Array<{ id: CommandAnalysisViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
-              const selected = viewKind === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setViewKind(opt.id)}
-                  className={cn(
-                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
-                    selected
-                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
-                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
-                  )}
-                >
-                  <opt.Icon
-                    className={cn(
-                      "size-4 shrink-0",
-                      selected ? "text-neutral-800 dark:text-zinc-100" : "text-neutral-600 dark:text-zinc-400",
-                    )}
-                    strokeWidth={selected ? 3 : 2}
-                    aria-hidden
-                  />
-                  <span className="whitespace-nowrap">{opt.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {viewKind === "metrics" ? (
-          <>
+        <div className="space-y-3">
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CommandKpiCard
                 title={t("kpiCommands")}
@@ -719,7 +681,10 @@ export function CommandAnalysisDashboard() {
                 value={
                   summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.commands ?? 0).toLocaleString()
                 }
-                onView={() => setViewKind("details")}
+                onView={() => {
+                  const el = document.querySelector('#section-list');
+                  el?.scrollIntoView({ behavior: "smooth" });
+                }}
                 mom={
                   s && prevSummaryQuery.data
                     ? shellKpiMomPercent(s.totals.commands, prevSummaryQuery.data.totals.commands)
@@ -736,7 +701,10 @@ export function CommandAnalysisDashboard() {
                     (s?.totals.distinct_traces ?? 0).toLocaleString()
                   )
                 }
-                onView={() => setViewKind("details")}
+                onView={() => {
+                  const el = document.querySelector('#section-list');
+                  el?.scrollIntoView({ behavior: "smooth" });
+                }}
                 mom={
                   s && prevSummaryQuery.data
                     ? shellKpiMomPercent(s.totals.distinct_traces, prevSummaryQuery.data.totals.distinct_traces)
@@ -749,7 +717,10 @@ export function CommandAnalysisDashboard() {
                 value={
                   summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.failed ?? 0).toLocaleString()
                 }
-                onView={() => setViewKind("details")}
+                onView={() => {
+                  const el = document.querySelector('#section-list');
+                  el?.scrollIntoView({ behavior: "smooth" });
+                }}
                 mom={
                   s && prevSummaryQuery.data
                     ? shellKpiMomPercent(s.totals.failed, prevSummaryQuery.data.totals.failed)
@@ -766,7 +737,10 @@ export function CommandAnalysisDashboard() {
                     Number(s?.totals.token_risk_total ?? 0).toLocaleString()
                   )
                 }
-                onView={() => setViewKind("details")}
+                onView={() => {
+                  const el = document.querySelector('#section-list');
+                  el?.scrollIntoView({ behavior: "smooth" });
+                }}
                 mom={
                   s && prevSummaryQuery.data
                     ? shellKpiMomPercent(
@@ -869,9 +843,10 @@ export function CommandAnalysisDashboard() {
                             size="mini"
                             onClick={() => {
                               setTraceFilter(lo.trace_id);
-                              setViewKind("details");
                               setPage(1);
                               void listQuery.refetch();
+                              const el = document.querySelector('#section-list');
+                              el?.scrollIntoView({ behavior: "smooth" });
                             }}
                           >
                             {t("focusTraceDetails")}
@@ -904,9 +879,10 @@ export function CommandAnalysisDashboard() {
                           size="mini"
                           onClick={() => {
                             setTraceFilter(r.trace_id);
-                            setViewKind("details");
                             setPage(1);
                             void listQuery.refetch();
+                            const el = document.querySelector('[aria-label="section-list"]');
+                            el?.scrollIntoView({ behavior: "smooth" });
                           }}
                         >
                           {t("focusTraceDetails")}
@@ -953,11 +929,8 @@ export function CommandAnalysisDashboard() {
             </div>
 
           </section>
-          </>
-        ) : null}
 
-        {viewKind === "details" ? (
-          <>
+        <section className="space-y-3" id="section-list">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionList")}
             </Typography.Title>
@@ -1099,8 +1072,8 @@ export function CommandAnalysisDashboard() {
                 </div>
               </div>
             </Card>
-          </>
-        ) : null}
+        </section>
+        </div>
       </main>
 
       <TraceRecordInspectDialog
