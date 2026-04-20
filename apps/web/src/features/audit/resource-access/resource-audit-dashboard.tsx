@@ -965,28 +965,33 @@ export function ResourceAuditDashboard() {
             </div>
           ) : (
             <>
-              <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
-                <ScrollableTableFrame
-                  variant="neutral"
-                  contentKey={`${eventsQ.data?.items.length ?? 0}`}
-                  scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
-                >
-                  <div className="min-w-0 w-full">
-                    <Table
-                      tableLayoutFixed
-                      size="small"
-                      border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                      columns={columns}
-                      data={eventsQ.data?.items ?? []}
-                      rowKey="span_id"
-                      pagination={false}
-                      scroll={OBSERVE_TABLE_SCROLL_X}
-                      hover={true}
-                    />
-                  </div>
-                </ScrollableTableFrame>
-              </div>
-              <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
+              {eventsQ.data?.items.length === 0 ? (
+                <ListEmptyState title={t("emptyStateTitle")} className="min-h-[300px]" />
+              ) : (
+                <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+                  <ScrollableTableFrame
+                    variant="neutral"
+                    contentKey={`${eventsQ.data?.items.length ?? 0}`}
+                    scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+                  >
+                    <div className="min-w-0 w-full">
+                      <Table
+                        tableLayoutFixed
+                        size="small"
+                        border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                        columns={columns}
+                        data={eventsQ.data?.items ?? []}
+                        rowKey="span_id"
+                        pagination={false}
+                        scroll={OBSERVE_TABLE_SCROLL_X}
+                        hover={true}
+                      />
+                    </div>
+                  </ScrollableTableFrame>
+                </div>
+              )}
+              {eventsQ.data?.items.length > 0 ? (
+                <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
                     from: String(eventsQ.data?.items.length ? (page - 1) * pageSize + 1 : 0),
@@ -1022,6 +1027,7 @@ export function ResourceAuditDashboard() {
                   />
                 </div>
               </div>
+              ) : null}
             </>
           )}
         </section>

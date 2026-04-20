@@ -915,7 +915,7 @@ export function CommandAnalysisDashboard() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{t("noRedundant")}</p>
+                  <ListEmptyState title={t("noRedundant")} className="min-h-[200px]" />
                 )}
               </Card>
             </div>
@@ -937,7 +937,7 @@ export function CommandAnalysisDashboard() {
                     data={s.token_risks}
                   />
                 ) : (
-                  <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
+                  <ListEmptyState title={t("noTokenRisk")} className="min-h-[200px]" />
                 )}
                 <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
               </Card>
