@@ -45,7 +45,6 @@ export type ShellExecSummary = {
     token_risk_total?: number;
   };
   category_breakdown: Record<ShellCommandCategory, number>;
-  duration_buckets: { lt100ms: number; ms100to1s: number; gt1s: number };
   success_trend: { day: string; total: number; failed: number }[];
   daily_risk_series?: {
     day: string;

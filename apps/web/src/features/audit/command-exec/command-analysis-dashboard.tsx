@@ -511,19 +511,6 @@ export function CommandAnalysisDashboard() {
   });
 
   const summary = summaryQuery.data;
-  const durationBar = useMemo(() => {
-    if (!summary) {
-      return null;
-    }
-    return resourceRiskBarOption(
-      [
-        { name: t("durLt100"), value: summary.duration_buckets.lt100ms },
-        { name: t("dur100to1s"), value: summary.duration_buckets.ms100to1s },
-        { name: t("durGt1s"), value: summary.duration_buckets.gt1s },
-      ],
-      t("durSeries"),
-    );
-  }, [summary, t]);
 
   const trendOpt = useMemo(() => {
     if (!summary?.success_trend?.length) {
@@ -917,17 +904,7 @@ export function CommandAnalysisDashboard() {
               </div>
             </Card>
 
-            <Card bordered={false} className={kpiShellClass} title={t("sectionDuration")}>
-              <div className="h-[220px] w-full max-w-xl min-w-0">
-                {durationBar && summaryQuery.isSuccess ? (
-                  <ReactEChart option={durationBar} style={{ height: 200 }} />
-                ) : (
-                  <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                  </div>
-                )}
-              </div>
-            </Card>
+
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
