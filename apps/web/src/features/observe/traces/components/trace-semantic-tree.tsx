@@ -125,6 +125,7 @@ function TreeNodeRow({
   parentType,
   variant,
   traceTimeRange,
+  largeToolResultThresholdChars,
 }: {
   node: SpanTreeNode;
   depth: number;
@@ -133,6 +134,7 @@ function TreeNodeRow({
   parentType: string | null;
   variant: "default" | "inspect";
   traceTimeRange: { start: number; end: number } | null;
+  largeToolResultThresholdChars?: number;
 }) {
   const t = useTranslations("Traces");
   const active = selectedId === node.span_id;
@@ -147,7 +149,7 @@ function TreeNodeRow({
   const dur = durationMs(node);
   const path = spanResourceUri(node);
   const largeFile = spanLargeFileWarning(node);
-  const fatTool = spanToolOversizedResult(node);
+  const fatTool = spanToolOversizedResult(node, largeToolResultThresholdChars);
   const memMeta = memoryMetaFromMetadata(node.metadata);
   const hits = memoryHitsFromOutput(node.output);
   const bar = variant === "inspect" && traceTimeRange ? timelineBarPct(node, traceTimeRange) : null;
@@ -423,6 +425,7 @@ function TreeNodeRow({
               parentType={node.type}
               variant={variant}
               traceTimeRange={traceTimeRange}
+              largeToolResultThresholdChars={largeToolResultThresholdChars}
             />
           ))}
         </div>
@@ -437,6 +440,7 @@ export function TraceSemanticTree({
   onSelect,
   variant = "default",
   traceTimeRange = null,
+  largeToolResultThresholdChars,
 }: {
   forest: SpanTreeNode[];
   selectedId: string | null;
@@ -444,6 +448,7 @@ export function TraceSemanticTree({
   /** `inspect`: compact rows, seconds duration, timeline bar (needs `traceTimeRange`). */
   variant?: "default" | "inspect";
   traceTimeRange?: { start: number; end: number } | null;
+  largeToolResultThresholdChars?: number;
 }) {
   const t = useTranslations("Traces");
   if (forest.length === 0) {
@@ -467,6 +472,7 @@ export function TraceSemanticTree({
             parentType={null}
             variant={variant}
             traceTimeRange={traceTimeRange}
+            largeToolResultThresholdChars={largeToolResultThresholdChars}
           />
         ))}
       </div>

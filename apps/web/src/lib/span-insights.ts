@@ -2,12 +2,21 @@ import type { SemanticSpanRow } from "@/lib/semantic-spans";
 
 /** ~500k UTF-16 units → warn as “large read” */
 export const LARGE_IO_CHARS = 500_000;
-function resolveLargeToolResultChars(): number {
+const LARGE_TOOL_RESULT_CHARS_DEFAULT = 8_192;
+
+function resolveEnvLargeToolResultChars(): number {
   const raw = process.env.NEXT_PUBLIC_LARGE_TOOL_RESULT_CHARS;
   const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 8_192;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : LARGE_TOOL_RESULT_CHARS_DEFAULT;
 }
-export const LARGE_TOOL_RESULT_CHARS = resolveLargeToolResultChars();
+export const LARGE_TOOL_RESULT_CHARS = resolveEnvLargeToolResultChars();
+
+export function resolveLargeToolResultCharsFromCollector(value: number | null | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  return LARGE_TOOL_RESULT_CHARS;
+}
 
 export function ioPathFromInput(input: Record<string, unknown>): string | null {
   const p = input.path ?? input.filePath ?? input.file_path ?? input.uri;
@@ -68,11 +77,15 @@ export function spanLargeFileWarning(row: SemanticSpanRow): boolean {
   return outChars >= LARGE_IO_CHARS;
 }
 
-export function spanToolOversizedResult(row: SemanticSpanRow): boolean {
+export function spanToolOversizedResult(row: SemanticSpanRow, thresholdChars?: number): boolean {
   if (row.type !== "TOOL" && row.type !== "SKILL" && row.type !== "IO" && row.type !== "MEMORY") {
     return false;
   }
-  return toolResultChars(row.output) >= LARGE_TOOL_RESULT_CHARS;
+  const threshold =
+    typeof thresholdChars === "number" && Number.isFinite(thresholdChars) && thresholdChars >= 0
+      ? Math.floor(thresholdChars)
+      : LARGE_TOOL_RESULT_CHARS;
+  return toolResultChars(row.output) >= threshold;
 }
 
 export type MemoryHitPreview = { label: string; score?: number };

@@ -7,8 +7,8 @@ import { MessageHint } from "@/shared/components/message-hint";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import {
-  LARGE_TOOL_RESULT_CHARS,
   estimatePayloadChars,
+  resolveLargeToolResultCharsFromCollector,
   toolResultChars,
 } from "@/lib/span-insights";
 import { extractRunChatBlocks, type ChatRole } from "@/lib/span-messages";
@@ -180,11 +180,13 @@ export function TraceSpanRunPanel({
   chrome = "full",
   /** Trace-level `input_json`; `systemPrompt` is merged into input display only for `type === "LLM"` spans. */
   traceInput = null,
+  largeToolResultThresholdChars,
 }: {
   span: SemanticSpanRow | null;
   /** `embedded`: no span summary header, only Details + Feedback tabs (Opik-style inspector). */
   chrome?: "full" | "embedded";
   traceInput?: Record<string, unknown> | null;
+  largeToolResultThresholdChars?: number | null;
 }) {
   const t = useTranslations("Traces");
   const embedded = chrome === "embedded";
@@ -361,10 +363,11 @@ export function TraceSpanRunPanel({
       : null;
 
   const resultChars = span ? toolResultChars(span.output) : 0;
+  const largeToolResultThreshold = resolveLargeToolResultCharsFromCollector(largeToolResultThresholdChars);
   const showToolHint =
     span &&
     (span.type === "TOOL" || span.type === "IO" || span.type === "MEMORY") &&
-    resultChars >= LARGE_TOOL_RESULT_CHARS;
+    resultChars >= largeToolResultThreshold;
 
   if (!span) {
     return (
@@ -499,7 +502,8 @@ export function TraceSpanRunPanel({
                 />
               </div>
             ) : null}
-            {estimatePayloadChars(span.output.result ?? span.output.resultForLlm) > 0 && resultChars < LARGE_TOOL_RESULT_CHARS ? (
+            {estimatePayloadChars(span.output.result ?? span.output.resultForLlm) > 0 &&
+            resultChars < largeToolResultThreshold ? (
               <p className="px-3 py-2 text-[10px] text-ca-muted sm:px-4">
                 {t("inspectorToolResultSize", { chars: String(resultChars) })}
               </p>
@@ -617,7 +621,8 @@ export function TraceSpanRunPanel({
                 />
               </div>
             ) : null}
-            {estimatePayloadChars(span.output.result ?? span.output.resultForLlm) > 0 && resultChars < LARGE_TOOL_RESULT_CHARS ? (
+            {estimatePayloadChars(span.output.result ?? span.output.resultForLlm) > 0 &&
+            resultChars < largeToolResultThreshold ? (
               <p className="mt-3 text-[10px] text-ca-muted">
                 {t("inspectorToolResultSize", { chars: String(resultChars) })}
               </p>

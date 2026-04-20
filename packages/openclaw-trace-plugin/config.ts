@@ -1,4 +1,7 @@
-/** 防止配置成 `.../v1/opik/batch` 时与客户端拼接路径重复导致 404。 */
+/**
+ * 防止配置成 `.../v1/opik/batch` 时与客户端拼接路径重复导致 404。
+ * 同时剥掉已废弃的 Next 同源 `/api/collector` 后缀，避免 POST 打到无 `/v1/*` 的 Web 进程。
+ */
 export function normalizeCollectorBaseUrl(url: string): string {
   const t = url.trim();
   if (!t) {
@@ -6,6 +9,8 @@ export function normalizeCollectorBaseUrl(url: string): string {
   }
   let u = t.replace(/\/+$/, "");
   u = u.replace(/\/v1\/opik\/batch$/i, "");
+  u = u.replace(/\/+$/, "");
+  u = u.replace(/\/api\/collector\/?$/i, "");
   return u.replace(/\/+$/, "");
 }
 

@@ -262,7 +262,11 @@ function StepDetailContent() {
             className="flex min-h-[min(280px,45vh)] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-sm lg:min-h-[min(520px,calc(100dvh-14rem))]"
             aria-label={t("stepDetails")}
           >
-            <TraceSpanRunPanel span={currentSpan} chrome="embedded" />
+            <TraceSpanRunPanel
+              span={currentSpan}
+              chrome="embedded"
+              largeToolResultThresholdChars={spanQuery.data?.large_tool_result_threshold_chars ?? null}
+            />
           </div>
 
           {/* Right — basic information + span attributes */}

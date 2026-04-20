@@ -8,7 +8,7 @@
     "properties": {
       "collectorBaseUrl": {
         "type": "string",
-        "description": "Crabagent Collector base URL (no trailing slash)."
+        "description": "iseeagentc（crabagent-collector-go）根地址，无尾斜杠，例如 http://127.0.0.1:8087。须与 Crabagent Web「Collector 连接」一致；不要填 Next 前端源站（无 /v1/opik/batch）。误填 …/api/collector 会自动剥除后缀。"
       },
       "collectorApiKey": {
         "type": "string",

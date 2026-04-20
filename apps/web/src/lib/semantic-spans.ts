@@ -36,6 +36,8 @@ export async function loadSemanticSpans(
   items: SemanticSpanRow[];
   /** From `opik_traces.input_json` when present (e.g. OpenClaw `systemPrompt`, full `prompt`). */
   trace_input: Record<string, unknown> | null;
+  /** Resource-audit config from collector (`largeToolResult.thresholdChars`). */
+  large_tool_result_threshold_chars: number | null;
 }> {
   const b = baseUrl.replace(/\/+$/, "");
   const sp = new URLSearchParams();
@@ -47,12 +49,16 @@ export async function loadSemanticSpans(
     trace_id?: string;
     items?: Partial<SemanticSpanRow>[];
     trace_input?: unknown;
+    large_tool_result_threshold_chars?: unknown;
   }>(res, `trace spans HTTP ${res.status}`);
   const items = collectorItemsArray<Partial<SemanticSpanRow>>(raw.items).map((r) => normalizeSemanticSpan(r));
   const ti = raw.trace_input;
   const trace_input =
     ti && typeof ti === "object" && !Array.isArray(ti) ? (ti as Record<string, unknown>) : null;
-  return { trace_id: raw.trace_id ?? traceId.trim(), items, trace_input };
+  const rawThr = Number(raw.large_tool_result_threshold_chars);
+  const large_tool_result_threshold_chars =
+    Number.isFinite(rawThr) && rawThr >= 0 ? Math.floor(rawThr) : null;
+  return { trace_id: raw.trace_id ?? traceId.trim(), items, trace_input, large_tool_result_threshold_chars };
 }
 
 function normalizeSemanticSpan(r: Partial<SemanticSpanRow>): SemanticSpanRow {

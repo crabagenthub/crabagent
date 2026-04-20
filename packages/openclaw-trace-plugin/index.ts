@@ -600,7 +600,34 @@ export default definePluginEntry({
           const cfg = getCfg();
           if (cfg.collectorBaseUrl) {
             // hook 与 flush 分进程时，内存队列不可见；当前进程直接上报 collector。
-            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, payload).catch(() => {});
+            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, payload)
+              .then((result) => {
+                if (!result.ok) {
+                  appendDiag({
+                    event: "direct_post_opik_batch_fail",
+                    httpStatus: result.status,
+                    responsePreview: result.body.slice(0, 500),
+                    ...summarizeOpikBatch(payload),
+                  });
+                  console.warn(
+                    `${PLUGIN_LOG_NAME} POST /v1/opik/batch failed (hook process, no flush worker) status=${result.status} body=${result.body.slice(0, 240)}`,
+                  );
+                } else {
+                  appendDiag({
+                    event: "direct_post_opik_batch_ok",
+                    ...summarizeOpikBatch(payload),
+                  });
+                }
+              })
+              .catch((err) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                appendDiag({
+                  event: "direct_post_opik_batch_network",
+                  error: msg,
+                  ...summarizeOpikBatch(payload),
+                });
+                console.warn(`${PLUGIN_LOG_NAME} POST /v1/opik/batch network error: ${msg}`);
+              });
           }
         }
         traceDbg("queue_push", {

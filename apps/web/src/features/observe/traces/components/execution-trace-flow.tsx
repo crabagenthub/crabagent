@@ -713,7 +713,11 @@ function ExecutionTraceFlowInner({
             ) : spanStepQuery.isError ? (
               <p className="p-4 text-sm text-destructive">{String(spanStepQuery.error)}</p>
             ) : drawerSpanRow ? (
-              <TraceSpanRunPanel span={drawerSpanRow} chrome="embedded" />
+              <TraceSpanRunPanel
+                span={drawerSpanRow}
+                chrome="embedded"
+                largeToolResultThresholdChars={spanStepQuery.data?.large_tool_result_threshold_chars ?? null}
+              />
             ) : (
               <p className="p-4 text-sm text-muted-foreground">{t("executionGraphSpanNotFound")}</p>
             )}

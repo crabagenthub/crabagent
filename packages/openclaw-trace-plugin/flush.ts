@@ -35,10 +35,11 @@ export async function postOpikBatch(
 ): Promise<{ ok: boolean; status: number; body: string }> {
   const url = `${baseUrl.replace(/\/+$/, "")}/v1/opik/batch`;
   const headers: Record<string, string> = {
-    "content-type": "application/json",
+    "Content-Type": "application/json",
   };
   if (apiKey) {
-    headers.authorization = `Bearer ${apiKey}`;
+    headers["X-API-Key"] = apiKey;
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   const res = await fetch(url, {
     method: "POST",
