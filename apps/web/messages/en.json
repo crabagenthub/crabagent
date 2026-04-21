@@ -620,7 +620,8 @@
     "chartTokenRiskBars": "Token waste risk — top stdout volume",
     "focusTraceDetails": "Filter to this trace in details",
     "openMessageInspectFailed": "Could not load the message for this trace; it may be outside the collector search window.",
-    "spanStepOpenMessageInspectAria": "Open message details on this page and focus this execution step"
+    "spanStepOpenMessageInspectAria": "Open message details on this page and focus this execution step",
+    "listTraceRecordsEmpty": "No execution records"
   },
   "ResourceAudit": {
     "title": "Resource access audit",
