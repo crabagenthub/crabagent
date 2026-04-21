@@ -727,7 +727,7 @@ export function ResourceAuditDashboard() {
               {t("sectionDashboard")}
             </Typography.Title>
             <div className="grid gap-4 lg:grid-cols-2">
-              <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
+              <Card title={t("topResources")} bordered className="shadow-sm rounded-lg" headerStyle={{ borderBottom: 'none' }}>
                 {(statsQ.data?.top_resources ?? []).length === 0 ? (
                   <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
                 ) : (
@@ -763,7 +763,7 @@ export function ResourceAuditDashboard() {
                   </ul>
                 )}
               </Card>
-              <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
+              <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg" headerStyle={{ borderBottom: 'none' }}>
                 {topDurationEventRows.length === 0 ? (
                   <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
                 ) : (
@@ -803,7 +803,7 @@ export function ResourceAuditDashboard() {
                   </ul>
                 )}
               </Card>
-              <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+              <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
                 {classPieOpt ? (
                   <div className="h-[260px] w-full min-w-0">
                     <ReactEChart option={classPieOpt} />
@@ -823,7 +823,7 @@ export function ResourceAuditDashboard() {
                   </div>
                 ))}
               </Card>
-              <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+              <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
                 {statsQ.isFetching && !statsQ.data ? (
                   <Spin className="py-8" />
                 ) : dailyChart}
@@ -831,7 +831,7 @@ export function ResourceAuditDashboard() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+              <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
                 {riskBarOpt ? (
                   <div className="h-[200px] w-full min-w-0">
                     <ReactEChart option={riskBarOpt} />
@@ -843,7 +843,7 @@ export function ResourceAuditDashboard() {
                 )}
               </Card>
 
-              <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+              <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
                 {toolsBarOpt ? (
                   <div className="h-[240px] w-full min-w-0">
                     <ReactEChart option={toolsBarOpt} />
@@ -955,7 +955,7 @@ export function ResourceAuditDashboard() {
                   </ScrollableTableFrame>
                 </div>
               )}
-              {eventsQ.data?.items.length > 0 ? (
+              {(eventsQ.data?.items?.length ?? 0) > 0 ? (
                 <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
