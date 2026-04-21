@@ -10,9 +10,9 @@ export function resourceDailyIoOption(
   labelAvgMs: string,
 ): EChartsOption {
   return {
-    grid: { left: 4, right: 48, top: 28, bottom: 4, containLabel: true },
+    grid: { left: 4, right: 48, top: 8, bottom: 36, containLabel: true },
     tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
-    legend: { top: 0, textStyle: { fontSize: 11, color: MUTED } },
+    legend: { bottom: 0, textStyle: { fontSize: 11, color: MUTED } },
     xAxis: {
       type: "category",
       boundaryGap: false,

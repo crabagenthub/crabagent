@@ -391,7 +391,7 @@ export function pieSimpleOption(items: NamedPct[]): EChartsOption {
     itemStyle: { color: OV_PIE_COLORS[i % OV_PIE_COLORS.length] },
   }));
   return {
-    tooltip: { trigger: "item", textStyle: { fontSize: 12 } },
+    tooltip: { trigger: "item", textStyle: { fontSize: 12 }, confine: true },
     legend: { orient: "vertical", left: "left", top: "center", textStyle: { fontSize: 11, color: MUTED } },
     series: [
       {

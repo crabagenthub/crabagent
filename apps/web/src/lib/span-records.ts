@@ -87,6 +87,7 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
   const ch = r.channel_name;
   const start_time_ms = r.start_time_ms != null && r.start_time_ms !== "" ? Number(r.start_time_ms) : null;
   const end_time_ms = r.end_time_ms != null && r.end_time_ms !== "" ? Number(r.end_time_ms) : null;
+  const duration_ms = coalesceSpanDurationMs(r.duration_ms, start_time_ms, end_time_ms);
   return {
     span_id: String(r.span_id ?? ""),
     trace_id: String(r.trace_id ?? ""),
@@ -95,7 +96,7 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
     span_type: String(r.span_type ?? "general"),
     start_time_ms,
     end_time_ms,
-    duration_ms: coalesceSpanDurationMs(r.duration_ms, start_time_ms, end_time_ms),
+    duration_ms,
     model: r.model != null ? String(r.model) : null,
     provider: r.provider != null ? String(r.provider) : null,
     is_complete: Number(r.is_complete) === 1 || r.is_complete === true,
