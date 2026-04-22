@@ -76,7 +76,7 @@ func QueryResourceAccessList(db *sql.DB, q ResourceAccessListQuery) ([]ResourceA
 
 	// List query
 	listSQL := fmt.Sprintf(`SELECT 
-		span_id, trace_id, parent_span_id, workspace_name, project_name, thread_key, agent_name, channel_name,
+		span_id, trace_id, workspace_name, project_name, thread_key, agent_name, channel_name,
 		span_name, start_time_ms, end_time_ms, duration_ms,
 		resource_uri, access_mode, semantic_kind, chars, snippet, uri_repeat_count,
 		risk_flags, policy_hint_flags
@@ -92,12 +92,12 @@ func QueryResourceAccessList(db *sql.DB, q ResourceAccessListQuery) ([]ResourceA
 	var events []ResourceAccessEventJson
 	for rows.Next() {
 		var spanID, traceID, workspaceName, projectName, threadKey, agentName, channelName, spanName string
-		var parentSpanID, resourceURI, accessMode, semanticKind, snippet, riskFlags, policyHintFlags sql.NullString
+		var resourceURI, accessMode, semanticKind, snippet, riskFlags, policyHintFlags sql.NullString
 		var startTimeMs, chars, uriRepeatCount int64
 		var endTimeMs, durationMs sql.NullInt64
 
 		err := rows.Scan(
-			&spanID, &traceID, &parentSpanID, &workspaceName, &projectName, &threadKey, &agentName, &channelName,
+			&spanID, &traceID, &workspaceName, &projectName, &threadKey, &agentName, &channelName,
 			&spanName, &startTimeMs, &endTimeMs, &durationMs,
 			&resourceURI, &accessMode, &semanticKind, &chars, &snippet, &uriRepeatCount,
 			&riskFlags, &policyHintFlags,

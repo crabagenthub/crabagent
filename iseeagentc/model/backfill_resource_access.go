@@ -19,7 +19,7 @@ func BackfillAgentResourceAccess(db *sql.DB, limit int) (inserted int, err error
 	}
 
 	// Find spans with resource metadata that don't have a corresponding row in agent_resource_access
-	q := fmt.Sprintf(`SELECT s.span_id, s.trace_id, s.parent_span_id, s.name, s.span_type,
+	q := fmt.Sprintf(`SELECT s.span_id, s.trace_id, s.name, s.span_type,
 	s.start_time_ms, s.end_time_ms, s.duration_ms, s.workspace_name,
 	s.input_json, s.output_json, s.error_info_json, s.metadata_json
 	FROM %s s
@@ -43,21 +43,16 @@ func BackfillAgentResourceAccess(db *sql.DB, limit int) (inserted int, err error
 
 	for rows.Next() {
 		var spanID, traceID, name, spanType, workspaceName string
-		var parentSpanID, inputJSON, outputJSON, errorInfoJSON, metadataJSON sql.NullString
+		var inputJSON, outputJSON, errorInfoJSON, metadataJSON sql.NullString
 		var startTimeMs, endTimeMs, durationMs sql.NullInt64
 
 		err := rows.Scan(
-			&spanID, &traceID, &parentSpanID, &name, &spanType,
+			&spanID, &traceID, &name, &spanType,
 			&startTimeMs, &endTimeMs, &durationMs, &workspaceName,
 			&inputJSON, &outputJSON, &errorInfoJSON, &metadataJSON,
 		)
 		if err != nil {
 			return inserted, err
-		}
-
-		var parentSpanIDPtr *string
-		if parentSpanID.Valid {
-			parentSpanIDPtr = &parentSpanID.String
 		}
 
 		var inputJSONPtr, outputJSONPtr, errorInfoJSONPtr, metadataJSONPtr *string
@@ -76,7 +71,7 @@ func BackfillAgentResourceAccess(db *sql.DB, limit int) (inserted int, err error
 
 		err = ingest.SyncAgentResourceAccessRow(
 			tx, db, now,
-			spanID, traceID, parentSpanIDPtr,
+			spanID, traceID,
 			name, spanType, startTimeMs.Int64, endTimeMs.Int64, durationMs.Int64, workspaceName,
 			inputJSONPtr, outputJSONPtr, errorInfoJSONPtr, metadataJSONPtr,
 			nil, nil, nil, nil, nil,

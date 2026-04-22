@@ -97,7 +97,7 @@ func intFromMap(m map[string]interface{}, key string) int {
 // Now infers resource access information from raw span data instead of relying on Plugin metadata.
 // Risk flags are calculated and updated separately by the query layer to avoid import cycles.
 func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
-	spanID, traceID string, parentSpanID *string,
+	spanID, traceID string,
 	spanName, spanType string, startMs, endMs, durMs int64, spanWorkspace string,
 	inputJSON, outputJSON, errorInfoJSON, metadataJSON *string,
 	workspaceNameAug, projectNameAug, threadKey, agentName, channelName *string,
@@ -170,11 +170,6 @@ func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
 		}
 	}
 
-	parent := interface{}(nil)
-	if parentSpanID != nil && strings.TrimSpace(*parentSpanID) != "" {
-		parent = strings.TrimSpace(*parentSpanID)
-	}
-
 	wsOut := strings.TrimSpace(spanWorkspace)
 	if workspaceNameAug != nil && strings.TrimSpace(*workspaceNameAug) != "" {
 		wsOut = strings.TrimSpace(*workspaceNameAug)
@@ -191,14 +186,13 @@ func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
 	}
 
 	q := fmt.Sprintf(`INSERT INTO %[1]s (
-  span_id, trace_id, parent_span_id, workspace_name, project_name, thread_key, agent_name, channel_name,
+  span_id, trace_id, workspace_name, project_name, thread_key, agent_name, channel_name,
   span_name, start_time_ms, end_time_ms, duration_ms,
   resource_uri, access_mode, semantic_kind, chars, snippet, uri_repeat_count,
   risk_flags, policy_hint_flags, created_at_ms, updated_at_ms
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(span_id) DO UPDATE SET
   trace_id = excluded.trace_id,
-  parent_span_id = excluded.parent_span_id,
   workspace_name = excluded.workspace_name,
   project_name = excluded.project_name,
   thread_key = excluded.thread_key,
@@ -220,7 +214,7 @@ ON CONFLICT(span_id) DO UPDATE SET
   updated_at_ms = excluded.updated_at_ms`, tbl)
 
 	args := []interface{}{
-		spanID, traceID, parent,
+		spanID, traceID,
 		wsOut, nullablePtrStr(projectNameAug), nullablePtrStr(threadKey), nullablePtrStr(agentName), nullablePtrStr(channelName),
 		strings.TrimSpace(spanName),
 		optPositiveMs(startMs), optPositiveMs(endMs), optPositiveMs(durMs),

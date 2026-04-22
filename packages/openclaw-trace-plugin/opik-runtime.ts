@@ -1595,9 +1595,10 @@ export class OpikOpenClawRuntime {
     const agLabel = threadAgentLabelFromPending(ctx, pendingRec) ?? threadAgentLabel(ctx);
     const chLabel =
       threadChannelLabelFromPending(ctx, pendingRec, threadId) ?? threadChannelLabel(ctx);
+    const listPreview = previewFromPendingUserTurn(pendingRec) ?? (promptStr && promptStr.length > 0 ? promptStr : undefined);
     /** Leading field so DB previews / SUBSTR on input_json still catch user text if JSON is truncated. */
     const input = normalizeOpikTraceInputForStorage({
-      list_input_preview: promptStr && promptStr.length > 0 ? promptStr.slice(0, 12_000) : undefined,
+      list_input_preview: listPreview ? listPreview.slice(0, 12_000) : undefined,
       prompt: ev.prompt,
       systemPrompt: ev.systemPrompt,
       imagesCount: ev.imagesCount,
@@ -2225,13 +2226,8 @@ export class OpikOpenClawRuntime {
     cur.traceRow.metadata = {
       ...(cur.traceRow.metadata as object),
       messageCount: Array.isArray(ev.messages) ? ev.messages.length : undefined,
+      trace_kind: "agent_end_llm_turn",
     };
-    if (Array.isArray(ev.messages) && ev.messages.length > 0) {
-      const prevOut = cur.traceRow.output;
-      const base: Record<string, unknown> = isPlainObj(prevOut) ? { ...(prevOut as Record<string, unknown>) } : {};
-      base.messages = ev.messages;
-      cur.traceRow.output = base;
-    }
     const usageFromMsgs = usageFromAgentEndMessages(ev.messages);
     if (usageFromMsgs) {
       const meta = cur.traceRow.metadata as Record<string, unknown>;

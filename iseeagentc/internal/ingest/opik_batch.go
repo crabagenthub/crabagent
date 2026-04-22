@@ -796,14 +796,16 @@ ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
 				if aid, ok := oc["agentId"].(string); ok {
 					agentName = aid
 				}
-				if cid, ok := oc["channelId"].(string); ok {
+				if cid, ok := oc["channelId"].(string); ok && strings.TrimSpace(cid) != "" {
 					channelName = cid
+				} else if mp, ok := oc["messageProvider"].(string); ok && strings.TrimSpace(mp) != "" {
+					channelName = mp
 				}
 			}
 			tblTh := sqltables.TableAgentThreads
 			_, _ = tx.Exec(sqlutil.RebindIfPostgres(db, fmt.Sprintf(`
 INSERT INTO %[1]s (thread_id, workspace_name, project_name, thread_type, parent_thread_id, first_seen_ms, last_seen_ms, metadata_json, agent_name, channel_name)
-VALUES (?,?,?,?,?,?,?,?,?,?,?)
+VALUES (?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
  last_seen_ms = MAX(%[1]s.last_seen_ms, excluded.last_seen_ms),
  first_seen_ms = MIN(%[1]s.first_seen_ms, excluded.first_seen_ms),
@@ -1033,7 +1035,7 @@ ON CONFLICT(span_id) DO UPDATE SET
 			ws, inStr, outStr, errJ, metaStr, wsAug, projAug, tkAug, agAug, chAug, false); err != nil {
 			return nil, fmt.Errorf("agent_exec_commands span %s: %w", sid, err)
 		}
-		if err := SyncAgentResourceAccessRow(tx, db, now, sid, tid, parPtr, nm, st,
+		if err := SyncAgentResourceAccessRow(tx, db, now, sid, tid, nm, st,
 			pickInt(row, 0, "start_time_ms", "startTimeMs"), pickInt(row, 0, "end_time_ms", "endTimeMs"), pickInt(row, 0, "duration_ms", "durationMs"),
 			ws, inStr, outStr, errJ, metaStr, wsAug, projAug, tkAug, agAug, chAug); err != nil {
 			return nil, fmt.Errorf("agent_resource_access span %s: %w", sid, err)

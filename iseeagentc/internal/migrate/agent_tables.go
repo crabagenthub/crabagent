@@ -356,7 +356,6 @@ func ensureAgentResourceAccessTable(db *sql.DB) error {
 CREATE TABLE %s (
   span_id TEXT PRIMARY KEY,
   trace_id TEXT NOT NULL REFERENCES %s(trace_id) ON DELETE CASCADE,
-  parent_span_id TEXT,
   workspace_name TEXT,
   project_name TEXT,
   thread_key TEXT,
@@ -387,7 +386,6 @@ CREATE INDEX idx_agent_resource_access_uri ON %s(resource_uri);
 CREATE TABLE %s (
   span_id TEXT PRIMARY KEY,
   trace_id TEXT NOT NULL REFERENCES %s(trace_id) ON DELETE CASCADE,
-  parent_span_id TEXT,
   workspace_name TEXT,
   project_name TEXT,
   thread_key TEXT,
@@ -641,7 +639,6 @@ func sqliteAgentSchemaDDL() string {
     CREATE TABLE %[10]s (
       span_id TEXT PRIMARY KEY,
       trace_id TEXT NOT NULL REFERENCES %[2]s(trace_id) ON DELETE CASCADE,
-      parent_span_id TEXT,
       workspace_name TEXT,
       project_name TEXT,
       thread_key TEXT,
@@ -878,7 +875,6 @@ func postgresAgentSchemaDDL() string {
     CREATE TABLE %[10]s (
       span_id TEXT PRIMARY KEY,
       trace_id TEXT NOT NULL REFERENCES %[2]s(trace_id) ON DELETE CASCADE,
-      parent_span_id TEXT,
       workspace_name TEXT,
       project_name TEXT,
       thread_key TEXT,

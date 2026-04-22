@@ -59,11 +59,6 @@ func syncSpanRecordsToResourceAccess(tx *sql.Tx, db *sql.DB, now int64, recs []r
 		_ = tx.QueryRow(`SELECT workspace_name FROM `+CT.Spans+` WHERE span_id = ?`, r.SpanID).Scan(&wsSpan)
 		wsSpan = strings.TrimSpace(wsSpan)
 
-		var parPtr *string
-		if r.ParentSpanID.Valid && strings.TrimSpace(r.ParentSpanID.String) != "" {
-			p := strings.TrimSpace(r.ParentSpanID.String)
-			parPtr = &p
-		}
 		var wsAug, projAug, tkAug, agAug, chAug *string
 		var traceWS, proj, thid sql.NullString
 		var ag, ch sql.NullString
@@ -109,7 +104,7 @@ func syncSpanRecordsToResourceAccess(tx *sql.Tx, db *sql.DB, now int64, recs []r
 			dtm = r.DurationMs.Int64
 		}
 
-		if err := ingest.SyncAgentResourceAccessRow(tx, db, now, r.SpanID, r.TraceID, parPtr, nm, st,
+		if err := ingest.SyncAgentResourceAccessRow(tx, db, now, r.SpanID, r.TraceID, nm, st,
 			stm, etm, dtm, tws, inStr, outStr, errJ, meta, wsAug, projAug, tkAug, agAug, chAug); err != nil {
 			return inserted, err
 		}
