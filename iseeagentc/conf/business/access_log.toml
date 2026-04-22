@@ -1,0 +1,29 @@
+#log level debug info warn error dpanic panic fatal
+add_stacktrace=false
+add_stacktrace_min_level=2
+add_caller=false
+development=false
+add_caller_skip=false
+add_caller_skip_val=2
+
+# DebugLevel -1 、InfoLevel 0 、 WarnLevel 1 、 ErrorLevel 2 、DPanicLevel 3 、 PanicLevel 4  、FatalLevel 5
+[[loggers]]
+    min_level=-1
+    max_level=2
+    output_path="./logs/access.log"
+    time_format="2006-01-02 15:04:05"
+    max_size=1000
+    max_backups=5
+    max_age=10
+    compress=true
+    localtime=true
+[[loggers]]
+    min_level=1
+    max_level=2
+    output_path="./logs/access_slow.log"
+    time_format="2006-01-02 15:04:05"
+    max_size=1000
+    max_backups=5
+    max_age=10
+    compress=true
+    localtime=true

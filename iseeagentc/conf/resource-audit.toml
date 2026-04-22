@@ -1,0 +1,22 @@
+[dangerousPathRules] # 危险路径规则
+posixPrefixes = ["/etc", "/root", "/var/lib", "/home", "~/.ssh", ".env", "private.key"]
+windowsPrefixes = ["c:\\users\\", "c:\\windows\\", "c:\\programdata\\", "%appdata%\\", "%userprofile%\\", "\\\\"]
+windowsRegex = [  # Windows 正则表达式
+  "^[a-zA-Z]:\\\\Users\\\\[^\\\\]+\\\\\\.ssh\\\\",
+  "\\\\[^\\\\]+\\\\[^\\\\]+",
+  "^%APPDATA%\\\\",
+  "^%USERPROFILE%\\\\",
+]
+
+caseInsensitive = true # 是否忽略大小写
+
+[largeRead]
+thresholdChars = 1000 # 大读取阈值
+
+[largeToolResult]
+thresholdChars = 8192 # 大工具结果阈值
+
+[policyLink]
+enabled = true # 是否启用策略链接
+targetActions = []
+matchScope = "span" # 匹配范围

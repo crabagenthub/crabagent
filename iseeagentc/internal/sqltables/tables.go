@@ -1,0 +1,32 @@
+// Package sqltables holds canonical SQL table names for the agent collector schema.
+// Legacy names are for one-shot migrations only.
+package sqltables
+
+// Current schema (agent_*).
+const (
+	TableAgentSpans             = "agent_spans"
+	TableAgentTraces            = "agent_traces"
+	TableAgentThreads           = "agent_threads"
+	TableAgentAttachments       = "agent_attachments"
+	TableAgentTraceFeedback     = "agent_trace_feedback"
+	TableAgentRawIngest         = "agent_raw_ingest"
+	TableAgentSecurityPolicies  = "agent_security_policies"
+	TableAgentSecurityAuditLogs = "agent_security_audit_logs"
+	TableAgentExecCommands      = "agent_exec_commands"
+	TableAgentResourceAccess    = "agent_resource_access"
+)
+
+// Legacy names — migration only; do not use in application queries.
+const (
+	LegacyTableOpikSpans            = "opik_spans"
+	LegacyTableOpikTraces           = "opik_traces"
+	LegacyTableOpikThreads          = "opik_threads"
+	LegacyTableOpikAttachments      = "opik_attachments"
+	LegacyTableOpikTraceFeedback    = "opik_trace_feedback"
+	LegacyTableOpikRawIngest        = "opik_raw_ingest"
+	LegacyTableInterceptionPolicies = "interception_policies"
+	LegacyTableSecurityAuditLogs    = "security_audit_logs"
+)
+
+// LegacyResourceAuditConfigs is dropped on migrate; kept for DROP IF EXISTS only.
+const LegacyResourceAuditConfigs = "resource_audit_configs"

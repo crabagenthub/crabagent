@@ -1,0 +1,47 @@
+[shellExec.loopAlerts] # 循环警报
+minRepeatCount = 3
+maxItems = 20 # 最大项数
+
+[shellExec.tokenRisks] # 令牌风险
+stdoutCharsThreshold = 24000 # 标准输出字符阈值
+maxItems = 15 # 最大项数
+
+[shellExec.commandSemantics] # 命令语义
+enabled = true # 是否启用命令语义 默认启用
+defaultPlatform = "unix" # 默认平台
+readLikeCommands = ["cat", "head", "tail", "less", "grep", "rg", "find", "type", "findstr", "get-content", "select-string"] # 读取类似命令
+
+[shellExec.commandSemantics.platformDetect] # 平台检测
+preferSpanNameHints = true # 是否启用跨度名称提示
+
+[shellExec.commandSemantics.platformDetect.spanNameHints] # 跨度名称提示
+unix = ["bash", "zsh", "sh", "terminal", "shell"] # Unix 命令
+windows_cmd = ["cmd", "cmd.exe", "run_cmd", "runcmd"] # Windows 命令
+powershell = ["pwsh", "powershell"] # PowerShell 命令
+
+[shellExec.commandSemantics.aliases]
+ls = "get-childitem" # ls 命令
+dir = "get-childitem" # dir 命令
+gci = "get-childitem" # gci 命令
+cat = "get-content" # cat 命令
+type = "get-content" # type 命令
+gc = "get-content" # gc 命令
+rm = "remove-item" # rm 命令
+del = "remove-item" # del 命令
+erase = "remove-item" # erase 命令
+cp = "copy-item"  # cp 命令
+copy = "copy-item" # copy 命令
+mv = "move-item" # mv 命令
+move = "move-item" # move 命令
+
+[shellExec.commandSemantics.categories] # 命令类别；复合行按 P1 风险聚合；新增 CLI 时在此维护（与 DefaultResourceAuditConfig 对齐）
+file = ["ls", "cat", "head", "tail", "less", "more", "find", "grep", "rg", "fd", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown", "stat", "diff", "wc", "sort", "uniq", "tee", "xargs", "sed", "awk", "readlink", "realpath", "tree", "dir", "type", "copy", "move", "del", "erase", "findstr", "where", "get-childitem", "get-content", "set-content", "copy-item", "move-item", "remove-item", "select-string", "git", "svn", "hg", "fossil"] # 文件与版本树
+network = ["curl", "wget", "ping", "ssh", "scp", "rsync", "nc", "netcat", "telnet", "dig", "nslookup", "invoke-webrequest", "irm", "mbsync", "offlineimap", "mailsync", "isync"]
+system = ["sudo", "su", "systemctl", "service", "mount", "umount", "df", "du", "free", "uname", "whoami", "id", "env", "printenv", "export", "ulimit", "sysctl", "setx", "which", "whereis", "hash", "docker", "kubectl", "podman", "nerdctl", "crictl", "ctr"]
+process = ["ps", "top", "htop", "kill", "killall", "pkill", "pgrep", "jobs", "fg", "bg", "nohup", "nice", "tasklist", "taskkill", "get-process", "stop-process"]
+package = ["npm", "pnpm", "yarn", "bun", "pip", "pip3", "apt", "apt-get", "yum", "dnf", "brew", "cargo", "go", "choco", "winget", "make", "cmake", "ninja", "meson", "gradle", "mvn", "maven"]
+
+[shellExec.commandSemantics.diagnosticPatterns]   # 诊断模式
+commandNotFound = ["command not found", "not found as command", "is not recognized as an internal or external command"] # 命令未找到
+permissionDenied = ["permission denied", "access is denied", "operation not permitted", "eacces"] # 权限拒绝
+illegalArgHint = ["illegal option", "invalid option", "unrecognized option", "syntax error", "usage:", "parameter cannot be found"] # 非法参数提示

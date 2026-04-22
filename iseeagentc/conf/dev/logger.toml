@@ -1,0 +1,33 @@
+add_stacktrace=true
+add_stacktrace_min_level=2
+add_caller=true
+development=true
+add_caller_skip=true
+add_caller_skip_val=2
+# DebugLevel -1 、InfoLevel 0 、 WarnLevel 1 、 ErrorLevel 2 、DPanicLevel 3 、 PanicLevel 4  、FatalLevel 5
+[[loggers]]
+    min_level=-1
+    max_level=1
+    output_path="./logs/iseeagentc.log"
+    time_format="2006-01-02 15:04:05"
+    max_size=10000
+    max_backups=20
+    max_age=10
+    compress=false
+    localtime=true
+[[loggers]]
+    min_level=1
+    max_level=2
+    output_path="./logs/iseeagentc.log"
+    time_format="2006-01-02 15:04:05"
+    max_size=10000
+    max_backups=10
+    max_age=10
+    compress=false
+    localtime=true
+
+[log]
+    level=-1
+    development=true
+    disablestacktrace=false
+    outputPaths=["/data/logs/app/iseeagentc.log"]

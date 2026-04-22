@@ -1,0 +1,84 @@
+# app.toml: 应用主配置文件
+
+# 应用名称，代码里可通过 env.AppName() 方法读取到
+AppName = "iseeagentc"
+
+# 运行模式，可配置值：
+# debug    : 调试，    对应常量 env.RunModeDebug
+# test     : 测试，    对应常量 env.RunModeTest
+# release  : 线上发布， 对应常量 env.RunModeRelease
+# 程序代码可以通过 env.RunMode() 获取该值
+# 详见 http://icode.baidu.com/repos/baidu/gdp/env/tree/master
+RunMode = "dev"
+
+
+# Shutdown 超时时间，单位ms，可选配置，默认5s
+# 若在 shutdown 时，还有请求未处理完，会等待
+# 请根据实际情况进行调整
+ShutdownTimeout = 5000
+
+#jwt SigningKey
+
+SigningKey="lucbine20222"
+JwtATokenExpire=10       #min
+JwtRTokenExpire=30       #day
+
+# 数据库配置
+[Database]
+# 数据库驱动类型: postgres, postgresql, pgsql
+Driver = "postgres"
+
+# pprof 的配置
+[Pprof]
+Listen = ":9531"
+WriteTimeout=60000 # 60s
+
+# HTTPServer 的配置
+[HTTPServer]
+
+# http server 监听的端口
+Listen=":8087"
+
+# 读 Header + Body 超时时间，ms，可选配置，若不配置，或者为0，将不超时
+# 建议：内网API服务可以小一些；外网页面可大一些，避免弱网访问失败
+# 若遇到读取 request.Body 失败，和此参数有关
+# 请根据实际情况进行调整
+ReadTimeout=1000
+
+# 写超时时间（从请求读取完开始计算），ms，可选配置
+# 应该配置成服务的最大允许时间
+# 若使用超时中间件，超时中间件对应的超时时间不应该大于该值
+# 若要使用/debug/pprof功能，请设置一个大于30s的值
+# 请根据实际情况进行调整
+WriteTimeout=40000 # 40s
+
+# 空闲等待超时时间，ms，可选配置，若为0，会使用ReadTimeout
+# 当设置keep-alives开启时(HTTP Server默认开启)，同一个tcp连接，读取下一个请求的等待时间
+# 若client 出现 connection reset by peer，可能和此参数有关
+# 请根据实际情况进行调整
+IdleTimeout=1000
+
+
+# Collector 存储与运行配置（Go 实现）
+[Collector]
+# 部署模式:
+# - personal/private: 主存储 sqlite，分析存储 duckdb
+# - enterprise/commercial: 主存储 postgresql，分析存储 clickhouse
+# DeploymentMode 优先级高于 StorageMode
+DeploymentMode = "personal"
+# 存储模式: sqlite | pgsql（当 DeploymentMode 为空时生效）
+StorageMode = "sqlite"
+
+# personal 模式
+DBPath = "data/crabagent.db"
+DuckDBPath = "data/crabagent.analytics.duckdb"
+
+# enterprise 模式
+PGURL = ""
+ClickhouseURL = ""
+
+# collector http 行为
+APIKey = ""
+DisableAPIKeyAuth = "false"
+CORSOrigin = "*"
+DefaultTimeWindowMs = 86400000

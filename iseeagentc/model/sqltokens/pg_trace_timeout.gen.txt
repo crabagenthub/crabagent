@@ -1,0 +1,7 @@
+(
+  position('timeout' in lower(COALESCE(t.error_info_json, ''))) > 0
+  OR position('timed out' in lower(COALESCE(t.error_info_json, ''))) > 0
+  OR position('timeout' in lower(COALESCE(t.output_json, ''))) > 0
+  OR position('timed out' in lower(COALESCE(t.output_json, ''))) > 0
+  OR position('timeout' in lower(COALESCE(t.metadata_json, ''))) > 0
+)

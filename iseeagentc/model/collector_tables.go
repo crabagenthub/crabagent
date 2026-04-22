@@ -1,0 +1,16 @@
+package model
+
+import "iseeagentc/internal/sqltables"
+
+// CT 为 Model 层 SQL 使用的表名单一来源（与 ingest、migrate 共用 internal/sqltables）。
+var CT = struct {
+	Spans, Traces, Threads, SecurityPolicies, SecurityAuditLogs, ExecCommands, AgentResourceAccess string
+}{
+	Spans:               sqltables.TableAgentSpans,
+	Traces:              sqltables.TableAgentTraces,
+	Threads:             sqltables.TableAgentThreads,
+	SecurityPolicies:    sqltables.TableAgentSecurityPolicies,
+	SecurityAuditLogs:   sqltables.TableAgentSecurityAuditLogs,
+	ExecCommands:        sqltables.TableAgentExecCommands,
+	AgentResourceAccess: sqltables.TableAgentResourceAccess,
+}

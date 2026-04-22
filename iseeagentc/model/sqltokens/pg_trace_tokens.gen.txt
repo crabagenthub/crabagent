@@ -1,0 +1,160 @@
+(COALESCE(
+  (jx.mj #>> '{usage,total_tokens}')::bigint,
+  (jx.mj #>> '{usage,totalTokens}')::bigint,
+  (jx.mj #>> '{usage,totalTokenCount}')::bigint,
+  (jx.mj #>> '{usage,usageMetadata,totalTokenCount}')::bigint,
+  (jx.mj #>> '{usage,usageMetadata,totalTokens}')::bigint,
+  (jx.mj #>> '{total_tokens}')::bigint,
+  ((jx.mj #>> '{usageMetadata,totalTokenCount}')::bigint,
+  ((jx.mj #>> '{usageMetadata,totalTokens}')::bigint,
+  NULLIF(
+    COALESCE(
+      ((jx.mj #>> '{usage,prompt_tokens}')::bigint,
+      ((jx.mj #>> '{usage,promptTokens}')::bigint,
+      ((jx.mj #>> '{usage,prompt_token_count}')::bigint,
+      ((jx.mj #>> '{usage,input_tokens}')::bigint,
+      ((jx.mj #>> '{usage,inputTokens}')::bigint,
+      ((jx.mj #>> '{usage,promptTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,inputTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,usageMetadata,promptTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,usageMetadata,inputTokenCount}')::bigint,
+      0
+    )
+    + COALESCE(
+      ((jx.mj #>> '{usage,completion_tokens}')::bigint,
+      ((jx.mj #>> '{usage,completionTokens}')::bigint,
+      ((jx.mj #>> '{usage,completion_token_count}')::bigint,
+      ((jx.mj #>> '{usage,output_tokens}')::bigint,
+      ((jx.mj #>> '{usage,outputTokens}')::bigint,
+      ((jx.mj #>> '{usage,candidatesTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,outputTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,usageMetadata,candidatesTokenCount}')::bigint,
+      ((jx.mj #>> '{usage,usageMetadata,outputTokenCount}')::bigint,
+      0
+    ),
+    0
+  ),
+  ((jx.oj #>> '{usage,total_tokens}')::bigint,
+  ((jx.oj #>> '{usage,totalTokens}')::bigint,
+  ((jx.oj #>> '{usage,totalTokenCount}')::bigint,
+  ((jx.oj #>> '{usage,usageMetadata,totalTokenCount}')::bigint,
+  ((jx.oj #>> '{usage,usageMetadata,totalTokens}')::bigint,
+  ((jx.oj #>> '{usageMetadata,totalTokenCount}')::bigint,
+  ((jx.oj #>> '{usageMetadata,totalTokens}')::bigint,
+  NULLIF(
+    COALESCE(
+      ((jx.oj #>> '{usage,prompt_tokens}')::bigint,
+      ((jx.oj #>> '{usage,promptTokens}')::bigint,
+      ((jx.oj #>> '{usage,prompt_token_count}')::bigint,
+      ((jx.oj #>> '{usage,input_tokens}')::bigint,
+      ((jx.oj #>> '{usage,inputTokens}')::bigint,
+      ((jx.oj #>> '{usage,promptTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,inputTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,usageMetadata,promptTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,usageMetadata,inputTokenCount}')::bigint,
+      ((jx.oj #>> '{usageMetadata,promptTokenCount}')::bigint,
+      ((jx.oj #>> '{usageMetadata,inputTokenCount}')::bigint,
+      0
+    )
+    + COALESCE(
+      ((jx.oj #>> '{usage,completion_tokens}')::bigint,
+      ((jx.oj #>> '{usage,completionTokens}')::bigint,
+      ((jx.oj #>> '{usage,completion_token_count}')::bigint,
+      ((jx.oj #>> '{usage,output_tokens}')::bigint,
+      ((jx.oj #>> '{usage,outputTokens}')::bigint,
+      ((jx.oj #>> '{usage,candidatesTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,outputTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,usageMetadata,candidatesTokenCount}')::bigint,
+      ((jx.oj #>> '{usage,usageMetadata,outputTokenCount}')::bigint,
+      ((jx.oj #>> '{usageMetadata,candidatesTokenCount}')::bigint,
+      ((jx.oj #>> '{usageMetadata,outputTokenCount}')::bigint,
+      0
+    ),
+    0
+  ),
+  (
+    SELECT SUM(COALESCE(((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{total}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{total_tokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{totalTokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,total_tokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,totalTokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,totalTokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,totalTokens}')::bigint,
+        NULLIF(
+          COALESCE(
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{prompt_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{promptTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{prompt_token_count}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{input_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{inputTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{promptTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{inputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,prompt_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,promptTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,input_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,inputTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,prompt_token_count}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,promptTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,inputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,promptTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,inputTokenCount}')::bigint,
+            0
+          )
+          + COALESCE(
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{completion_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{completionTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{completion_token_count}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{output_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{outputTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{candidatesTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{outputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,completion_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,completionTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,output_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,outputTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,candidatesTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,outputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,candidatesTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.usage_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,outputTokenCount}')::bigint,
+            0
+          ),
+          0
+        ),
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,total_tokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,totalTokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,totalTokens}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,totalTokenCount}')::bigint,
+        ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,totalTokens}')::bigint,
+        NULLIF(
+          COALESCE(
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,prompt_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,promptTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,input_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,inputTokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,promptTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,inputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,promptTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,inputTokenCount}')::bigint,
+            0
+          )
+          + COALESCE(
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,completion_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,output_tokens}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,candidatesTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usageMetadata,outputTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,candidatesTokenCount}')::bigint,
+            ((COALESCE(NULLIF(TRIM(COALESCE(s.output_json, '')), ''), '{}'))::jsonb #>> '{usage,usageMetadata,outputTokenCount}')::bigint,
+            0
+          ),
+          0
+        ), 0))
+    FROM agent_spans s
+    WHERE s.trace_id = t.trace_id
+  )
+))::bigint

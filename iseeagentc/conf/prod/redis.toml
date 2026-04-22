@@ -1,0 +1,18 @@
+# mysql 特有配置部分
+# redis 特有的配置，可选
+[Conn]
+    Name = "redis_boot"
+    Host = "127.0.0.1"
+    Port = 3379
+    DB = 1
+    Password = 'difyai123456'
+    # 连接超时，ms，若不配置，使用默认值 5s
+    ConnTimeOut = 500
+    # 写数据超时，ms，若不配置，使用默认值 5s
+    WriteTimeOut = 750
+    # 读数据超时，ms，若不配置，使用默认值 5s
+    ReadTimeOut = 750
+    MaxRetries = 2
+    PoolSize=100
+    MinIdleConns=50
+
