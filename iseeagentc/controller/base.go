@@ -9,7 +9,6 @@ import (
 	"iseeagentc/internal/context"
 	"iseeagentc/internal/errors"
 	"iseeagentc/internal/logger"
-	"iseeagentc/utils"
 )
 
 /*
@@ -100,7 +99,7 @@ func AbortWithWriteErrorResponse(c *gin.Context, err error) {
 			"log_id": logID,
 		}
 	}
-	logger.Debug(c, "AbortWithWriteErrorResponse: ", zap.String("result", utils.PrettyJson(body)))
+	// logger.Debug(c, "AbortWithWriteErrorResponse: ", zap.String("result", utils.PrettyJson(body)))
 	c.AbortWithStatusJSON(statusCode, body)
 }
 

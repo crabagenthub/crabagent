@@ -3,6 +3,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"iseeagentc/internal/logger"
 	"net/http"
 	"strings"
 
@@ -38,9 +39,7 @@ func FormatError(errCode string, params ...interface{}) *Error {
 }
 
 func InternalError(message string) *Error {
-
-	println("error:" + message)
-
+	logger.Error(nil, "InternalError: "+message)
 	return &Error{
 		Code:       "InternalError",
 		Message:    message,

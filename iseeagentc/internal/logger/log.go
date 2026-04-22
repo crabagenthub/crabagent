@@ -105,13 +105,14 @@ func Fatal(ctx *gin.Context, msg string, fields ...zap.Field) {
 
 func wrapper(ctx *gin.Context, fields ...zap.Field) []zap.Field {
 	var f = make([]zap.Field, 0)
-	// request id
-	f = append(f, zap.String("request_id", ctx.Request.Header.Get("X-Request-Id")))
-	// request url
-	f = append(f, zap.String("ip", ctx.ClientIP()))
-
-	// user id
-	f = append(f, zap.String("user_id", ctx.GetHeader("X-User-Id")))
+	if ctx != nil {
+		// request id
+		f = append(f, zap.String("request_id", ctx.Request.Header.Get("X-Request-Id")))
+		// request url
+		f = append(f, zap.String("ip", ctx.ClientIP()))
+		// user id
+		f = append(f, zap.String("user_id", ctx.GetHeader("X-User-Id")))
+	}
 	f = append(f, fields...)
 	return f
 }

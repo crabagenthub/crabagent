@@ -84,6 +84,23 @@ func pickInt(m map[string]interface{}, def int64, keys ...string) int64 {
 	return def
 }
 
+func pickIntOrNull(m map[string]interface{}, keys ...string) *int64 {
+	for _, k := range keys {
+		if f := jFloat(m, k); f != nil {
+			v := int64(*f)
+			return &v
+		}
+	}
+	return nil
+}
+
+func derefInt64(p *int64, def int64) int64 {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
 func jBool01(m map[string]interface{}, keys ...string) interface{} {
 	for _, k := range keys {
 		switch v := m[k].(type) {
@@ -773,13 +790,26 @@ ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
 			if anchor != "" {
 				ap = anchor
 			}
+			// Extract agent_name and channel_name from metadata if available
+			var agentName, channelName string
+			if oc, ok := meta["openclaw_context"].(map[string]interface{}); ok {
+				if aid, ok := oc["agentId"].(string); ok {
+					agentName = aid
+				}
+				if cid, ok := oc["channelId"].(string); ok {
+					channelName = cid
+				}
+			}
 			tblTh := sqltables.TableAgentThreads
 			_, _ = tx.Exec(sqlutil.RebindIfPostgres(db, fmt.Sprintf(`
 INSERT INTO %[1]s (thread_id, workspace_name, project_name, thread_type, parent_thread_id, first_seen_ms, last_seen_ms, metadata_json, agent_name, channel_name)
-VALUES (?,?,?,?,?,?,?,NULL,NULL,NULL)
+VALUES (?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(thread_id, workspace_name, project_name) DO UPDATE SET
  last_seen_ms = MAX(%[1]s.last_seen_ms, excluded.last_seen_ms),
- first_seen_ms = MIN(%[1]s.first_seen_ms, excluded.first_seen_ms)`, tblTh)), th, ws, proj, tt, ap, created, created)
+ first_seen_ms = MIN(%[1]s.first_seen_ms, excluded.first_seen_ms),
+ metadata_json = COALESCE(excluded.metadata_json, %[1]s.metadata_json),
+ agent_name = COALESCE(NULLIF(TRIM(excluded.agent_name),''), %[1]s.agent_name),
+ channel_name = COALESCE(NULLIF(TRIM(excluded.channel_name),''), %[1]s.channel_name)`, tblTh)), th, ws, proj, tt, ap, created, created, jsonStr(meta), nullable(agentName), nullable(channelName))
 		}
 		var prevMeta, prevSet sql.NullString
 		_ = tx.QueryRow(sqlutil.RebindIfPostgres(db, fmt.Sprintf(`SELECT metadata_json, setting_json FROM %s WHERE trace_id = ?`, sqltables.TableAgentTraces)), traceID).Scan(&prevMeta, &prevSet)
@@ -833,14 +863,15 @@ ON CONFLICT(trace_id) DO UPDATE SET
  success = COALESCE(excluded.success, %[1]s.success),
  duration_ms = COALESCE(excluded.duration_ms, %[1]s.duration_ms),
  total_cost = COALESCE(excluded.total_cost, %[1]s.total_cost),
+ created_at_ms = COALESCE(excluded.created_at_ms, %[1]s.created_at_ms),
  updated_at_ms = COALESCE(excluded.updated_at_ms, %[1]s.updated_at_ms),
  ended_at_ms = COALESCE(excluded.ended_at_ms, %[1]s.ended_at_ms),
  is_complete = MAX(excluded.is_complete, %[1]s.is_complete),
  created_from = COALESCE(excluded.created_from, %[1]s.created_from)`, tblTr)),
 			traceID, nullable(th), ws, proj, traceType, nullable(sub),
 			nullable(jString(row, "name")), jsonStr(inNorm), jsonStr(row["output"]), jsonStr(merged), setting,
-			jsonStrPick(row, "error_info", "errorInfo"), jBool01(row, "success"), pickInt(row, 0, "duration_ms", "durationMs"), pickInt(row, 0, "total_cost", "totalCost"),
-			created, pickInt(row, 0, "updated_at_ms", "updatedAtMs"), pickInt(row, 0, "ended_at_ms", "end_time_ms", "endTimeMs"),
+			jsonStrPick(row, "error_info", "errorInfo"), jBool01(row, "success"), pickIntOrNull(row, "duration_ms", "durationMs"), pickIntOrNull(row, "total_cost", "totalCost"),
+			created, pickIntOrNull(row, "updated_at_ms", "updatedAtMs"), pickIntOrNull(row, "ended_at_ms", "end_time_ms", "endTimeMs"),
 			pickInt(row, 0, "is_complete", "isComplete"), cf)
 		if err != nil {
 			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("traces[%d]", i)})
@@ -955,10 +986,10 @@ ON CONFLICT(span_id) DO UPDATE SET
  sort_index = COALESCE(excluded.sort_index, %[1]s.sort_index),
  is_complete = MAX(excluded.is_complete, %[1]s.is_complete)`, tblSp)),
 			sid, tid, nullable(jString(row, "parent_span_id", "parentSpanId")), nm, st,
-			pickInt(row, 0, "start_time_ms", "startTimeMs"), pickInt(row, 0, "end_time_ms", "endTimeMs"), pickInt(row, 0, "duration_ms", "durationMs"), ws,
+			pickIntOrNull(row, "start_time_ms", "startTimeMs"), pickIntOrNull(row, "end_time_ms", "endTimeMs"), pickIntOrNull(row, "duration_ms", "durationMs"), ws,
 			jsonStr(merged), jsonStr(inSpan), jsonStr(row["output"]), setting, jsonStr(row["usage"]), uprev,
 			nullable(jString(row, "model")), nullable(jString(row, "provider")), jsonStrPick(row, "error_info", "errorInfo"),
-			nullable(jString(row, "status")), pickInt(row, 0, "total_cost", "totalCost"), pickInt(row, 0, "sort_index", "sortIndex"), pickInt(row, 0, "is_complete", "isComplete"))
+			nullable(jString(row, "status")), pickIntOrNull(row, "total_cost", "totalCost"), pickInt(row, 0, "sort_index", "sortIndex"), pickInt(row, 0, "is_complete", "isComplete"))
 		if err != nil {
 			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("spans[%d]", i)})
 			continue
