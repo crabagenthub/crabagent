@@ -9,7 +9,6 @@ import { AppPageShell } from "@/components/app-page-shell";
 import { TokenWasteHeatmap } from "@/components/token-waste-heatmap";
 import type { TraceTimelineEvent } from "@/features/observe/traces/components/trace-timeline-tree";
 import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
-import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
 import {
   buildTokenWasteRowForThread,
   maxTurnCount,
@@ -66,11 +65,11 @@ async function loadTokenWasteHeatmap(baseUrl: string, apiKey: string): Promise<{
   const msgRes = await fetch(`${b}/v1/trace-messages?limit=${TRACE_MSG_LIMIT}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const msgBody = await readCollectorFetchResult<{ items?: TraceMessageRow[] }>(
-    msgRes,
-    `trace-messages HTTP ${msgRes.status}`,
-  );
-  const ordered = uniqueThreadMetasOrdered(collectorItemsArray<TraceMessageRow>(msgBody.items), THREAD_CAP);
+  if (!msgRes.ok) {
+    throw new Error(`trace-messages HTTP ${msgRes.status}`);
+  }
+  const msgBody = (await msgRes.json()) as { items?: TraceMessageRow[] };
+  const ordered = uniqueThreadMetasOrdered(msgBody.items ?? [], THREAD_CAP);
 
   const rows: TokenWasteThreadRow[] = [];
   for (let i = 0; i < ordered.length; i += FETCH_CHUNK) {
@@ -84,14 +83,11 @@ async function loadTokenWasteHeatmap(baseUrl: string, apiKey: string): Promise<{
         if (!evRes.ok) {
           return null;
         }
-        const evBody = await readCollectorFetchResult<{ items?: TraceTimelineEvent[] }>(
-          evRes,
-          `trace events HTTP ${evRes.status}`,
-        );
+        const evBody = (await evRes.json()) as { items?: TraceTimelineEvent[] };
         return buildTokenWasteRowForThread({
           threadKey: meta.thread_key,
           label: rowLabel(meta),
-          events: collectorItemsArray<TraceTimelineEvent>(evBody.items),
+          events: evBody.items ?? [],
         });
       }),
     );

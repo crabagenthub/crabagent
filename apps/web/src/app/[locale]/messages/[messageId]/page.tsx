@@ -292,7 +292,6 @@ function MessageDetailContent() {
                     forest={filteredSpanForest}
                     selectedId={selectedSpanId}
                     onSelect={setSelectedSpanId}
-                    largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? undefined}
                   />
                 ) : (
                   <p className="p-4 text-sm text-ca-muted">{t("noMatches")}</p>
@@ -313,11 +312,7 @@ function MessageDetailContent() {
             className="flex min-h-[min(280px,45vh)] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-sm lg:min-h-[min(520px,calc(100dvh-14rem))]"
             aria-label={t("stepDetails")}
           >
-            <TraceSpanRunPanel
-              span={selectedSpan}
-              chrome="embedded"
-              largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? null}
-            />
+            <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />
           </div>
 
           {/* Right — basic information (trace, times, agent, channel, tokens) */}

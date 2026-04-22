@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import { extractThreadListMessageText } from "@/lib/strip-inbound-meta";
@@ -90,7 +89,7 @@ function normalizeThreadRecord(r: Record<string, unknown>): ThreadRecordRow {
   const thread_type: "main" | "subagent" = tty === "subagent" ? "subagent" : "main";
   return {
     thread_id: String(r.thread_id ?? ""),
-    workspace_name: String(r.workspace_name ?? "OpenClaw"),
+    workspace_name: String(r.workspace_name ?? "default"),
     project_name: String(r.project_name ?? "openclaw"),
     thread_type,
     first_seen_ms: Number(r.first_seen_ms) || 0,
@@ -153,18 +152,14 @@ export async function loadThreadRecords(
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");
   }
-  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.conversationList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const j = await readCollectorFetchResult<{ items?: Record<string, unknown>[]; total?: number }>(
-    res,
-    `conversation list HTTP ${res.status}`,
-  );
-  const rawItems = Array.isArray(j.items) ? j.items : [];
-  const items = rawItems
-    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object" && !Array.isArray(x))
-    .map(normalizeThreadRecord);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const j = (await res.json()) as { items?: Record<string, unknown>[]; total?: number };
+  const items = (j.items ?? []).map(normalizeThreadRecord);
   /**
    * 与会话抽屉时间轴同源：用最后一轮用户回合的 `whenMs`（`message_received` / `llm_input` 的 client_ts），
    * 覆盖 API 里「最新一条 trace 的 created_at_ms」（后者常为跟进 trace 入库时间，会与抽屉不一致）。

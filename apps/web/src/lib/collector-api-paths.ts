@@ -1,7 +1,6 @@
 /**
- * Collector HTTP paths — 以 `iseeagentc/controller/router/router_trace.go` 为准。
- * SSE：`GET /v1/traces/:traceRootId/stream`（见 `streamUrl` in `@/lib/collector.ts`；非 JSON，不走 `readCollectorFetchResult`）。
- * JSON 响应：仅接受 Go 信封，用 `readCollectorFetchResult` / `readCollectorHealthResult` 解包。
+ * Collector HTTP paths — keep in sync with `services/collector/src/index.ts`.
+ * Use these for all `fetch` URLs so the network tab matches the server routes.
  */
 export const COLLECTOR_API = {
   conversationList: "/v1/conversation/list",
@@ -13,11 +12,9 @@ export const COLLECTOR_API = {
   resourceAuditEvents: "/v1/resource-audit/events",
   resourceAuditStats: "/v1/resource-audit/stats",
   securityAuditEvents: "/v1/security-audit/events",
-  securityAuditPolicyEventCounts: "/v1/security-audit/policy-event-counts",
   shellExecSummary: "/v1/shell-exec/summary",
   shellExecList: "/v1/shell-exec/list",
   shellExecDetail: "/v1/shell-exec/detail",
-  shellExecReplay: "/v1/shell-exec/replay",
 } as const;
 
 /** React Query cache key prefixes (not URLs; aligned with {@link COLLECTOR_API}). */
@@ -32,11 +29,9 @@ export const COLLECTOR_QUERY_SCOPE = {
   resourceAuditEvents: "resource-audit-events",
   resourceAuditStats: "resource-audit-stats",
   securityAuditEvents: "security-audit-events",
-  securityAuditPolicyEventCounts: "security-audit-policy-event-counts",
   shellExecSummary: "shell-exec-summary",
   shellExecList: "shell-exec-list",
   shellExecDetail: "shell-exec-detail",
-  shellExecReplay: "shell-exec-replay",
 } as const;
 
 /** `GET /v1/conversation/:threadId/trace-graph` — encode thread id for path segment. */

@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import { extractInboundDisplayPreview } from "@/lib/strip-inbound-meta";
@@ -110,93 +109,49 @@ export async function loadTraceRecords(
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");
   }
-  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.traceList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const j = await readCollectorFetchResult<{ items?: unknown[]; total?: number | string | null }>(
-    res,
-    `trace list HTTP ${res.status}`,
-  );
-  const rawItems = collectorItemsArray<unknown>(j.items);
-  const items = rawItems
-    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object" && !Array.isArray(x))
-    .map((x) => normalizeTraceRecord(x as unknown as TraceRecordRow));
-  const tr: unknown = j.total;
-  const total =
-    typeof tr === "number" && Number.isFinite(tr)
-      ? Math.max(0, Math.floor(tr))
-      : typeof tr === "string" && tr.trim() !== "" && Number.isFinite(Number(tr))
-        ? Math.max(0, Math.floor(Number(tr)))
-        : items.length;
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const j = (await res.json()) as { items?: TraceRecordRow[]; total?: number };
+  const items = (j.items ?? []).map(normalizeTraceRecord);
+  const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;
   return { items, total };
 }
 
-function finiteNum(v: unknown, def = 0): number {
-  if (typeof v === "number" && Number.isFinite(v)) {
-    return v;
-  }
-  if (typeof v === "string" && v.trim() !== "") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : def;
-  }
-  return def;
-}
-
 function normalizeTraceRecord(r: TraceRecordRow): TraceRecordRow {
-  const raw = r as unknown as Record<string, unknown>;
-  const trace_id = String(raw.trace_id ?? "");
-  const thread_key = String(raw.thread_key ?? raw.trace_id ?? "");
-  const spent = finiteNum(raw.total_tokens, 0);
-  const savedRaw = finiteNum(raw.saved_tokens_total, 0);
+  const spent = typeof r.total_tokens === "number" ? r.total_tokens : 0;
+  const savedRaw = typeof r.saved_tokens_total === "number" ? r.saved_tokens_total : 0;
   const denom = spent + savedRaw;
-  const optIn = raw.optimization_rate_pct;
   const pct =
-    typeof optIn === "number" && Number.isFinite(optIn)
-      ? optIn
+    typeof r.optimization_rate_pct === "number"
+      ? r.optimization_rate_pct
       : denom > 0
         ? Math.round((savedRaw / denom) * 1000) / 10
         : null;
-  const tags = Array.isArray(raw.tags) ? raw.tags.filter((x): x is string => typeof x === "string") : [];
-  const tc = raw.total_cost;
+  const tags = Array.isArray(r.tags) ? r.tags.filter((x): x is string => typeof x === "string") : [];
+  const tc = r.total_cost;
   const total_cost =
     typeof tc === "number" && Number.isFinite(tc) ? tc : tc === null ? null : Number(tc) || null;
-  const dur = finiteNum(raw.duration_ms, NaN);
-  const duration_ms = Number.isFinite(dur) && dur >= 0 ? dur : null;
-  const start_time = finiteNum(raw.start_time, 0);
-  const endRaw = raw.end_time;
-  const end_time =
-    endRaw == null || endRaw === ""
-      ? null
-      : (() => {
-          const n = finiteNum(endRaw, NaN);
-          return Number.isFinite(n) ? n : null;
-        })();
+  const duration_ms =
+    typeof r.duration_ms === "number" && Number.isFinite(r.duration_ms) && r.duration_ms >= 0
+      ? r.duration_ms
+      : null;
   return {
     ...r,
-    trace_id,
-    thread_key,
-    session_id: raw.session_id == null || raw.session_id === "" ? null : String(raw.session_id),
-    user_id: raw.user_id == null || raw.user_id === "" ? null : String(raw.user_id),
-    start_time,
-    end_time,
-    status: typeof raw.status === "string" ? raw.status : String(raw.status ?? ""),
     total_tokens: spent,
-    loop_count: Math.floor(finiteNum(raw.loop_count, 0)),
-    tool_call_count: Math.floor(finiteNum(raw.tool_call_count, 0)),
+    loop_count: typeof r.loop_count === "number" ? r.loop_count : 0,
+    tool_call_count: typeof r.tool_call_count === "number" ? r.tool_call_count : 0,
     saved_tokens_total: savedRaw,
     optimization_rate_pct: pct,
-    metadata:
-      raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
-        ? (raw.metadata as Record<string, unknown>)
-        : {},
+    metadata: r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata) ? r.metadata : {},
     tags,
     total_cost: total_cost != null && Number.isFinite(total_cost) ? total_cost : null,
-    duration_ms,
-    output_preview: typeof raw.output_preview === "string" ? raw.output_preview : null,
-    last_message_preview: typeof raw.last_message_preview === "string" ? raw.last_message_preview : null,
-    updated_at: typeof raw.updated_at === "string" ? raw.updated_at : null,
-    trace_type: normalizeTraceTypeField(raw.trace_type),
+    duration_ms: duration_ms != null ? duration_ms : null,
+    output_preview: typeof r.output_preview === "string" ? r.output_preview : null,
+    trace_type: normalizeTraceTypeField(r.trace_type),
   };
 }
 

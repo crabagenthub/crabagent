@@ -372,7 +372,7 @@ export default definePluginEntry({
         return;
       }
       try {
-        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies/pull-report?workspace_name=OpenClaw`;
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies/pull-report`;
         const headers: Record<string, string> = {
           Accept: "application/json",
           "Content-Type": "application/json",
@@ -395,7 +395,7 @@ export default definePluginEntry({
       const c = getCfg();
       if (!c.collectorBaseUrl) return;
       try {
-        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies?workspace_name=OpenClaw&update_pulled=true`;
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies`;
         const headers: Record<string, string> = {
           "Accept": "application/json",
         };
@@ -600,34 +600,7 @@ export default definePluginEntry({
           const cfg = getCfg();
           if (cfg.collectorBaseUrl) {
             // hook 与 flush 分进程时，内存队列不可见；当前进程直接上报 collector。
-            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, payload)
-              .then((result) => {
-                if (!result.ok) {
-                  appendDiag({
-                    event: "direct_post_opik_batch_fail",
-                    httpStatus: result.status,
-                    responsePreview: result.body.slice(0, 500),
-                    ...summarizeOpikBatch(payload),
-                  });
-                  console.warn(
-                    `${PLUGIN_LOG_NAME} POST /v1/opik/batch failed (hook process, no flush worker) status=${result.status} body=${result.body.slice(0, 240)}`,
-                  );
-                } else {
-                  appendDiag({
-                    event: "direct_post_opik_batch_ok",
-                    ...summarizeOpikBatch(payload),
-                  });
-                }
-              })
-              .catch((err) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                appendDiag({
-                  event: "direct_post_opik_batch_network",
-                  error: msg,
-                  ...summarizeOpikBatch(payload),
-                });
-                console.warn(`${PLUGIN_LOG_NAME} POST /v1/opik/batch network error: ${msg}`);
-              });
+            void postOpikBatch(cfg.collectorBaseUrl, cfg.collectorApiKey, payload).catch(() => {});
           }
         }
         traceDbg("queue_push", {

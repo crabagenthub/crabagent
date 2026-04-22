@@ -17,7 +17,7 @@ const openclawHome = process.env.OPENCLAW_HOME ?? path.join(process.env.HOME ?? 
 const configPath = path.join(openclawHome, "openclaw.json");
 
 const collectorBaseUrl =
-  process.env.CRABAGENT_COLLECTOR_URL?.trim() || "http://127.0.0.1:8087";
+  process.env.CRABAGENT_COLLECTOR_URL?.trim() || "http://127.0.0.1:8787";
 const collectorApiKey = process.env.CRABAGENT_COLLECTOR_API_KEY?.trim() ?? "";
 
 /** OpenClaw manifest id (must match openclaw.plugin.json; equals package idHint). */

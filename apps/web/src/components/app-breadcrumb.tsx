@@ -57,8 +57,8 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
     }
 
-    if (p === "/command-analysis" || p.startsWith("/command-analysis?")) {
-      return [{ label: tNav("groupAudit") }, { label: tNav("commandAnalysis") }];
+    if (p === "/data-security-audit") {
+      return [{ label: tNav("groupAudit") }, { label: tNav("dataSecurityAudit") }];
     }
 
     if (p === "/logs") {
@@ -79,6 +79,10 @@ export function AppBreadcrumb() {
 
     if (p === "/data-security") {
       return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
+    }
+
+    if (p === "/settings") {
+      return [{ label: tNav("groupSettings") }, { label: tNav("settings") }];
     }
 
     return [{ label: tNav("brand") }];

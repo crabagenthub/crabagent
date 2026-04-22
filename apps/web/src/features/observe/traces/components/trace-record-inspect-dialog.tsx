@@ -304,7 +304,6 @@ export function TraceRecordInspectDialog({
                       onSelect={setSelectedSpanId}
                       variant="inspect"
                       traceTimeRange={traceTimeRange}
-                      largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? undefined}
                     />
                   ) : (
                     <p className="p-4 text-sm text-neutral-500">{t("detailTreeNoMatches")}</p>
@@ -367,7 +366,6 @@ export function TraceRecordInspectDialog({
                     span={selectedSpan}
                     chrome="embedded"
                     traceInput={spansQuery.data?.trace_input ?? null}
-                    largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? null}
                   />
                 </div>
               </div>

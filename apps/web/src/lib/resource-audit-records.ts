@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ResourceAuditSemanticClassParam = "all" | "file" | "memory" | "tool_io";
@@ -28,16 +27,13 @@ export type ResourceAuditEventRow = {
 export type ResourceAuditStatsSummary = {
   total_events: number;
   distinct_traces: number;
+  sum_chars: number | null;
   avg_duration_ms: number | null;
   risk_sensitive_path: number;
   risk_pii_hint: number;
   risk_large_read: number;
   risk_redundant_read: number;
   risk_any: number;
-  risk_secret_hint: number;
-  risk_credential_hint: number;
-  risk_config_hint: number;
-  risk_database_hint: number;
 };
 
 export type ResourceAuditStats = {
@@ -61,16 +57,13 @@ export type ResourceAuditStats = {
 const EMPTY_SUMMARY: ResourceAuditStatsSummary = {
   total_events: 0,
   distinct_traces: 0,
+  sum_chars: null,
   avg_duration_ms: null,
   risk_sensitive_path: 0,
   risk_pii_hint: 0,
   risk_large_read: 0,
   risk_redundant_read: 0,
   risk_any: 0,
-  risk_secret_hint: 0,
-  risk_credential_hint: 0,
-  risk_config_hint: 0,
-  risk_database_hint: 0,
 };
 
 function parseSummary(v: unknown): ResourceAuditStatsSummary {
@@ -81,6 +74,10 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
   return {
     total_events: Number(o.total_events ?? 0),
     distinct_traces: Number(o.distinct_traces ?? 0),
+    sum_chars:
+      o.sum_chars != null && o.sum_chars !== "" && Number.isFinite(Number(o.sum_chars))
+        ? Number(o.sum_chars)
+        : null,
     avg_duration_ms:
       o.avg_duration_ms != null && o.avg_duration_ms !== "" && Number.isFinite(Number(o.avg_duration_ms))
         ? Number(o.avg_duration_ms)
@@ -90,10 +87,6 @@ function parseSummary(v: unknown): ResourceAuditStatsSummary {
     risk_large_read: Number(o.risk_large_read ?? 0),
     risk_redundant_read: Number(o.risk_redundant_read ?? 0),
     risk_any: Number(o.risk_any ?? 0),
-    risk_secret_hint: Number(o.risk_secret_hint ?? 0),
-    risk_credential_hint: Number(o.risk_credential_hint ?? 0),
-    risk_config_hint: Number(o.risk_config_hint ?? 0),
-    risk_database_hint: Number(o.risk_database_hint ?? 0),
   };
 }
 
@@ -173,9 +166,6 @@ export type LoadResourceAuditEventsParams = {
   uri_prefix?: string;
   trace_id?: string;
   span_id?: string;
-  policy_id?: string;
-  span_name?: string;
-  sort_mode?: "time_desc" | "risk_first" | "chars_desc";
 };
 
 function normalizeEvent(r: Record<string, unknown>): ResourceAuditEventRow {
@@ -240,24 +230,14 @@ export async function loadResourceAuditEvents(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
-  if (params.policy_id?.trim()) {
-    sp.set("policy_id", params.policy_id.trim());
-  }
-  if (params.span_name?.trim()) {
-    sp.set("span_name", params.span_name.trim());
-  }
-  if (params.sort_mode && params.sort_mode !== "time_desc") {
-    sp.set("sort_mode", params.sort_mode);
-  }
-  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditEvents}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const raw = await readCollectorFetchResult<{ items?: unknown[]; total?: number }>(
-    res,
-    `resource audit events HTTP ${res.status}`,
-  );
-  const items = collectorItemsArray<unknown>(raw.items).map((x) =>
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const raw = (await res.json()) as { items?: unknown[]; total?: number };
+  const items = (raw.items ?? []).map((x) =>
     normalizeEvent(x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}),
   );
   return { items, total: Number(raw.total ?? 0) };
@@ -291,14 +271,12 @@ export async function loadResourceAuditStats(
   if (params.span_id?.trim()) {
     sp.set("span_id", params.span_id.trim());
   }
-  if (params.policy_id?.trim()) {
-    sp.set("policy_id", params.policy_id.trim());
-  }
-  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const json = await readCollectorFetchResult<unknown>(res, `resource audit stats HTTP ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const json = await res.json();
   return normalizeStatsPayload(json);
 }
-

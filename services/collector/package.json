@@ -1,0 +1,25 @@
+{
+  "name": "@crabagent/collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm exec tsx watch src/index.ts",
+    "build": "pnpm exec tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "clear-db": "node scripts/clear-business-data.mjs",
+    "test": "pnpm exec tsx --test src/opik-ingest-smoke.test.ts src/thread-trace-events-query.test.ts src/thread-records-query.test.ts src/opik-usage-preview.test.ts src/trace-graph-query.test.ts src/semantic-spans-query.test.ts src/execution-graph-query.test.ts",
+    "lint": "echo \"no lint yet\""
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "better-sqlite3": "^11.8.0",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

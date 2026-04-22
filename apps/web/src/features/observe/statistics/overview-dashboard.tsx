@@ -252,14 +252,6 @@ export function OverviewDashboard() {
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
 
-  /** 有明确起止时间时，统计指标按日图表对无数据日补 0（与 overview-metrics 内 dayKeyLocal 一致）。 */
-  const overviewChartDayRange = useMemo((): { sinceMs: number; untilMs: number } | null => {
-    if (sinceMs != null && untilMs != null && sinceMs > 0 && untilMs >= sinceMs) {
-      return { sinceMs, untilMs };
-    }
-    return null;
-  }, [sinceMs, untilMs]);
-
   const kpiMessagesListHref = useMemo(() => {
     const windowAll = dateRange.kind === "preset" && dateRange.preset === "all";
     return buildTracesListDeepLink({ kind: "traces", sinceMs, untilMs, windowAll });
@@ -409,9 +401,8 @@ export function OverviewDashboard() {
       mom.ptk,
       mom.ptc,
       usageOverride,
-      overviewChartDayRange,
     );
-  }, [q.data, model, overviewChartDayRange]);
+  }, [q.data, model]);
 
   const filteredTracesForModelQps = useMemo(() => {
     if (!q.data) {
@@ -421,8 +412,8 @@ export function OverviewDashboard() {
   }, [q.data, model]);
 
   const modelQpsCountByDay = useMemo(
-    () => traceCountByDayForModelQps(filteredTracesForModelQps, modelQpsStatusFilter, overviewChartDayRange),
-    [filteredTracesForModelQps, modelQpsStatusFilter, overviewChartDayRange],
+    () => traceCountByDayForModelQps(filteredTracesForModelQps, modelQpsStatusFilter),
+    [filteredTracesForModelQps, modelQpsStatusFilter],
   );
 
   const modelQpsRows = useMemo(() => {
@@ -488,18 +479,14 @@ export function OverviewDashboard() {
         (v) => `${v.toFixed(4)}${modelQpsRateKind === "qps" ? "/s" : "/min"}`,
         modelQpsRateKind === "qps" ? "/s" : "/min",
       ),
-      modelSuccess: areaPercentOption(c.modelSuccessByDay, t("chartModelSuccess")),
+      modelSuccess: areaPercentOption(c.modelSuccessByDay, t("rate")),
       modelTokenRate: lineSingleOption(
         c.modelTokenRateByDay.map((d) => ({ day: d.day, v: d.tps })),
         false,
-        CHART_PRIMARY,
-        undefined,
-        undefined,
-        t("chartTokenRate"),
       ),
       modelDur: areaSingleOption(
         c.modelDurationSumByDay.map((d) => ({ day: d.day, v: d.ms / 1000 })),
-        t("chartModelDurSum"),
+        t("duration"),
         (v) => `${v.toFixed(1)} s`,
       ),
       ttft: lineSingleOption(
@@ -507,84 +494,44 @@ export function OverviewDashboard() {
         false,
         CHART_PRIMARY,
         (v) => `${v.toFixed(0)} ms`,
-        undefined,
-        t("chartTtft"),
       ),
       tpot: areaSingleOption(
         c.tpotByDay.map((d) => ({ day: d.day, v: d.ms })),
-        t("chartTpot"),
+        "TPOT",
         (v) => `${v.toFixed(2)} ms`,
       ),
       modelPie: pieNamedPctOption(c.modelDistribution, t("calls")),
-      toolVol: lineSingleOption(
-        c.toolVolumeByDay.map((d) => ({ day: d.day, v: d.n })),
-        true,
-        CHART_PRIMARY,
-        undefined,
-        undefined,
-        t("chartToolVol"),
-      ),
+      toolVol: lineSingleOption(c.toolVolumeByDay.map((d) => ({ day: d.day, v: d.n })), true),
       toolLat: areaSingleOption(
         c.toolLatencyByDay.map((d) => ({ day: d.day, v: d.avgMs / 1000 })),
-        t("chartToolLat"),
+        t("avg"),
         (v) => `${v.toFixed(2)} s`,
       ),
-      toolOk: areaPercentOption(c.toolSuccessByDay, t("chartToolOk")),
+      toolOk: areaPercentOption(c.toolSuccessByDay, t("rate")),
       toolPie: pieSimpleOption(c.toolDistribution.slice(0, 6)),
-      agentSteps: lineSingleOption(
-        c.agentStepsByDay.map((d) => ({ day: d.day, v: d.avg })),
-        true,
-        CHART_PRIMARY,
-        undefined,
-        undefined,
-        t("chartAgentSteps"),
-      ),
-      agentTools: lineSingleOption(
-        c.agentToolsByDay.map((d) => ({ day: d.day, v: d.avg })),
-        true,
-        CHART_PRIMARY,
-        undefined,
-        undefined,
-        t("chartAgentTools"),
-      ),
-      agentModels: lineSingleOption(
-        c.agentModelsByDay.map((d) => ({ day: d.day, v: d.avg })),
-        true,
-        CHART_PRIMARY,
-        undefined,
-        undefined,
-        t("chartAgentModels"),
-      ),
-      traceReport: areaSingleOption(
-        c.traceReportByDay.map((d) => ({ day: d.day, v: d.n })),
-        t("chartTraceReport"),
-      ),
+      agentSteps: lineSingleOption(c.agentStepsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      agentTools: lineSingleOption(c.agentToolsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      agentModels: lineSingleOption(c.agentModelsByDay.map((d) => ({ day: d.day, v: d.avg })), true),
+      traceReport: areaSingleOption(c.traceReportByDay.map((d) => ({ day: d.day, v: d.n })), "n"),
       uniqueThreads: lineSingleOption(
         c.uniqueThreadsByDay.map((d) => ({ day: d.day, v: d.n })),
         true,
         CHART_PRIMARY,
         undefined,
         true,
-        t("chartUsers"),
       ),
       messages: lineSingleOption(
         c.traceCountByDay.map((d) => ({ day: d.day, v: d.n })),
         true,
         CHART_SECONDARY,
-        undefined,
-        undefined,
-        t("chartMessages"),
       ),
-      serviceQps: areaSingleOption(
-        c.serviceQpsByDay.map((d) => ({ day: d.day, v: d.qps })),
-        t("chartServiceQps"),
-      ),
+      serviceQps: areaSingleOption(c.serviceQpsByDay.map((d) => ({ day: d.day, v: d.qps })), "QPS"),
       serviceLat: areaSingleOption(
         c.serviceLatencyByDay.map((d) => ({ day: d.day, v: d.avgMs / 1000 })),
-        t("chartServiceLatency"),
+        t("avg"),
         (v) => `${v.toFixed(1)} s`,
       ),
-      serviceOk: areaPercentOption(c.serviceSuccessByDay, t("chartServiceSuccess")),
+      serviceOk: areaPercentOption(c.serviceSuccessByDay, t("rate")),
     };
   }, [overview, tokenSeries, tokenScaleHint, tokenChartKind, modelQpsRows, modelQpsRateKind, t]);
 
@@ -748,19 +695,6 @@ export function OverviewDashboard() {
               />
             </section>
 
-            {/* 活动时间线部分 */}
-            <section className="space-y-3" aria-label={t("activityTimeline")}>
-              <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-                {t("activityTimelineTitle")}
-              </Typography.Title>
-              <ActivityTimeline
-                totalTokens={activityQuery.data?.totalTokens}
-                dayData={activityQuery.data?.dayData}
-                hourData={activityQuery.data?.hourData}
-                loading={activityQuery.isFetching}
-              />
-            </section>
-
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <Space size={8} className="items-center">
                 <Typography.Text type="secondary" className="text-sm">
@@ -780,6 +714,9 @@ export function OverviewDashboard() {
                   ))}
                 </Select>
               </Space>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {t("sampleNote", { spans: q.data?.spans.length ?? 0, traces: q.data?.traces.length ?? 0 })}
+              </Typography.Text>
             </div>
 
             <section className="space-y-3" aria-label={t("sectionTokens")}>
@@ -930,6 +867,16 @@ export function OverviewDashboard() {
                   </div>
                 </div>
               </ChartCard>
+            </section>
+
+            {/* 活动时间线部分 */}
+            <section aria-label={t("activityTimeline")}>
+              <ActivityTimeline
+                totalTokens={activityQuery.data?.totalTokens}
+                dayData={activityQuery.data?.dayData}
+                hourData={activityQuery.data?.hourData}
+                loading={activityQuery.isFetching}
+              />
             </section>
 
             <section aria-label={t("sectionModel")} className="space-y-3">

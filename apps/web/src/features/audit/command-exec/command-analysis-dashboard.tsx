@@ -4,6 +4,7 @@ import "@/lib/arco-react19-setup";
 import {
   Button,
   Card,
+  Drawer,
   Input,
   Message,
   Pagination,
@@ -15,28 +16,15 @@ import {
   Tag,
   Typography,
 } from "@arco-design/web-react";
-import {
-  IconApps,
-  IconArrowFall,
-  IconArrowRise,
-  IconList,
-  IconRefresh,
-  IconShareExternal,
-} from "@arco-design/web-react/icon";
+import { IconApps, IconList, IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppPageShell } from "@/shared/components/app-page-shell";
-import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
-import { TitleHintIcon } from "@/shared/components/message-hint";
-import { ListEmptyState } from "@/components/list-empty-state";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/shared/components/localized-link";
-import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
-import { toast } from "@/components/ui/feedback";
-import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
@@ -48,16 +36,16 @@ import {
   writeCommandAnalysisDateRange,
 } from "@/lib/command-analysis-date-range";
 import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
-import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/observe-table-style";
-import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
-import type { TraceRecordRow } from "@/lib/trace-records";
-import { resourceRiskBarOption } from "@/lib/resource-audit-echarts-options";
+import { resourceClassPieFromNamed, resourceRiskBarOption } from "@/lib/resource-audit-echarts-options";
 import {
+  loadShellExecDetail,
   loadShellExecList,
   loadShellExecSummary,
+  type ShellCommandCategory,
   type ShellExecListRow,
   type ShellExecSummary,
 } from "@/lib/shell-exec-api";
+import { loadSemanticSpans, type SemanticSpanRow } from "@/lib/semantic-spans";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
@@ -71,105 +59,6 @@ const kpiMetricCardClass =
 
 type CommandAnalysisViewKind = "metrics" | "details";
 
-type MomTagTone = "green" | "red" | "gray";
-
-function fmtPct(n: number | null | undefined, digits = 2): string {
-  if (n == null || !Number.isFinite(n)) {
-    return "—";
-  }
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(digits)}%`;
-}
-
-function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
-  if (n == null || !Number.isFinite(n)) {
-    return { text: "—", color: "gray" };
-  }
-  if (Math.abs(n) < 0.005) {
-    return { text: "0.00%", color: "gray" };
-  }
-  if (n > 0) {
-    return { text: fmtPct(n), color: "green" };
-  }
-  return { text: fmtPct(n), color: "red" };
-}
-
-function KpiMomPill({ tone, text }: { tone: MomTagTone; text: string }) {
-  const palette =
-    tone === "green"
-      ? "bg-[#E8FFEA] text-[#00B42A]"
-      : tone === "red"
-        ? "bg-[#FFECE8] text-[#F53F3F]"
-        : "bg-[#F2F3F5] text-[#86909C]";
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 rounded px-2 py-0.5 text-xs font-medium tabular-nums", palette)}>
-      {tone === "green" ? <IconArrowRise className="size-3 shrink-0" aria-hidden /> : null}
-      {tone === "red" ? <IconArrowFall className="size-3 shrink-0" aria-hidden /> : null}
-      {text}
-    </span>
-  );
-}
-
-function shellKpiMomPercent(current: number, prev: number | undefined): number | null {
-  if (prev === undefined) {
-    return null;
-  }
-  if (prev > 0) {
-    return ((current - prev) / prev) * 100;
-  }
-  if (current > 0) {
-    return 100;
-  }
-  return null;
-}
-
-function CommandKpiCard({
-  title,
-  hint,
-  value,
-  onView,
-  mom,
-}: {
-  title: string;
-  hint?: string;
-  value: ReactNode;
-  onView: () => void;
-  mom: number | null;
-}) {
-  const t = useTranslations("CommandAnalysis");
-  const momM = momTagMeta(mom);
-  return (
-    <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass, "group")} bodyStyle={{ padding: "16px" }}>
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1">
-          <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">{title}</Typography.Text>
-          {hint ? (
-            <TitleHintIcon
-              tooltipText={hint}
-              iconClassName="h-3.5 w-3.5 text-[#86909C] dark:text-muted-foreground"
-              className="shrink-0"
-            />
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={onView}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-xs font-medium text-primary opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-          aria-label={t("kpiViewDetailsAria")}
-        >
-          <IconShareExternal className="size-3.5 shrink-0" aria-hidden />
-          {t("kpiViewDetails")}
-        </button>
-      </div>
-      <div className="text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">{value}</div>
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <Typography.Text className="text-[11px] text-[#86909C] dark:text-muted-foreground">{t("kpiMom")}</Typography.Text>
-        <KpiMomPill tone={momM.color} text={momM.text} />
-      </div>
-    </Card>
-  );
-}
-
 function topRankColorClass(rank: number): string {
   if (rank <= 3) {
     return "text-[#F53F3F]";
@@ -178,19 +67,12 @@ function topRankColorClass(rank: number): string {
 }
 
 function shellTrendOption(
-  rows: {
-    day: string;
-    commands: number;
-    failed: number;
-    token_risk_count: number;
-    diagnostic_count: number;
-    network_system_count: number;
-  }[],
+  rows: { day: string; total: number; failed: number }[],
   t: (k: string) => string,
 ): EChartsOption {
   const MUTED = "#64748b";
   return {
-    grid: { left: 4, right: 12, top: 28, bottom: 4, containLabel: true },
+    grid: { left: 4, right: 48, top: 28, bottom: 4, containLabel: true },
     tooltip: { trigger: "axis", textStyle: { fontSize: 12 } },
     legend: { top: 0, textStyle: { fontSize: 11, color: MUTED } },
     xAxis: {
@@ -199,109 +81,62 @@ function shellTrendOption(
       data: rows.map((r) => r.day),
       axisLabel: { fontSize: 11, color: MUTED },
     },
-    yAxis: {
-      type: "value",
-      axisLabel: { fontSize: 11, color: MUTED },
-      splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
-    },
+    yAxis: [
+      {
+        type: "value",
+        axisLabel: { fontSize: 11, color: MUTED },
+        splitLine: { lineStyle: { type: "dashed", color: "rgba(148, 163, 184, 0.35)" } },
+      },
+      {
+        type: "value",
+        position: "right",
+        max: 100,
+        axisLabel: { formatter: "{value}%", fontSize: 11, color: MUTED },
+        splitLine: { show: false },
+      },
+    ],
     series: [
       {
         name: t("chartTotalCmd"),
         type: "line",
-        data: rows.map((r) => r.commands),
+        yAxisIndex: 0,
+        data: rows.map((r) => r.total),
         smooth: true,
         symbol: "none",
         lineStyle: { width: 2, color: "#6366f1" },
       },
       {
-        name: t("chartFailedCount"),
+        name: t("chartFailRate"),
         type: "line",
-        data: rows.map((r) => r.failed),
+        yAxisIndex: 1,
+        data: rows.map((r) => (r.total > 0 ? Math.round((100 * r.failed) / r.total) : 0)),
         smooth: true,
         symbol: "none",
         lineStyle: { width: 2, color: "#ef4444" },
-      },
-      {
-        name: t("chartTokenRiskCount"),
-        type: "line",
-        data: rows.map((r) => r.token_risk_count),
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 2, color: "#f59e0b" },
-      },
-      {
-        name: t("chartDiagnosticsCount"),
-        type: "line",
-        data: rows.map((r) => r.diagnostic_count),
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 2, color: "#22c55e" },
-      },
-      {
-        name: t("chartNetSysCount"),
-        type: "line",
-        data: rows.map((r) => r.network_system_count),
-        smooth: true,
-        symbol: "none",
-        lineStyle: { width: 2, color: "#94a3b8" },
       },
     ],
   };
 }
 
-/** 步骤 ID：短 ID + 复制；点击短 ID 在当前页打开消息详情并定位到该 span，不整页跳转。 */
-function ShellExecSpanIdCell({
-  spanId,
-  traceId,
-  onOpenMessageInspect,
-  canOpen,
-}: {
-  spanId: string;
-  traceId: string;
-  onOpenMessageInspect: (traceId: string, spanId: string) => void;
-  canOpen: boolean;
-}) {
-  const t = useTranslations("CommandAnalysis");
-  const tTr = useTranslations("Traces");
-  const sid = spanId.trim();
-  const tid = traceId.trim();
-  if (!sid) {
-    return <span className="text-neutral-400">—</span>;
+function categoryLabel(t: (k: string) => string, c: ShellCommandCategory): string {
+  switch (c) {
+    case "file":
+      return t("catFile");
+    case "network":
+      return t("catNetwork");
+    case "system":
+      return t("catSystem");
+    case "process":
+      return t("catProcess");
+    case "package":
+      return t("catPackage");
+    default:
+      return t("catOther");
   }
-  const clickable = canOpen && Boolean(tid);
-  const idEl = clickable ? (
-    <button
-      type="button"
-      onClick={() => onOpenMessageInspect(tid, sid)}
-      className="block min-w-0 truncate whitespace-nowrap text-left text-xs text-primary underline-offset-2 hover:underline"
-      title={sid}
-      aria-label={t("spanStepOpenMessageInspectAria")}
-    >
-      {formatShortId(sid)}
-    </button>
-  ) : (
-    <span className="block min-w-0 truncate whitespace-nowrap text-xs text-neutral-700 dark:text-neutral-200" title={sid}>
-      {formatShortId(sid)}
-    </span>
-  );
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      {idEl}
-      <TraceCopyIconButton
-        text={sid}
-        ariaLabel={tTr("traceInspectCopySpanId")}
-        tooltipLabel={tTr("copy")}
-        successLabel={tTr("copySuccessToast")}
-        className="p-1 hover:bg-neutral-100"
-        stopPropagation
-      />
-    </div>
-  );
 }
 
 export function CommandAnalysisDashboard() {
   const t = useTranslations("CommandAnalysis");
-  const tTr = useTranslations("Traces");
   const searchParams = useSearchParams();
   const urlTraceId = searchParams.get("trace_id")?.trim() ?? "";
 
@@ -317,26 +152,8 @@ export function CommandAnalysisDashboard() {
   const [traceFilter, setTraceFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
-  const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
-
-  const openMessageInspectFromShellRow = useCallback(
-    async (traceId: string, spanId: string) => {
-      const tid = traceId.trim();
-      const sid = spanId.trim();
-      if (!tid || !sid || !baseUrl.trim()) {
-        return;
-      }
-      const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, tid);
-      if (!resolved) {
-        toast.error(t("openMessageInspectFailed"));
-        return;
-      }
-      setMessageInspectInitialSpanId(sid);
-      setMessageInspectTrace(resolved);
-    },
-    [apiKey, baseUrl, t],
-  );
+  const [drawerSpanId, setDrawerSpanId] = useState<string | null>(null);
+  const [viewKind, setViewKind] = useState<CommandAnalysisViewKind>("metrics");
 
   useEffect(() => {
     setMounted(true);
@@ -387,31 +204,6 @@ export function CommandAnalysisDashboard() {
     queryFn: () => loadShellExecSummary(baseUrl, apiKey, shellQuery),
   });
 
-  const prevWindow = useMemo(() => {
-    if (sinceMs == null || untilMs == null || untilMs <= sinceMs) {
-      return null;
-    }
-    const width = untilMs - sinceMs;
-    return { sinceMs: Math.max(0, sinceMs - width), untilMs: sinceMs };
-  }, [sinceMs, untilMs]);
-
-  const prevShellQuery = useMemo(() => {
-    if (!prevWindow) {
-      return null;
-    }
-    return {
-      ...shellQuery,
-      sinceMs: prevWindow.sinceMs,
-      untilMs: prevWindow.untilMs,
-    };
-  }, [prevWindow, shellQuery]);
-
-  const prevSummaryQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, "prev", prevShellQuery],
-    enabled: mounted && Boolean(baseUrl.trim()) && prevShellQuery != null,
-    queryFn: () => loadShellExecSummary(baseUrl, apiKey, prevShellQuery!),
-  });
-
   const listQuery = useQuery({
     queryKey: [
       COLLECTOR_QUERY_SCOPE.shellExecList,
@@ -431,22 +223,84 @@ export function CommandAnalysisDashboard() {
       }),
   });
 
+  const detailQuery = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecDetail, baseUrl, apiKey, drawerSpanId],
+    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(drawerSpanId),
+    queryFn: () => loadShellExecDetail(baseUrl, apiKey, drawerSpanId!),
+  });
+
+  const contextTraceId =
+    detailQuery.data && typeof detailQuery.data.trace_id === "string"
+      ? detailQuery.data.trace_id.trim()
+      : "";
+
+  const spansContextQuery = useQuery({
+    queryKey: [COLLECTOR_QUERY_SCOPE.traceSpans, baseUrl, apiKey, contextTraceId, "ctx"],
+    enabled: mounted && Boolean(baseUrl.trim()) && Boolean(contextTraceId) && Boolean(drawerSpanId),
+    queryFn: () => loadSemanticSpans(baseUrl, apiKey, contextTraceId),
+  });
+
   const summary = summaryQuery.data;
+  const categoryPie = useMemo(() => {
+    if (!summary) {
+      return null;
+    }
+    const items = (Object.keys(summary.category_breakdown) as ShellCommandCategory[])
+      .map((k) => ({
+        name: categoryLabel(t, k),
+        value: summary.category_breakdown[k] ?? 0,
+      }))
+      .filter((x) => x.value > 0);
+    return resourceClassPieFromNamed(items);
+  }, [summary, t]);
+
+  const durationBar = useMemo(() => {
+    if (!summary) {
+      return null;
+    }
+    return resourceRiskBarOption(
+      [
+        { name: t("durLt100"), value: summary.duration_buckets.lt100ms },
+        { name: t("dur100to1s"), value: summary.duration_buckets.ms100to1s },
+        { name: t("durGt1s"), value: summary.duration_buckets.gt1s },
+      ],
+      t("durSeries"),
+    );
+  }, [summary, t]);
 
   const trendOpt = useMemo(() => {
     if (!summary?.success_trend?.length) {
       return null;
     }
-    const fallback = summary.success_trend.map((r) => ({
-      day: r.day,
-      commands: r.total,
-      failed: r.failed,
-      token_risk_count: 0,
-      diagnostic_count: 0,
-      network_system_count: 0,
-    }));
-    return shellTrendOption(summary.daily_risk_series?.length ? summary.daily_risk_series : fallback, t);
+    return shellTrendOption(summary.success_trend, t);
   }, [summary, t]);
+
+  const contextBlocks = useMemo(() => {
+    const items = spansContextQuery.data?.items ?? [];
+    const target = drawerSpanId;
+    if (!target || items.length === 0) {
+      return { before: null as SemanticSpanRow | null, after: null as SemanticSpanRow | null };
+    }
+    const idx = items.findIndex((s) => s.span_id === target);
+    if (idx < 0) {
+      return { before: null, after: null };
+    }
+    let before: SemanticSpanRow | null = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (items[i]!.type === "llm") {
+        before = items[i]!;
+        break;
+      }
+    }
+    let after: SemanticSpanRow | null = null;
+    for (let i = idx + 1; i < items.length; i++) {
+      if (items[i]!.type === "llm") {
+        after = items[i]!;
+        break;
+      }
+    }
+    return { before, after };
+  }, [spansContextQuery.data, drawerSpanId]);
 
   const onDateChange = useCallback((next: ObserveDateRange) => {
     setDateRange(next);
@@ -457,22 +311,6 @@ export function CommandAnalysisDashboard() {
   const listColumns: TableColumnProps<ShellExecListRow>[] = useMemo(
     () => [
       {
-        title: tTr("spansColSpanId"),
-        width: 230,
-        fixed: "left" as const,
-        render: (_: unknown, row) => {
-          const r = row as ShellExecListRow;
-          return (
-            <ShellExecSpanIdCell
-              spanId={String(r.span_id ?? "")}
-              traceId={String(r.trace_id ?? "")}
-              onOpenMessageInspect={openMessageInspectFromShellRow}
-              canOpen={mounted && Boolean(baseUrl.trim())}
-            />
-          );
-        },
-      },
-      {
         title: t("colTime"),
         width: 168,
         render: (_: unknown, row) => {
@@ -481,6 +319,21 @@ export function CommandAnalysisDashboard() {
             <span className="whitespace-nowrap text-xs text-muted-foreground">
               {ms != null && Number.isFinite(ms) ? formatTraceDateTimeFromMs(ms) : "—"}
             </span>
+          );
+        },
+      },
+      {
+        title: t("colTrace"),
+        width: 120,
+        render: (_: unknown, row) => {
+          const tid = String(row.trace_id ?? "");
+          return (
+            <LocalizedLink
+              className="font-mono text-xs text-primary underline-offset-2 hover:underline"
+              href={`/messages/${encodeURIComponent(tid)}`}
+            >
+              {formatShortId(tid)}
+            </LocalizedLink>
           );
         },
       },
@@ -496,6 +349,36 @@ export function CommandAnalysisDashboard() {
         },
       },
       {
+        title: t("colCategory"),
+        width: 100,
+        render: (_: unknown, row) => {
+          const c = row.parsed?.category;
+          return c ? <Tag size="small">{categoryLabel(t, c)}</Tag> : "—";
+        },
+      },
+      {
+        title: t("colExit"),
+        width: 72,
+        render: (_: unknown, row) => {
+          const ec = row.parsed?.exitCode;
+          return <span className="font-mono text-xs">{ec != null ? String(ec) : "—"}</span>;
+        },
+      },
+      {
+        title: t("colOk"),
+        width: 72,
+        render: (_: unknown, row) => {
+          const ok = row.parsed?.success;
+          if (ok === true) {
+            return <Tag color="green">{t("okYes")}</Tag>;
+          }
+          if (ok === false) {
+            return <Tag color="red">{t("okNo")}</Tag>;
+          }
+          return "—";
+        },
+      },
+      {
         title: t("colDur"),
         width: 88,
         render: (_: unknown, row) => {
@@ -508,35 +391,11 @@ export function CommandAnalysisDashboard() {
         },
       },
       {
-        title: t("colStatus"),
-        width: 108,
+        title: t("colStdout"),
+        width: 88,
         render: (_: unknown, row) => {
-          const ok = row.parsed?.success;
-          const ec = row.parsed?.exitCode;
-          if (ok === true) {
-            return <Tag color="green">{t("okYes")}</Tag>;
-          }
-          if (ok === false) {
-            return (
-              <span className="inline-flex flex-wrap items-center gap-1">
-                <Tag color="red">{t("okNo")}</Tag>
-                {ec != null ? <span className="font-mono text-[11px] text-muted-foreground">({ec})</span> : null}
-              </span>
-            );
-          }
-          if (ec != null) {
-            return <span className="font-mono text-xs tabular-nums">{String(ec)}</span>;
-          }
-          return "—";
-        },
-      },
-      {
-        title: t("colCategory"),
-        width: 100,
-        render: (_: unknown, row) => {
-          const raw = row.parsed?.category;
-          const s = raw != null && String(raw).trim() !== "" ? String(raw) : "";
-          return s ? <Tag size="small">{s}</Tag> : "—";
+          const n = row.parsed?.stdoutLen ?? 0;
+          return <span className="text-xs tabular-nums">{n.toLocaleString()}</span>;
         },
       },
       {
@@ -545,8 +404,20 @@ export function CommandAnalysisDashboard() {
         render: (_: unknown, row) =>
           row.parsed?.tokenRisk ? <Tag color="orangered">{t("riskTag")}</Tag> : "—",
       },
+      {
+        title: t("colAction"),
+        width: 96,
+        render: (_: unknown, row) => {
+          const sid = String(row.span_id ?? "");
+          return (
+            <Button type="text" size="mini" onClick={() => setDrawerSpanId(sid)}>
+              {t("detailBtn")}
+            </Button>
+          );
+        },
+      },
     ],
-    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl],
+    [t],
   );
   const s: ShellExecSummary | undefined = summaryQuery.data;
   const totalRows = listQuery.data?.total ?? 0;
@@ -571,11 +442,13 @@ export function CommandAnalysisDashboard() {
   const showRuleMismatchHint =
     summaryQuery.isSuccess && snap != null && snap.tool_spans > 0 && snap.shell_like_spans === 0;
   const showEmptyDbHint = summaryQuery.isSuccess && snap != null && snap.tool_spans === 0;
-  const showExecBackfillHint =
-    summaryQuery.isSuccess &&
-    snap != null &&
-    (snap.exec_command_rows ?? 0) === 0 &&
-    snap.shell_like_spans > 0;
+  const viewCounts = useMemo(
+    () => ({
+      metrics: s?.totals.commands ?? 0,
+      details: totalRows,
+    }),
+    [s?.totals.commands, totalRows],
+  );
 
   if (!mounted) {
     return (
@@ -614,10 +487,9 @@ export function CommandAnalysisDashboard() {
             <Button
               type="outline"
               icon={<IconRefresh />}
-              loading={summaryQuery.isFetching || listQuery.isFetching || prevSummaryQuery.isFetching}
+              loading={summaryQuery.isFetching || listQuery.isFetching}
               onClick={() => {
                 void summaryQuery.refetch();
-                void prevSummaryQuery.refetch();
                 void listQuery.refetch();
                 void facetsQuery.refetch();
               }}
@@ -653,15 +525,6 @@ export function CommandAnalysisDashboard() {
           />
         ) : null}
         {showEmptyDbHint ? <Message type="info" content={t("hintEmptyDb")} /> : null}
-        {showExecBackfillHint ? (
-          <Message
-            type="warning"
-            content={t("hintExecBackfill", {
-              shell: snap!.shell_like_spans,
-              exec: snap!.exec_command_rows ?? 0,
-            })}
-          />
-        ) : null}
         {summaryQuery.isSuccess &&
         (s?.totals.commands ?? 0) === 0 &&
         !showWidenHint &&
@@ -673,94 +536,111 @@ export function CommandAnalysisDashboard() {
           <Message type="warning" content={t("summaryCapped", { n: s.scanned })} />
         ) : null}
 
-        <div className="space-y-3">
+        <section aria-label={t("viewSwitcherAria")} className="space-y-3">
+          <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {([
+              { id: "metrics" as const, label: t("viewMetrics"), Icon: IconApps },
+              { id: "details" as const, label: t("viewDetails"), Icon: IconList },
+            ] satisfies Array<{ id: CommandAnalysisViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
+              const selected = viewKind === opt.id;
+              const count = viewCounts[opt.id];
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setViewKind(opt.id)}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
+                    selected
+                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
+                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <opt.Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      selected ? "text-neutral-800 dark:text-zinc-100" : "text-neutral-600 dark:text-zinc-400",
+                    )}
+                    strokeWidth={selected ? 3 : 2}
+                    aria-hidden
+                  />
+                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    className={cn(
+                      "tabular-nums text-[13px]",
+                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
+                    )}
+                  >
+                    {`(${count.toLocaleString()})`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {viewKind === "metrics" ? (
+          <>
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <CommandKpiCard
-                title={t("kpiCommands")}
-                hint={t("kpiCommandsHint")}
-                value={
-                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.commands ?? 0).toLocaleString()
-                }
-                onView={() => {
-                  const el = document.querySelector('#section-list');
-                  el?.scrollIntoView({ behavior: "smooth" });
-                }}
-                mom={
-                  s && prevSummaryQuery.data
-                    ? shellKpiMomPercent(s.totals.commands, prevSummaryQuery.data.totals.commands)
-                    : null
-                }
-              />
-              <CommandKpiCard
-                title={t("kpiTraces")}
-                hint={t("kpiTracesHint")}
-                value={
-                  summaryQuery.isLoading && !s ? (
-                    <Spin size={20} />
-                  ) : (
-                    (s?.totals.distinct_traces ?? 0).toLocaleString()
-                  )
-                }
-                onView={() => {
-                  const el = document.querySelector('#section-list');
-                  el?.scrollIntoView({ behavior: "smooth" });
-                }}
-                mom={
-                  s && prevSummaryQuery.data
-                    ? shellKpiMomPercent(s.totals.distinct_traces, prevSummaryQuery.data.totals.distinct_traces)
-                    : null
-                }
-              />
-              <CommandKpiCard
-                title={t("kpiExecFailed")}
-                hint={t("kpiExecFailedHint")}
-                value={
-                  summaryQuery.isLoading && !s ? <Spin size={20} /> : (s?.totals.failed ?? 0).toLocaleString()
-                }
-                onView={() => {
-                  const el = document.querySelector('#section-list');
-                  el?.scrollIntoView({ behavior: "smooth" });
-                }}
-                mom={
-                  s && prevSummaryQuery.data
-                    ? shellKpiMomPercent(s.totals.failed, prevSummaryQuery.data.totals.failed)
-                    : null
-                }
-              />
-              <CommandKpiCard
-                title={t("kpiTokenRiskTotal")}
-                hint={t("kpiTokenRiskTotalHint")}
-                value={
-                  summaryQuery.isLoading && !s ? (
-                    <Spin size={20} />
-                  ) : (
-                    Number(s?.totals.token_risk_total ?? 0).toLocaleString()
-                  )
-                }
-                onView={() => {
-                  const el = document.querySelector('#section-list');
-                  el?.scrollIntoView({ behavior: "smooth" });
-                }}
-                mom={
-                  s && prevSummaryQuery.data
-                    ? shellKpiMomPercent(
-                        Number(s?.totals.token_risk_total ?? 0),
-                        Number(prevSummaryQuery.data.totals.token_risk_total ?? 0),
-                      )
-                    : null
-                }
-              />
+              {[
+                { label: t("kpiCommands"), value: s?.totals.commands },
+                { label: t("kpiTraces"), value: s?.totals.distinct_traces },
+                { label: t("kpiSuccess"), value: s?.totals.success },
+                { label: t("kpiFailed"), value: s?.totals.failed },
+              ].map((k) => (
+                <Card key={k.label} bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "14px 16px" }}>
+                  <div className="text-xs text-muted-foreground">{k.label}</div>
+                  <div className="mt-1 text-2xl font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                    {summaryQuery.isLoading ? <Spin size={20} /> : (k.value ?? 0).toLocaleString()}
+                  </div>
+                </Card>
+              ))}
             </section>
 
-          <section aria-label={t("sectionRankings")} className="space-y-3">
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-              {t("sectionRankings")}
-            </Typography.Title>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-1")} title={t("sectionCategory")}>
+                <div className="h-[260px] w-full min-w-0">
+                  {categoryPie && summaryQuery.isSuccess ? (
+                    <ReactEChart option={categoryPie} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
+              <Card bordered={false} className={cn(kpiShellClass, "lg:col-span-2")} title={t("sectionTrend")}>
+                <div className="h-[260px] w-full min-w-0">
+                  {trendOpt && summaryQuery.isSuccess ? (
+                    <ReactEChart option={trendOpt} style={{ height: 240 }} />
+                  ) : (
+                    <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+                      {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+
+            <Card bordered={false} className={kpiShellClass} title={t("sectionDuration")}>
+              <div className="h-[220px] w-full max-w-xl min-w-0">
+                {durationBar && summaryQuery.isSuccess ? (
+                  <ReactEChart option={durationBar} style={{ height: 200 }} />
+                ) : (
+                  <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
+                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
+                  </div>
+                )}
+              </div>
+            </Card>
+
             <div className="grid gap-4 lg:grid-cols-2">
               <Card title={t("sectionTopCmd")} bordered className="shadow-sm rounded-lg">
-                {s?.top_commands?.length ? (
-                  <ul className="space-y-1.5">
-                    {s.top_commands.map((x, idx) => (
+                <ul className="space-y-1.5">
+                  {s?.top_commands?.length ? (
+                    s.top_commands.map((x, idx) => (
                       <li key={x.command} className="last:border-0">
                         <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
                           <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
@@ -774,18 +654,22 @@ export function CommandAnalysisDashboard() {
                           <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{Math.round(x.count).toLocaleString()}</span>
                         </div>
                       </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <ListEmptyState title={t("emptyTopCmd")} className="min-h-[200px]" />
-                )}
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">{t("emptyTopCmd")}</li>
+                  )}
+                </ul>
               </Card>
               <Card title={t("sectionSlowest")} bordered className="shadow-sm rounded-lg">
-                {s?.slowest?.length ? (
-                  <ul className="space-y-1.5">
-                    {s.slowest.map((x, idx) => (
+                <ul className="space-y-1.5">
+                  {s?.slowest?.length ? (
+                    s.slowest.map((x, idx) => (
                       <li key={x.span_id} className="last:border-0">
-                        <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left">
+                        <button
+                          type="button"
+                          className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                          onClick={() => setDrawerSpanId(x.span_id)}
+                        >
                           <span className={cn("inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none", topRankColorClass(idx + 1))}>
                             {idx + 1}
                           </span>
@@ -795,39 +679,20 @@ export function CommandAnalysisDashboard() {
                             </Typography.Text>
                           </Popover>
                           <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">{x.duration_ms} ms</span>
-                        </div>
+                        </button>
                       </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <ListEmptyState title={t("emptySlowest")} className="min-h-[200px]" />
-                )}
+                    ))
+                  ) : (
+                    <li className="text-sm text-muted-foreground">{t("emptySlowest")}</li>
+                  )}
+                </ul>
               </Card>
             </div>
-          </section>
 
-          <section aria-label={t("sectionTrend")} className="space-y-3">
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
-              {t("sectionTrend")}
-            </Typography.Title>
-            <Card bordered={false} className={kpiShellClass}>
-              <div className="h-[260px] w-full min-w-0">
-                {trendOpt && summaryQuery.isSuccess ? (
-                  <ReactEChart option={trendOpt} style={{ height: 240 }} />
-                ) : (
-                  <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                    {summaryQuery.isLoading ? <Spin /> : t("emptyChart")}
-                  </div>
-                )}
-              </div>
-            </Card>
-          </section>
-
-          <section aria-label={t("sectionBehavior")} className="space-y-3">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionBehavior")}
             </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-1">
+            <div className="grid gap-4 lg:grid-cols-2">
               <Card bordered={false} className={kpiShellClass} title={t("sectionLoops")}>
                 {s?.loop_alerts?.length ? (
                   <ul className="space-y-2 text-sm">
@@ -838,19 +703,6 @@ export function CommandAnalysisDashboard() {
                           <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(lo.trace_id)}`}>
                             {formatShortId(lo.trace_id)}
                           </LocalizedLink>
-                          <Button
-                            type="outline"
-                            size="mini"
-                            onClick={() => {
-                              setTraceFilter(lo.trace_id);
-                              setPage(1);
-                              void listQuery.refetch();
-                              const el = document.querySelector('#section-list');
-                              el?.scrollIntoView({ behavior: "smooth" });
-                            }}
-                          >
-                            {t("focusTraceDetails")}
-                          </Button>
                         </div>
                         <Typography.Text className="mt-1 block text-xs" ellipsis={{ showTooltip: true }}>
                           {lo.command}
@@ -862,62 +714,88 @@ export function CommandAnalysisDashboard() {
                   <p className="text-sm text-muted-foreground">{t("noLoops")}</p>
                 )}
               </Card>
+              <Card bordered={false} className={kpiShellClass} title={t("sectionChain")}>
+                {s?.chain_preview?.steps?.length ? (
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
+                    {s.chain_preview.steps.map((st, i) => (
+                      <span key={`${st.kind}-${i}-${st.name}`} className="flex items-center gap-1">
+                        {i > 0 ? <span className="text-muted-foreground">→</span> : null}
+                        <Tag size="small" color={st.kind === "llm" ? "arcoblue" : "gray"}>
+                          {st.kind}:{st.name.slice(0, 40)}
+                        </Tag>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noChain")}</p>
+                )}
+                {s?.chain_preview?.trace_id ? (
+                  <LocalizedLink className="mt-2 inline-block text-xs text-primary" href={`/messages/${encodeURIComponent(s.chain_preview.trace_id)}`}>
+                    {t("openTrace")}
+                  </LocalizedLink>
+                ) : null}
+              </Card>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-1">
-              <Card bordered={false} className={kpiShellClass} title={t("sectionRedundant")}>
-                {s?.redundant_read_hints?.length ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card bordered={false} className={kpiShellClass} title={t("sectionIdempotency")}>
+                {s?.idempotency_samples?.length ? (
                   <ul className="space-y-2 text-sm">
-                    {s.redundant_read_hints.map((r) => (
-                      <li key={`${r.trace_id}-${r.command}`} className="flex flex-wrap items-center gap-2">
-                        <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}>
-                          {formatShortId(r.trace_id)}
-                        </LocalizedLink>
-                        <span className="text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>
-                        <Button
-                          type="outline"
-                          size="mini"
-                          onClick={() => {
-                            setTraceFilter(r.trace_id);
-                            setPage(1);
-                            void listQuery.refetch();
-                            const el = document.querySelector('[aria-label="section-list"]');
-                            el?.scrollIntoView({ behavior: "smooth" });
-                          }}
-                        >
-                          {t("focusTraceDetails")}
-                        </Button>
+                    {s.idempotency_samples.map((x) => (
+                      <li key={x.command_key} className="border-b border-border/60 pb-2 last:border-0">
+                        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
+                          {x.command_key}
+                        </Typography.Text>
+                        <div className="mt-1 text-xs text-muted-foreground">{t("idempoHint", { traces: x.traces, outcomes: x.outcomes })}</div>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <ListEmptyState title={t("noRedundant")} className="min-h-[200px]" />
+                  <p className="text-sm text-muted-foreground">{t("noIdempo")}</p>
+                )}
+              </Card>
+              <Card bordered={false} className={kpiShellClass} title={t("sectionRedundant")}>
+                {s?.redundant_read_hints?.length ? (
+                  <ul className="space-y-2 text-sm">
+                    {s.redundant_read_hints.map((r) => (
+                      <li key={`${r.trace_id}-${r.command}`}>
+                        <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}>
+                          {formatShortId(r.trace_id)}
+                        </LocalizedLink>
+                        <span className="ml-2 text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noRedundant")}</p>
                 )}
               </Card>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-1">
-              <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
-                {s?.token_risks?.length ? (
-                  <Table
-                    size="small"
-                    pagination={false}
-                    rowKey="span_id"
-                    columns={[
-                      { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
-                      { title: t("colCommand"), render: (_, r) => <Typography.Text className="text-xs" ellipsis>{r.command}</Typography.Text> },
-                      { title: t("colStdout"), dataIndex: "stdout_chars" },
-                      { title: t("colEstTokens"), dataIndex: "est_tokens" },
-                      { title: t("colEstUsd"), dataIndex: "est_usd" },
-                    ]}
-                    data={s.token_risks}
-                  />
-                ) : (
-                  <ListEmptyState title={t("noTokenRisk")} className="min-h-[200px]" />
-                )}
-                <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
-              </Card>
-            </div>
+            <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
+              {t("sectionEfficiency")}
+            </Typography.Title>
+            <Card bordered={false} className={kpiShellClass} title={t("sectionTokenRisk")}>
+              {s?.token_risks?.length ? (
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="span_id"
+                  columns={[
+                    { title: t("colTrace"), render: (_, r) => formatShortId(r.trace_id) },
+                    { title: t("colCommand"), render: (_, r) => <Typography.Text className="text-xs" ellipsis>{r.command}</Typography.Text> },
+                    { title: t("colStdout"), dataIndex: "stdout_chars" },
+                    { title: t("colEstTokens"), dataIndex: "est_tokens" },
+                    { title: t("colEstUsd"), dataIndex: "est_usd" },
+                    { title: t("colAction"), render: (_, r) => <Button type="text" size="mini" onClick={() => setDrawerSpanId(r.span_id)}>{t("detailBtn")}</Button> },
+                  ]}
+                  data={s.token_risks}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("noTokenRisk")}</p>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">{t("tokenNote")}</p>
+            </Card>
 
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionDiagnostics")}
@@ -927,10 +805,11 @@ export function CommandAnalysisDashboard() {
               <Tag color="orangered">{t("diagPerm")}: {s?.diagnostics.permission_denied ?? 0}</Tag>
               <Tag color="gold">{t("diagArg")}: {s?.diagnostics.illegal_arg_hint ?? 0}</Tag>
             </div>
+          </>
+        ) : null}
 
-          </section>
-
-        <section className="space-y-3" id="section-list">
+        {viewKind === "details" ? (
+          <>
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold text-[#1D2129] dark:text-foreground">
               {t("sectionList")}
             </Typography.Title>
@@ -1004,96 +883,139 @@ export function CommandAnalysisDashboard() {
             </Card>
 
             <Card bordered={false} className={kpiShellClass} bodyStyle={{ padding: 0 }}>
-              {listQuery.data?.items.length === 0 && !listQuery.isLoading ? (
-                <ListEmptyState title={t("listTraceRecordsEmpty")} className="min-h-[300px]" />
-              ) : (
-                <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
-                  <ScrollableTableFrame
-                    variant="neutral"
-                    contentKey={`${page}-${listQuery.data?.items.length ?? 0}`}
-                    scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
-                  >
-                    <div className="min-w-0 w-full">
-                      <Table
-                        tableLayoutFixed
-                        size="small"
-                        rowKey="span_id"
-                        loading={listQuery.isLoading}
-                        columns={listColumns}
-                        data={listQuery.data?.items ?? []}
-                        pagination={false}
-                        border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                        scroll={OBSERVE_TABLE_SCROLL_X}
-                        hover={true}
-                        className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
-                      />
-                    </div>
-                  </ScrollableTableFrame>
-                </div>
-              )}
-              <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
-                <Typography.Text type="secondary" className="text-xs">
-                  {t("showingOfTotal", {
-                    from: String(listQuery.data?.items.length ? (page - 1) * pageSize + 1 : 0),
-                    to: String(
-                      listQuery.data?.items.length
-                        ? (page - 1) * pageSize + listQuery.data!.items.length
-                        : 0,
-                    ),
-                    total: String(listQuery.data?.total ?? 0),
-                  })}
-                </Typography.Text>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                    {t("paginationTotalPages", {
-                      count: String(Math.max(1, Math.ceil((listQuery.data?.total ?? 0) / pageSize) || 1)),
-                    })}
-                  </span>
-                  <Pagination
-                    className="resource-audit-audit-log-pagination"
-                    size="small"
-                    current={page}
-                    pageSize={pageSize}
-                    total={totalRows}
-                    onChange={(nextPage, nextPageSize) => {
-                      if (nextPageSize && nextPageSize !== pageSize) {
-                        setPageSize(nextPageSize);
-                        writeStoredPageSize(nextPageSize);
-                      }
-                      setPage(nextPage);
-                    }}
-                    showTotal
-                    bufferSize={1}
-                    sizeCanChange
-                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                    showJumper
-                    disabled={listQuery.isFetching}
-                  />
-                </div>
+              <Table
+                size="small"
+                rowKey="span_id"
+                loading={listQuery.isLoading}
+                columns={listColumns}
+                data={listQuery.data?.items ?? []}
+                pagination={false}
+                border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
+              />
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 px-3 py-3">
+                <Pagination
+                  size="small"
+                  total={totalRows}
+                  current={page}
+                  pageSize={pageSize}
+                  showTotal={(tot) => t("paginationTotal", { total: tot })}
+                  pageSizeChangeResetCurrent={false}
+                  sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                  onChange={(p, ps) => {
+                    setPage(p);
+                    if (ps !== pageSize) {
+                      setPageSize(ps);
+                      writeStoredPageSize(ps);
+                    }
+                  }}
+                />
               </div>
             </Card>
-        </section>
-        </div>
-      </main>
+          </>
+        ) : null}
 
-      <TraceRecordInspectDialog
-        open={messageInspectTrace != null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setMessageInspectTrace(null);
-            setMessageInspectInitialSpanId(null);
-          }
-        }}
-        row={messageInspectTrace}
-        initialSpanId={messageInspectInitialSpanId}
-        rows={messageInspectTrace ? [messageInspectTrace] : []}
-        onNavigate={(r) => {
-          setMessageInspectTrace(r);
-          setMessageInspectInitialSpanId(null);
-        }}
-        baseUrl={baseUrl}
-        apiKey={apiKey}
-      />
+        <Drawer
+          width={520}
+          title={t("drawerTitle")}
+          visible={drawerSpanId != null}
+          onCancel={() => setDrawerSpanId(null)}
+          footer={null}
+        >
+          {detailQuery.isLoading ? (
+            <Spin className="block py-10" />
+          ) : detailQuery.isError ? (
+            <Typography.Text type="error">{t("detailError")}</Typography.Text>
+          ) : (
+            <div className="space-y-4 text-sm">
+              {(() => {
+                const d = detailQuery.data;
+                const p = d?.parsed as Record<string, unknown> | undefined;
+                if (!d) {
+                  return null;
+                }
+                return (
+                  <>
+                    <div>
+                      <div className="text-xs text-muted-foreground">{t("lblCommand")}</div>
+                      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
+                        {String(p?.command ?? "")}
+                      </pre>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">{t("lblExit")}</span>{" "}
+                        {p?.exitCode != null ? String(p.exitCode) : "—"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{t("lblCwd")}</span>{" "}
+                        {p?.cwd != null ? String(p.cwd) : "—"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{t("lblUser")}</span>{" "}
+                        {p?.userId != null ? String(p.userId) : "—"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{t("lblHost")}</span>{" "}
+                        {p?.host != null ? String(p.host) : "—"}
+                      </div>
+                    </div>
+                    {Array.isArray(p?.envKeys) && (p.envKeys as string[]).length > 0 ? (
+                      <div>
+                        <div className="text-xs text-muted-foreground">{t("lblEnvKeys")}</div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(p.envKeys as string[]).slice(0, 24).map((k) => (
+                            <Tag key={k} size="small">
+                              {k}
+                            </Tag>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div>
+                      <div className="text-xs text-muted-foreground">{t("lblStdout")}</div>
+                      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
+                        {p?.stdoutPreview != null ? String(p.stdoutPreview) : "—"}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">{t("lblStderr")}</div>
+                      <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-xs">
+                        {p?.stderrPreview != null ? String(p.stderrPreview) : "—"}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-semibold">{t("lblContext")}</div>
+                      {spansContextQuery.isLoading ? (
+                        <Spin />
+                      ) : (
+                        <div className="space-y-2 rounded-md border border-border/60 p-2">
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t("lblPromptBefore")}</div>
+                            <pre className="mt-1 max-h-32 overflow-auto text-xs text-muted-foreground">
+                              {contextBlocks.before
+                                ? JSON.stringify(contextBlocks.before.input ?? {}, null, 2).slice(0, 4000)
+                                : t("noContext")}
+                            </pre>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t("lblModelAfter")}</div>
+                            <pre className="mt-1 max-h-32 overflow-auto text-xs text-muted-foreground">
+                              {contextBlocks.after
+                                ? JSON.stringify(contextBlocks.after.output ?? {}, null, 2).slice(0, 4000)
+                                : t("noContext")}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </Drawer>
+      </main>
     </AppPageShell>
   );
 }

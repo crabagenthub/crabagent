@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 
@@ -87,7 +86,6 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
   const ch = r.channel_name;
   const start_time_ms = r.start_time_ms != null && r.start_time_ms !== "" ? Number(r.start_time_ms) : null;
   const end_time_ms = r.end_time_ms != null && r.end_time_ms !== "" ? Number(r.end_time_ms) : null;
-  const duration_ms = coalesceSpanDurationMs(r.duration_ms, start_time_ms, end_time_ms);
   return {
     span_id: String(r.span_id ?? ""),
     trace_id: String(r.trace_id ?? ""),
@@ -96,14 +94,14 @@ function normalizeSpanRecord(r: Record<string, unknown>): SpanRecordRow {
     span_type: String(r.span_type ?? "general"),
     start_time_ms,
     end_time_ms,
-    duration_ms,
+    duration_ms: coalesceSpanDurationMs(r.duration_ms, start_time_ms, end_time_ms),
     model: r.model != null ? String(r.model) : null,
     provider: r.provider != null ? String(r.provider) : null,
     is_complete: Number(r.is_complete) === 1 || r.is_complete === true,
     input_preview: r.input_preview != null ? String(r.input_preview) : null,
     output_preview: r.output_preview != null ? String(r.output_preview) : null,
     thread_key: String(r.thread_key ?? r.trace_id ?? ""),
-    workspace_name: String(r.workspace_name ?? "OpenClaw"),
+    workspace_name: String(r.workspace_name ?? "default"),
     project_name: String(r.project_name ?? "openclaw"),
     agent_name: ag != null && String(ag).trim() !== "" ? String(ag) : null,
     channel_name: ch != null && String(ch).trim() !== "" ? String(ch) : null,
@@ -184,24 +182,14 @@ export async function loadSpanRecords(
   if (params.sort === "tokens") {
     sp.set("sort", "tokens");
   }
-  appendWorkspaceNameParam(sp);
   const res = await fetch(`${b}${COLLECTOR_API.spanList}?${sp.toString()}`, {
     headers: collectorAuthHeaders(apiKey),
   });
-  const j = await readCollectorFetchResult<{ items?: Record<string, unknown>[]; total?: number | string | null }>(
-    res,
-    `span list HTTP ${res.status}`,
-  );
-  const rawItems = Array.isArray(j.items) ? j.items : [];
-  const items = rawItems
-    .filter((x): x is Record<string, unknown> => x != null && typeof x === "object" && !Array.isArray(x))
-    .map(normalizeSpanRecord);
-  const st: unknown = j.total;
-  const total =
-    typeof st === "number" && Number.isFinite(st)
-      ? Math.max(0, Math.floor(st))
-      : typeof st === "string" && st.trim() !== "" && Number.isFinite(Number(st))
-        ? Math.max(0, Math.floor(Number(st)))
-        : items.length;
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const j = (await res.json()) as { items?: Record<string, unknown>[]; total?: number };
+  const items = (j.items ?? []).map(normalizeSpanRecord);
+  const total = typeof j.total === "number" && Number.isFinite(j.total) ? Math.max(0, Math.floor(j.total)) : items.length;
   return { items, total };
 }

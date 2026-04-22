@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test": "pnpm dlx tsx@4.19.0 --tsconfig tsconfig.json --test src/lib/collector-json.test.ts src/lib/conversation-turn-chain.test.ts"
+    "test": "pnpm dlx tsx@4.19.0 --tsconfig tsconfig.json --test src/lib/conversation-turn-chain.test.ts"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.12",

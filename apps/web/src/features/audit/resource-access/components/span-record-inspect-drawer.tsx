@@ -234,7 +234,6 @@ export function SpanRecordInspectDrawer({
                   onSelect={setSelectedSpanId}
                   variant="inspect"
                   traceTimeRange={traceTimeRange}
-                  largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? undefined}
                 />
               ) : (
                 <p className="p-4 text-sm text-neutral-500">{t("detailTreeNoMatches")}</p>
@@ -244,11 +243,7 @@ export function SpanRecordInspectDrawer({
 
           <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-background">
             <div className="min-h-0 flex-1 overflow-hidden">
-              <TraceSpanRunPanel
-                span={selectedSpan}
-                chrome="embedded"
-                largeToolResultThresholdChars={spansQuery.data?.large_tool_result_threshold_chars ?? null}
-              />
+              <TraceSpanRunPanel span={selectedSpan} chrome="embedded" />
             </div>
           </div>
 

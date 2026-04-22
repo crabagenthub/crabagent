@@ -8,8 +8,6 @@ import type { TableProps } from "@arco-design/web-react";
 import {
   Table,
   Button,
-  Checkbox,
-  Pagination,
   Modal,
   Form,
   Input,
@@ -22,25 +20,14 @@ import {
   Radio,
   Tooltip,
   Popover,
-  Dropdown,
-  Menu,
 } from "@arco-design/web-react";
-import { IconEdit, IconDelete, IconQuestionCircleFill, IconFilter } from "@arco-design/web-react/icon";
-import { appendWorkspaceNameParam, loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
-import { readCollectorFetchResult } from "@/lib/collector-json";
-import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
+import { IconEdit, IconDelete, IconQuestionCircleFill } from "@arco-design/web-react/icon";
+import { loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/observe-table-style";
-import { OBSERVE_TABLE_ICON_BUTTON_CLASSNAME } from "@/lib/observe-table-control-style";
-import {
-  loadSecurityAuditEvents,
-  loadSecurityAuditPolicyEventCounts,
-  type SecurityAuditEventRow,
-} from "@/lib/security-audit-records";
-import { cn, formatShortId } from "@/lib/utils";
-import { PAGE_SIZE_OPTIONS } from "@/lib/table-pagination";
+import { formatShortId } from "@/lib/utils";
 
 import "@/lib/arco-react19-setup";
 
@@ -63,149 +50,6 @@ function requiredLabel(label: ReactNode) {
   );
 }
 
-function PolicySingleFilterHeader({
-  label,
-  value,
-  options,
-  onChange,
-  clearLabel,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ text: string; value: string }>;
-  onChange: (next: string) => void;
-  clearLabel: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const applied = value.trim().length > 0;
-  return (
-    <div className="flex items-center gap-1">
-      <ObserveTableHeaderLabel>{label}</ObserveTableHeaderLabel>
-      <Dropdown
-        popupVisible={open}
-        onVisibleChange={setOpen}
-        trigger="click"
-        droplist={
-          <Menu
-            selectedKeys={applied ? [value] : []}
-            onClickMenuItem={(key) => {
-              onChange(String(key));
-              setOpen(false);
-            }}
-            className="min-w-[10rem]"
-          >
-            <Menu.Item key="__clear__" disabled={!applied}>
-              <span
-                className="text-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChange("");
-                  setOpen(false);
-                }}
-              >
-                {clearLabel}
-              </span>
-            </Menu.Item>
-            {options.map((opt) => (
-              <Menu.Item key={opt.value}>{opt.text}</Menu.Item>
-            ))}
-          </Menu>
-        }
-      >
-        <Button
-          type="text"
-          size="mini"
-          className={cn(
-            OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            applied ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
-          )}
-          aria-expanded={open}
-        >
-          <IconFilter className={cn("size-3.5", applied ? "text-primary" : "text-neutral-600")} strokeWidth={2} />
-        </Button>
-      </Dropdown>
-    </div>
-  );
-}
-
-function PolicyMultiFilterHeader({
-  label,
-  value,
-  options,
-  onChange,
-  clearLabel,
-}: {
-  label: string;
-  value: string[];
-  options: Array<{ text: string; value: string }>;
-  onChange: (next: string[]) => void;
-  clearLabel: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const applied = value.length > 0;
-  const toggle = (v: string, checked: boolean) => {
-    if (checked) {
-      onChange([...new Set([...value, v])]);
-      return;
-    }
-    onChange(value.filter((x) => x !== v));
-  };
-  return (
-    <div className="flex items-center gap-1">
-      <ObserveTableHeaderLabel>{label}</ObserveTableHeaderLabel>
-      <Dropdown
-        popupVisible={open}
-        onVisibleChange={setOpen}
-        trigger="click"
-        position="bl"
-        droplist={
-          <div
-            className="min-w-[11rem] rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-md"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <Button
-              type="text"
-              size="mini"
-              className="mb-2 h-8 w-full justify-start px-2 text-xs font-normal"
-              onClick={() => {
-                onChange([]);
-                setOpen(false);
-              }}
-              disabled={!applied}
-            >
-              {clearLabel}
-            </Button>
-            <div className="space-y-1 border-t border-border pt-2">
-              {options.map((opt) => (
-                <Checkbox
-                  key={opt.value}
-                  checked={value.includes(opt.value)}
-                  onChange={(c) => toggle(opt.value, Boolean(c))}
-                  className="!flex !w-full !items-center py-0.5 [&_.arco-checkbox-text]:text-xs"
-                >
-                  {opt.text}
-                </Checkbox>
-              ))}
-            </div>
-          </div>
-        }
-      >
-        <Button
-          type="text"
-          size="mini"
-          className={cn(
-            OBSERVE_TABLE_ICON_BUTTON_CLASSNAME,
-            applied ? "!text-primary hover:!text-primary" : "!text-neutral-600 hover:!text-neutral-700",
-          )}
-          aria-expanded={open}
-        >
-          <IconFilter className={cn("size-3.5", applied ? "text-primary" : "text-neutral-600")} strokeWidth={2} />
-        </Button>
-      </Dropdown>
-    </div>
-  );
-}
-
 interface InterceptionPolicy {
   id: string;
   name: string;
@@ -217,7 +61,6 @@ interface InterceptionPolicy {
   severity?: string | null;
   policy_action?: string | null;
   detection_kind?: string | null;
-  hint_type?: string | null;
   created_at_ms?: number | null;
   updated_at_ms: number;
   pulled_at_ms?: number | null;
@@ -247,11 +90,6 @@ export function InterceptorPoliciesManager({
   const [actionFilters, setActionFilters] = useState<string[]>([]);
   const [targetsFilters, setTargetsFilters] = useState<string[]>([]);
   const [enabledFilters, setEnabledFilters] = useState<string[]>([]);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [policyEventsPolicy, setPolicyEventsPolicy] = useState<InterceptionPolicy | null>(null);
-  const [policyEventsPage, setPolicyEventsPage] = useState(1);
-  const [policyEventsPageSize, setPolicyEventsPageSize] = useState(20);
 
   useEffect(() => {
     if (!isModalVisible) {
@@ -286,20 +124,19 @@ export function InterceptorPoliciesManager({
   const apiKey = loadApiKey();
 
   const { data: policies = [], isLoading, refetch } = useQuery({
-    queryKey: ["interception-policies", collectorUrl, "workspace-scoped"],
+    queryKey: ["interception-policies", collectorUrl],
     queryFn: async () => {
-      const sp = new URLSearchParams();
-      appendWorkspaceNameParam(sp);
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies?${sp.toString()}`;
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies`;
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
       };
       const resp = await fetch(url, { headers });
-      return readCollectorFetchResult<InterceptionPolicy[]>(
-        resp,
-        `Failed to fetch policies (HTTP ${resp.status})`,
-      );
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `Failed to fetch policies (HTTP ${resp.status})`);
+      }
+      return resp.json() as Promise<InterceptionPolicy[]>;
     },
     enabled: !!collectorUrl,
   });
@@ -322,40 +159,6 @@ export function InterceptorPoliciesManager({
   useEffect(() => {
     void refetch();
   }, [refreshSignal, refetch]);
-
-  const policyEventsQ = useQuery({
-    queryKey: [
-      COLLECTOR_QUERY_SCOPE.securityAuditEvents,
-      collectorUrl,
-      apiKey,
-      "policy-events",
-      policyEventsPolicy?.id ?? "",
-      policyEventsPage,
-      policyEventsPageSize,
-    ],
-    enabled: !!collectorUrl && !!policyEventsPolicy?.id,
-    queryFn: () =>
-      loadSecurityAuditEvents(collectorUrl, apiKey, {
-        order: "desc",
-        limit: policyEventsPageSize,
-        offset: (policyEventsPage - 1) * policyEventsPageSize,
-        policyId: policyEventsPolicy?.id ?? undefined,
-      }),
-    staleTime: 20_000,
-  });
-  const policyEventCountsQ = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.securityAuditPolicyEventCounts, collectorUrl, apiKey],
-    enabled: !!collectorUrl,
-    queryFn: () => loadSecurityAuditPolicyEventCounts(collectorUrl, apiKey),
-    staleTime: 20_000,
-  });
-  const policyEventCountMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of policyEventCountsQ.data ?? []) {
-      map.set(row.policy_id, row.event_count);
-    }
-    return map;
-  }, [policyEventCountsQ.data]);
 
   const normalizedSearch = (searchQuery || "").trim().toLowerCase();
   const filteredPolicies = useMemo(() => {
@@ -404,24 +207,20 @@ export function InterceptorPoliciesManager({
     return arr;
   }, [filteredPolicies, createdSortOrder]);
 
-  const pagedPolicies = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return sortedPolicies.slice(start, start + pageSize);
-  }, [sortedPolicies, page, pageSize]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [normalizedSearch, severityFilters, actionFilters, targetsFilters, enabledFilters, createdSortOrder, pageSize]);
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(sortedPolicies.length / pageSize));
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [sortedPolicies.length, pageSize, page]);
-
   const onTableChange = useCallback<NonNullable<TableProps<InterceptionPolicy>["onChange"]>>(
     (_pagination, sorter, _filters, extra) => {
+      if (extra.action === "filter") {
+        const pick = (key: string): string[] => {
+          const val = (_filters as Record<string, unknown>)[key];
+          return Array.isArray(val) ? val.map((x) => String(x)) : [];
+        };
+        setSeverityFilters(pick("severity"));
+        setActionFilters(pick("policy_action"));
+        setTargetsFilters(pick("targets_json"));
+        setEnabledFilters(pick("enabled"));
+        return;
+      }
+
       if (extra.action !== "sort") {
         return;
       }
@@ -444,9 +243,7 @@ export function InterceptorPoliciesManager({
 
   const upsertMutation = useMutation({
     mutationFn: async (policy: Partial<InterceptionPolicy>) => {
-      const sp = new URLSearchParams();
-      appendWorkspaceNameParam(sp);
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies?${sp.toString()}`;
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies`;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         Accept: "application/json",
@@ -457,7 +254,11 @@ export function InterceptorPoliciesManager({
         headers,
         body: JSON.stringify(policy),
       });
-      return readCollectorFetchResult<unknown>(resp, `Failed to save policy (HTTP ${resp.status})`);
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `Failed to save policy (HTTP ${resp.status})`);
+      }
+      return resp.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["interception-policies"] });
@@ -472,15 +273,17 @@ export function InterceptorPoliciesManager({
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const sp = new URLSearchParams();
-      appendWorkspaceNameParam(sp);
-      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies/${id}?${sp.toString()}`;
+      const url = `${collectorUrl.replace(/\/+$/, "")}/v1/policies/${id}`;
       const headers: Record<string, string> = {
         Accept: "application/json",
         ...(collectorAuthHeaders(apiKey) as Record<string, string>),
       };
       const resp = await fetch(url, { method: "DELETE", headers });
-      return readCollectorFetchResult<unknown>(resp, `Failed to delete policy (HTTP ${resp.status})`);
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `Failed to delete policy (HTTP ${resp.status})`);
+      }
+      return resp.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["interception-policies"] });
@@ -559,73 +362,26 @@ export function InterceptorPoliciesManager({
   const columns = useMemo(
     () => [
       {
-        title: (
-          <PolicySingleFilterHeader
-            label={t("policyId")}
-            value={severityFilters[0] ?? ""}
-            onChange={(next) => setSeverityFilters(next ? [next] : [])}
-            clearLabel={t("clearFilters")}
-            options={[
-              { text: t("policySeverityLow"), value: "low" },
-              { text: t("policySeverityHigh"), value: "high" },
-              { text: t("policySeverityCritical"), value: "critical" },
-            ]}
-          />
-        ),
+        title: <ObserveTableHeaderLabel>{t("policyId")}</ObserveTableHeaderLabel>,
         dataIndex: "id",
         key: "id",
         width: 220,
         fixed: "left" as const,
-        render: (id: string, record: InterceptionPolicy) => {
-          const s = (record.severity ?? "high").toLowerCase();
-          const color = s === "critical" ? "red" : s === "low" ? "green" : "orange";
-          const label =
-            s === "low" ? t("policySeverityLow") : s === "critical" ? t("policySeverityCritical") : t("policySeverityHigh");
-          return (
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-1">
-                <span className="block min-w-0 truncate font-mono text-xs text-neutral-800 dark:text-neutral-100" title={id}>
-                  {formatShortId(id)}
-                </span>
-                <TraceCopyIconButton
-                  text={id}
-                  ariaLabel={t("copyPolicyIdAria")}
-                  tooltipLabel={t("copyTooltip")}
-                  successLabel={t("copySuccess")}
-                  className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
-                  stopPropagation
-                />
-              </div>
-              <div className="mt-1">
-                <Tag color={color} className="!rounded-md text-xs">
-                  {label}
-                </Tag>
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        title: <ObserveTableHeaderLabel>{t("policyEvents")}</ObserveTableHeaderLabel>,
-        dataIndex: "id",
-        key: "policy_events",
-        width: 96,
-        render: (id: string, record: InterceptionPolicy) => {
-          const count = policyEventCountMap.get(id) ?? 0;
-          return (
-            <Button
-              type="text"
-              size="mini"
-              className="!h-auto !px-0 text-xs font-medium tabular-nums"
-              onClick={() => {
-                setPolicyEventsPolicy(record);
-                setPolicyEventsPage(1);
-              }}
-            >
-              {count}
-            </Button>
-          );
-        },
+        render: (id: string) => (
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="block min-w-0 truncate font-mono text-xs text-neutral-800 dark:text-neutral-100" title={id}>
+              {formatShortId(id)}
+            </span>
+            <TraceCopyIconButton
+              text={id}
+              ariaLabel={t("copyPolicyIdAria")}
+              tooltipLabel={t("copyTooltip")}
+              successLabel={t("copySuccess")}
+              className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
+              stopPropagation
+            />
+          </div>
+        ),
       },
       {
         title: <ObserveTableHeaderLabel>{t("policyPulledAt")}</ObserveTableHeaderLabel>,
@@ -670,65 +426,74 @@ export function InterceptorPoliciesManager({
         title: <ObserveTableHeaderLabel>{t("detectionKind")}</ObserveTableHeaderLabel>,
         dataIndex: "pattern",
         key: "detection_display",
-        width: 150,
+        width: 260,
         render: (_pattern: string, record: InterceptionPolicy) => {
           const dk = (record.detection_kind ?? "regex").toLowerCase();
           if (dk === "model") {
-            return <span className="text-xs text-neutral-600 dark:text-zinc-400">{t("detectionModelSoon")}</span>;
+            return (
+              <span className="text-xs text-neutral-600 dark:text-neutral-400" title={t("detectionModelSoon")}>
+                {t("detectionModelSoon")}
+              </span>
+            );
           }
           const pat = record.pattern || "";
           return (
-            <Popover
-              trigger="hover"
-              position="top"
-              content={
-                <div className="max-w-[min(36rem,calc(100vw-2rem))] rounded-xl bg-background p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-neutral-500 dark:text-zinc-400">
-                      {t("policyPattern")}
-                    </div>
-                    {pat ? (
-                      <TraceCopyIconButton
-                        text={pat}
-                        ariaLabel={t("copyPolicyPatternAria")}
-                        tooltipLabel={t("copyTooltip")}
-                        successLabel={t("copySuccess")}
-                        className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
-                        stopPropagation
-                      />
-                    ) : null}
-                  </div>
-                  <div className="max-h-40 overflow-y-auto whitespace-pre-wrap break-all font-mono text-xs leading-5 text-neutral-800 dark:text-zinc-100">
-                    {pat || "—"}
-                  </div>
-                </div>
-              }
-            >
-              <span className="inline-flex cursor-help items-center rounded-md bg-neutral-200/70 px-2 py-1 text-xs text-neutral-700 dark:bg-zinc-700/60 dark:text-zinc-200">
-                {t("detectionRegex")}
-              </span>
-            </Popover>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <code
+                className="block max-w-[13.5rem] min-w-0 max-h-[2.8rem] overflow-y-auto whitespace-pre-wrap break-all rounded-[var(--radius)] border border-border bg-muted/40 px-2 py-1 font-mono text-xs leading-[1.3] text-neutral-800 dark:text-neutral-100"
+                title={pat || "—"}
+              >
+                {pat || "—"}
+              </code>
+              {pat ? (
+                <TraceCopyIconButton
+                  text={pat}
+                  ariaLabel={t("copyPolicyPatternAria")}
+                  tooltipLabel={t("copyTooltip")}
+                  successLabel={t("copySuccess")}
+                  className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
+                  stopPropagation
+                />
+              ) : null}
+            </div>
           );
         },
       },
       {
-        title: (
-          <PolicySingleFilterHeader
-            label={t("policyAction")}
-            value={actionFilters[0] ?? ""}
-            onChange={(next) => setActionFilters(next ? [next] : [])}
-            clearLabel={t("clearFilters")}
-            options={[
-              { text: t("policyActionDataMask"), value: "data_mask" },
-              { text: t("policyActionAbortRun"), value: "abort_run" },
-              { text: t("policyActionInputGuard"), value: "input_guard" },
-              { text: t("policyActionAuditOnly"), value: "audit_only" },
-            ]}
-          />
-        ),
+        title: <ObserveTableHeaderLabel>{t("policySeverity")}</ObserveTableHeaderLabel>,
+        dataIndex: "severity",
+        key: "severity",
+        width: 88,
+        filters: [
+          { text: t("policySeverityLow"), value: "low" },
+          { text: t("policySeverityHigh"), value: "high" },
+          { text: t("policySeverityCritical"), value: "critical" },
+        ],
+        filteredValue: severityFilters,
+        render: (severity: string | null | undefined) => {
+          const s = severity ?? "high";
+          const color = s === "critical" ? "red" : s === "low" ? "green" : "orange";
+          const label =
+            s === "low" ? t("policySeverityLow") : s === "critical" ? t("policySeverityCritical") : t("policySeverityHigh");
+          return (
+            <Tag color={color} className="!rounded-md text-xs">
+              {label}
+            </Tag>
+          );
+        },
+      },
+      {
+        title: <ObserveTableHeaderLabel>{t("policyAction")}</ObserveTableHeaderLabel>,
         dataIndex: "policy_action",
         key: "policy_action",
         width: 120,
+        filters: [
+          { text: t("policyActionDataMask"), value: "data_mask" },
+          { text: t("policyActionAbortRun"), value: "abort_run" },
+          { text: t("policyActionInputGuard"), value: "input_guard" },
+          { text: t("policyActionAuditOnly"), value: "audit_only" },
+        ],
+        filteredValue: actionFilters,
         render: (action: string | null | undefined) => {
           const a = action ?? "data_mask";
           const labelKey =
@@ -772,24 +537,18 @@ export function InterceptorPoliciesManager({
         ),
       },
       {
-        title: (
-          <PolicyMultiFilterHeader
-            label={t("policyTargets")}
-            value={targetsFilters}
-            onChange={setTargetsFilters}
-            clearLabel={t("clearFilters")}
-            options={[
-              { text: "prompt", value: "prompt" },
-              { text: "assistantTexts", value: "assistantTexts" },
-              { text: "tool_params", value: "tool_params" },
-              { text: "tool_output", value: "tool_output" },
-              { text: "metadata", value: "metadata" },
-            ]}
-          />
-        ),
+        title: <ObserveTableHeaderLabel>{t("policyTargets")}</ObserveTableHeaderLabel>,
         dataIndex: "targets_json",
         key: "targets_json",
         width: 180,
+        filters: [
+          { text: "prompt", value: "prompt" },
+          { text: "assistantTexts", value: "assistantTexts" },
+          { text: "tool_params", value: "tool_params" },
+          { text: "tool_output", value: "tool_output" },
+          { text: "metadata", value: "metadata" },
+        ],
+        filteredValue: targetsFilters,
         render: (targetsJson: string) => {
           const targets = parseTargets(targetsJson);
           if (targets.length === 0) {
@@ -814,20 +573,14 @@ export function InterceptorPoliciesManager({
         },
       },
       {
-        title: (
-          <PolicySingleFilterHeader
-            label={t("policyEnabled")}
-            value={enabledFilters[0] ?? ""}
-            onChange={(next) => setEnabledFilters(next ? [next] : [])}
-            clearLabel={t("clearFilters")}
-            options={[
-              { text: t("filterStatusEnabled"), value: "1" },
-              { text: t("filterStatusDisabled"), value: "0" },
-            ]}
-          />
-        ),
+        title: <ObserveTableHeaderLabel>{t("policyEnabled")}</ObserveTableHeaderLabel>,
         dataIndex: "enabled",
         key: "enabled",
+        filters: [
+          { text: t("filterStatusEnabled"), value: "1" },
+          { text: t("filterStatusDisabled"), value: "0" },
+        ],
+        filteredValue: enabledFilters,
         render: (enabled: number, record: InterceptionPolicy) => (
           <Switch checked={enabled === 1} onChange={() => handleToggleEnabled(record)} size="small" />
         ),
@@ -875,7 +628,6 @@ export function InterceptorPoliciesManager({
       targetsFilters,
       enabledFilters,
       parseTargets,
-      policyEventCountMap,
     ],
   );
 
@@ -893,7 +645,7 @@ export function InterceptorPoliciesManager({
               size="small"
               border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
               columns={columns}
-              data={pagedPolicies}
+              data={sortedPolicies}
               rowKey="id"
               pagination={false}
               scroll={OBSERVE_TABLE_SCROLL_X}
@@ -902,43 +654,6 @@ export function InterceptorPoliciesManager({
               onChange={onTableChange}
               noDataElement={<div className="flex justify-center px-4 py-10 text-xs text-neutral-500">{t("noPolicies")}</div>}
             />
-            {sortedPolicies.length > 0 ? (
-              <div className="flex flex-col items-center gap-2 border-t-0 pt-4 sm:flex-row sm:justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {t("showingOfTotal", {
-                    from: String((page - 1) * pageSize + 1),
-                    to: String(Math.min(page * pageSize, sortedPolicies.length)),
-                    total: String(sortedPolicies.length),
-                  })}
-                </span>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                    {t("paginationTotalPages", {
-                      count: String(Math.max(1, Math.ceil(sortedPolicies.length / pageSize))),
-                    })}
-                  </span>
-                  <Pagination
-                    className="resource-audit-audit-log-pagination mx-0"
-                    size="small"
-                    current={page}
-                    pageSize={pageSize}
-                    total={sortedPolicies.length}
-                    showTotal
-                    onChange={(nextPage, nextPageSize) => {
-                      if (nextPageSize && nextPageSize !== pageSize) {
-                        setPageSize(nextPageSize);
-                      }
-                      setPage(nextPage);
-                    }}
-                    bufferSize={1}
-                    sizeCanChange
-                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                    showJumper
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-            ) : null}
           </div>
         </ScrollableTableFrame>
       </div>
@@ -1109,150 +824,6 @@ export function InterceptorPoliciesManager({
             </div>
           </Form>
         </div>
-      </Modal>
-
-      <Modal
-        title={t("policyEventsTitle", { name: policyEventsPolicy?.name ?? "—" })}
-        visible={policyEventsPolicy != null}
-        onCancel={() => setPolicyEventsPolicy(null)}
-        footer={null}
-        style={{ width: 920, maxWidth: "calc(100vw - 2rem)" }}
-      >
-        <Table<SecurityAuditEventRow>
-          size="small"
-          loading={policyEventsQ.isLoading}
-          rowKey="id"
-          pagination={false}
-          scroll={{ y: 420 }}
-          data={policyEventsQ.data?.items ?? []}
-          columns={[
-            {
-              title: t("policyEventsColTime"),
-              dataIndex: "created_at_ms",
-              width: 168,
-              render: (ms: number) => (
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  {ms > 0 ? formatPolicyTime(ms) : "—"}
-                </span>
-              ),
-            },
-            {
-              title: t("policyEventsColTrace"),
-              dataIndex: "trace_id",
-              width: 140,
-              render: (traceId: string) => (
-                <Space size={4} align="center">
-                  <span className="font-mono text-xs text-primary">{formatShortId(traceId)}</span>
-                  {traceId ? (
-                    <TraceCopyIconButton
-                      text={traceId}
-                      ariaLabel={t("copyTraceIdAria")}
-                      tooltipLabel={t("copyTooltip")}
-                      successLabel={t("copySuccess")}
-                      className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
-                      stopPropagation
-                    />
-                  ) : null}
-                </Space>
-              ),
-            },
-            {
-              title: t("policyEventsColSpan"),
-              dataIndex: "span_id",
-              width: 120,
-              render: (spanId: string | null) => (
-                spanId ? (
-                  <Space size={4} align="center">
-                    <span className="font-mono text-xs text-muted-foreground">{formatShortId(spanId)}</span>
-                    <TraceCopyIconButton
-                      text={spanId}
-                      ariaLabel={t("copySpanIdAria")}
-                      tooltipLabel={t("copyTooltip")}
-                      successLabel={t("copySuccess")}
-                      className="p-1 hover:bg-neutral-100 dark:hover:bg-zinc-800"
-                      stopPropagation
-                    />
-                  </Space>
-                ) : (
-                  <span className="font-mono text-xs text-muted-foreground">—</span>
-                )
-              ),
-            },
-            {
-              title: t("policyEventsColHits"),
-              dataIndex: "hit_count",
-              width: 88,
-              render: (n: number) => <span className="text-xs tabular-nums">{n}</span>,
-            },
-            {
-              title: t("policyEventsColMode"),
-              dataIndex: "intercepted",
-              width: 108,
-              render: (n: number) => (
-                <Tag size="small" color={n === 1 ? "orange" : "gray"}>
-                  {n === 1 ? t("policyEventsModeEnforced") : t("policyEventsModeObserve")}
-                </Tag>
-              ),
-            },
-            {
-              title: t("policyEventsColWorkspace"),
-              dataIndex: "workspace_name",
-              render: (_: string, row) => (
-                <span className="text-xs text-neutral-700 dark:text-neutral-300">
-                  {[row.workspace_name, row.project_name].filter(Boolean).join(" · ") || "—"}
-                </span>
-              ),
-            },
-          ]}
-          noDataElement={<div className="py-10 text-center text-xs text-muted-foreground">{t("policyEventsEmpty")}</div>}
-        />
-        {(policyEventsQ.data?.total ?? 0) > 0 ? (
-          <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
-            <span className="text-xs text-muted-foreground">
-              {t("showingOfTotal", {
-                from: String((policyEventsPage - 1) * policyEventsPageSize + 1),
-                to: String(
-                  Math.min(
-                    policyEventsPage * policyEventsPageSize,
-                    policyEventsQ.data?.total ?? 0,
-                  ),
-                ),
-                total: String(policyEventsQ.data?.total ?? 0),
-              })}
-            </span>
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                {t("paginationTotalPages", {
-                  count: String(
-                    Math.max(
-                      1,
-                      Math.ceil((policyEventsQ.data?.total ?? 0) / policyEventsPageSize) || 1,
-                    ),
-                  ),
-                })}
-              </span>
-              <Pagination
-                className="resource-audit-audit-log-pagination mx-0"
-                size="small"
-                current={policyEventsPage}
-                pageSize={policyEventsPageSize}
-                total={policyEventsQ.data?.total ?? 0}
-                onChange={(nextPage, nextPageSize) => {
-                  if (nextPageSize && nextPageSize !== policyEventsPageSize) {
-                    setPolicyEventsPageSize(nextPageSize);
-                  }
-                  setPolicyEventsPage(nextPage);
-                }}
-                showTotal
-                bufferSize={1}
-                sizeCanChange
-                sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                showJumper
-                disabled={policyEventsQ.isFetching}
-              />
-            </div>
-          </div>
-        ) : null}
       </Modal>
     </div>
   );

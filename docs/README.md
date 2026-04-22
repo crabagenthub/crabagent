@@ -17,8 +17,7 @@
 | 路径 | 说明 |
 |------|------|
 | `packages/openclaw-trace-plugin` | OpenClaw 插件：Hooks + 内存队列 + ingest flush |
-| `iseeagentc` | Go Collector：SQLite/Postgres、`/health`、`/v1/opik/batch` 等 HTTP API |
+| `services/collector` | Hono + SQLite：`/health`、`/v1/ingest`、`/v1/traces` |
 | `apps/web` | Next.js 15 + next-intl + TanStack Query 骨架 |
-| `iseeagentc/data/` | 本地默认 SQLite/DuckDB 数据目录 |
 
 根目录 `README.md` 含联调步骤；`.npmrc` 中 `auto-install-peers=false` 避免安装可选 peer `openclaw`。

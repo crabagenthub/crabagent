@@ -183,11 +183,11 @@ export default function DataSecurityPage() {
         name: t(template.nameKey),
         description: t(template.summaryKey),
         pattern: template.pattern,
-        redact_type: "mask",
+        redact_type: template.redactType,
         targets: template.targets,
         enabled: 1,
         severity: "high",
-        policy_action: "data_mask",
+        policy_action: template.redactType === "block" ? "abort_run" : "data_mask",
       });
       setActiveTab("policies");
     },
@@ -308,7 +308,7 @@ export default function DataSecurityPage() {
                       <div className="flex items-start gap-3">
                         <span
                           className={cn(
-                            "flex size-9 shrink-0 items-center justify-center rounded-xl [&_svg]:size-4",
+                            "flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5",
                             TEMPLATE_CARD_ICON_BG[templateIndex % TEMPLATE_CARD_ICON_BG.length],
                           )}
                           aria-hidden
@@ -316,7 +316,7 @@ export default function DataSecurityPage() {
                           <IconApps />
                         </span>
                         <div className="min-w-0 flex-1 space-y-1.5">
-                          <CardTitle className="text-base leading-snug sm:text-lg">{t(template.nameKey)}</CardTitle>
+                          <CardTitle className="text-lg leading-snug sm:text-xl">{t(template.nameKey)}</CardTitle>
                           <CardDescription>{t(template.summaryKey)}</CardDescription>
                         </div>
                       </div>
@@ -343,10 +343,11 @@ export default function DataSecurityPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-1 font-semibold text-foreground dark:bg-accent/15">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-1 font-semibold uppercase text-foreground dark:bg-accent/15">
                           <IconApps className="size-3.5 shrink-0 text-neutral-500" aria-hidden />
-                          {t("policyActionDataMask")}
+                          {t(`filterRedactType${template.redactType.charAt(0).toUpperCase() + template.redactType.slice(1)}`)}
                         </span>
+                        <span className="text-xs text-muted-foreground">{t("templateCardHint")}</span>
                       </div>
                       <div className="pt-1">
                         <Button

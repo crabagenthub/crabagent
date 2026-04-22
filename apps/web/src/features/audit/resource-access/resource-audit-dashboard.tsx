@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
-import { IconCopy, IconRefresh } from "@arco-design/web-react/icon";
+import { IconApps, IconList, IconCopy, IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -29,7 +29,6 @@ import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-setti
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
-import { ListEmptyState } from "@/components/list-empty-state";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
@@ -60,11 +59,17 @@ import {
   type ResourceAuditSemanticClassParam,
 } from "@/lib/resource-audit-records";
 import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
-import { loadTraceRecords, traceRecordAgentName, traceRecordChannel, type TraceRecordRow } from "@/lib/trace-records";
+import {
+  loadTraceRecords,
+  traceRecordAgentName,
+  traceRecordChannel,
+  type TraceRecordRow,
+} from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
-import { toast } from "@/components/ui/feedback";
+
+type ResourceAuditViewKind = "metrics" | "details";
 
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
@@ -233,8 +238,9 @@ export function ResourceAuditDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
-  const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
-  const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
+  const [inspectTraceRow, setInspectTraceRow] = useState<TraceRecordRow | null>(null);
+  const [inspectTraceInitialSpanId, setInspectTraceInitialSpanId] = useState<string | null>(null);
+  const [viewKind, setViewKind] = useState<ResourceAuditViewKind>("metrics");
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -365,27 +371,27 @@ export function ResourceAuditDashboard() {
     [pathname, router, searchParams],
   );
 
-  const spanDrawerRows = useMemo(
-    () => (eventsQ.data?.items ?? []).map(resourceAuditEventToSpanRecord),
-    [eventsQ.data?.items],
-  );
-
-  const openMessageInspectFromAuditRow = useCallback(
+  const openTraceInspectAtSpan = useCallback(
     async (row: ResourceAuditEventRow) => {
       const traceId = row.trace_id?.trim();
       const spanId = row.span_id?.trim();
-      if (!traceId || !spanId) {
+      if (!traceId) {
         return;
       }
-      const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, traceId);
+      const hit = (traceMetaQ.data?.items ?? []).find((x) => x.trace_id === traceId) ?? null;
+      const resolved = hit ?? (await resolveTraceRowForInspect(baseUrl, apiKey, traceId));
       if (!resolved) {
-        toast.error(t("openMessageInspectFailed"));
         return;
       }
-      setMessageInspectInitialSpanId(spanId);
-      setMessageInspectTrace(resolved);
+      setInspectTraceInitialSpanId(spanId || null);
+      setInspectTraceRow(resolved);
     },
-    [apiKey, baseUrl, t],
+    [apiKey, baseUrl, traceMetaQ.data?.items],
+  );
+
+  const spanDrawerRows = useMemo(
+    () => (eventsQ.data?.items ?? []).map(resourceAuditEventToSpanRecord),
+    [eventsQ.data?.items],
   );
 
   const traceMetaById = useMemo(() => {
@@ -402,28 +408,10 @@ export function ResourceAuditDashboard() {
   const columns: TableColumnProps<ResourceAuditEventRow>[] = useMemo(
     () => [
       {
-        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
-        dataIndex: "span_id",
-        key: "span_id",
-        fixed: "left",
-        width: 120,
-        render: (_: unknown, row: ResourceAuditEventRow) => (
-          <Button
-            type="text"
-            size="mini"
-            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-            onClick={() => {
-              void openMessageInspectFromAuditRow(row);
-            }}
-          >
-            {formatShortId(row.span_id)}
-          </Button>
-        ),
-      },
-      {
         title: <ColHintTitle label={t("colUri")} hint={t("colUriHint")} />,
         dataIndex: "resource_uri",
         key: "resource_uri",
+        fixed: "left",
         width: 280,
         render: (uri: string) => {
           const displayUri = formatMemorySearchUriForDisplay(uri);
@@ -510,6 +498,23 @@ export function ResourceAuditDashboard() {
         ),
       },
       {
+        title: <ColHintTitle label={t("colTrace")} hint={t("colTraceHint")} />,
+        dataIndex: "trace_id",
+        width: 120,
+        render: (_: unknown, row: ResourceAuditEventRow) => (
+          <Button
+            type="text"
+            size="mini"
+            className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+            onClick={() => {
+              void openTraceInspectAtSpan(row);
+            }}
+          >
+            {formatShortId(row.span_id)}
+          </Button>
+        ),
+      },
+      {
         title: <ColHintTitle label={t("colLinkage")} hint={t("colLinkageHint")} />,
         width: 168,
         render: (_: unknown, row: ResourceAuditEventRow) => (
@@ -546,7 +551,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, setTraceFilterUrl, traceMetaById, openMessageInspectFromAuditRow],
+    [t, openTraceInspectAtSpan, setTraceFilterUrl, traceMetaById],
   );
 
   const dailyRows = useMemo(() => {
@@ -613,6 +618,16 @@ export function ResourceAuditDashboard() {
     return rows;
   }, [eventsQ.data?.items]);
 
+  const viewCounts = useMemo(
+    () => ({
+      metrics: statsQ.data?.summary?.total_events ?? null,
+      details: eventsQ.data?.total ?? null,
+    }),
+    [eventsQ.data?.total, statsQ.data?.summary?.total_events],
+  );
+  const summary = statsQ.data?.summary;
+  const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
+
   if (!mounted) {
     return (
       <AppPageShell variant="overview">
@@ -645,12 +660,9 @@ export function ResourceAuditDashboard() {
       </div>
     ) : (
       <Typography.Text type="secondary" className="text-sm">
-        {t("emptyWidget")}
+        —
       </Typography.Text>
     );
-
-  const summary = statsQ.data?.summary;
-  const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
 
   return (
     <AppPageShell variant="overview">
@@ -678,187 +690,246 @@ export function ResourceAuditDashboard() {
           </Space>
         </header>
 
-        <div className="space-y-3">
-          <section aria-label={t("sectionKpi")} className="space-y-3">
-          <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-            {t("sectionKpi")}
-          </Typography.Title>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-              <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
-                {t("kpiTotalEvents")}
-              </Typography.Text>
-              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summary ? summary.total_events.toLocaleString() : "—"}
-              </div>
-            </Card>
-            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-              <Tooltip content={t("kpiDistinctTracesHint")}>
-                <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
-                  {t("kpiDistinctTraces")}
-                </Typography.Text>
-              </Tooltip>
-              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summary ? summary.distinct_traces.toLocaleString() : "—"}
-              </div>
-            </Card>
-            <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
-              <Tooltip content={t("kpiRiskAnyHint")}>
-                <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
-                  {t("kpiRiskAny")}
-                </Typography.Text>
-              </Tooltip>
-              <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
-                {summary ? summary.risk_any.toLocaleString() : "—"}
-              </div>
-              {summary && summary.total_events > 0 ? (
-                <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
-                  {t("kpiRiskShare", {
-                    pct: String(Math.round((summary.risk_any / summary.total_events) * 1000) / 10),
-                  })}
-                </div>
-              ) : null}
-            </Card>
+        <section aria-label={t("viewSwitcherAria")} className="space-y-3">
+          <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {([
+              { id: "metrics" as const, label: t("viewMetrics"), Icon: IconApps },
+              { id: "details" as const, label: t("viewDetails"), Icon: IconList },
+            ] satisfies Array<{ id: ResourceAuditViewKind; label: string; Icon: typeof IconList }>).map((opt) => {
+              const selected = viewKind === opt.id;
+              const count = viewCounts[opt.id];
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setViewKind(opt.id)}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
+                    selected
+                      ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
+                      : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100",
+                  )}
+                >
+                  <opt.Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      selected ? "text-neutral-800 dark:text-zinc-100" : "text-neutral-600 dark:text-zinc-400",
+                    )}
+                    strokeWidth={selected ? 3 : 2}
+                    aria-hidden
+                  />
+                  <span className="whitespace-nowrap">{opt.label}</span>
+                  <span
+                    className={cn(
+                      "tabular-nums text-[13px]",
+                      selected ? "text-neutral-700 dark:text-zinc-300" : "text-neutral-500 dark:text-zinc-500",
+                    )}
+                  >
+                    {count === null ? "(…)" : `(${count.toLocaleString()})`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
-          <section aria-label={t("sectionDashboard")} className="space-y-3">
-            <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
-              {t("sectionDashboard")}
-            </Typography.Title>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card title={t("topResources")} bordered className="shadow-sm rounded-lg" headerStyle={{ borderBottom: 'none' }}>
-                {(statsQ.data?.top_resources ?? []).length === 0 ? (
-                  <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
-                ) : (
-                  <ul className="space-y-1.5">
-                    {statsQ.data!.top_resources.map((r, idx) => (
-                      <li key={r.uri} className="last:border-0">
-                        <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
-                          <span
-                            className={cn(
-                              "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                              topRankColorClass(idx + 1),
-                            )}
-                          >
-                            {idx + 1}
-                          </span>
-                          <Popover
-                            content={
-                              <div className="max-w-md break-all text-xs">
-                                {formatMemorySearchUriForDisplay(r.uri) || "—"}
-                              </div>
-                            }
-                          >
-                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                              {maskUri(formatMemorySearchUriForDisplay(r.uri))}
-                            </Typography.Text>
-                          </Popover>
-                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                            {Math.round(r.count).toLocaleString()}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-              <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg" headerStyle={{ borderBottom: 'none' }}>
-                {topDurationEventRows.length === 0 ? (
-                  <ListEmptyState title={t("emptyWidget")} className="min-h-[200px]" />
-                ) : (
-                  <ul className="space-y-1.5">
-                    {topDurationEventRows.map((r, idx) => (
-                      <li key={`${r.span_id}-${idx}`} className="last:border-0">
-                        <button
-                          type="button"
-                          className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
-                          onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(r))}
-                        >
-                          <span
-                            className={cn(
-                              "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
-                              topRankColorClass(idx + 1),
-                            )}
-                          >
-                            {idx + 1}
-                          </span>
-                          <Popover
-                            content={
-                              <div className="max-w-md break-all text-xs">
-                                {formatMemorySearchUriForDisplay(r.resource_uri) || "—"}
-                              </div>
-                            }
-                          >
-                            <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
-                              {maskUri(formatMemorySearchUriForDisplay(r.resource_uri))}
-                            </Typography.Text>
-                          </Popover>
-                          <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
-                            {`${Math.round(Number(r.duration_ms ?? 0))} ms`}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-              <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
-                {classPieOpt ? (
-                  <div className="h-[260px] w-full min-w-0">
-                    <ReactEChart option={classPieOpt} />
+        {viewKind === "metrics" ? (
+          <>
+            <section aria-label={t("sectionKpi")} className="space-y-3">
+              <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                {t("sectionKpi")}
+              </Typography.Title>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
+                  <Typography.Text className="text-[13px] font-medium text-[#86909C] dark:text-muted-foreground">
+                    {t("kpiTotalEvents")}
+                  </Typography.Text>
+                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                    {summary ? summary.total_events.toLocaleString() : "—"}
                   </div>
-                ) : (statsQ.data?.class_distribution?.length ? (
-                  <Space direction="vertical" size={8} className="w-full py-4">
-                    {(statsQ.data?.class_distribution ?? []).map((c) => (
-                      <div key={c.semantic_class} className="flex items-center justify-between text-sm">
-                        <span>{classLabel(t, c.semantic_class)}</span>
-                        <Tag>{c.count}</Tag>
+                </Card>
+                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
+                  <Tooltip content={t("kpiDistinctTracesHint")}>
+                    <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
+                      {t("kpiDistinctTraces")}
+                    </Typography.Text>
+                  </Tooltip>
+                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                    {summary ? summary.distinct_traces.toLocaleString() : "—"}
+                  </div>
+                </Card>
+                <Card bordered={false} className={cn(kpiShellClass, kpiMetricCardClass)} bodyStyle={{ padding: "16px" }}>
+                  <Tooltip content={t("kpiRiskAnyHint")}>
+                    <Typography.Text className="block cursor-help text-[13px] font-medium text-[#86909C] underline decoration-dotted dark:text-muted-foreground">
+                      {t("kpiRiskAny")}
+                    </Typography.Text>
+                  </Tooltip>
+                  <div className="mt-2 text-[22px] font-semibold tabular-nums text-[#1D2129] dark:text-foreground">
+                    {summary ? summary.risk_any.toLocaleString() : "—"}
+                  </div>
+                  {summary && summary.total_events > 0 ? (
+                    <div className="mt-1 text-[11px] tabular-nums text-muted-foreground">
+                      {t("kpiRiskShare", {
+                        pct: String(Math.round((summary.risk_any / summary.total_events) * 1000) / 10),
+                      })}
+                    </div>
+                  ) : null}
+                </Card>
+              </div>
+            </section>
+
+            {isEmptyRange ? (
+              <Card className="border-dashed shadow-none" title={t("emptyStateTitle")}>
+                <Typography.Paragraph type="secondary" className="!mb-3 text-sm">
+                  {traceFromUrl ? t("emptyStateTraceBody") : t("emptyStateBody")}
+                </Typography.Paragraph>
+                <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                  <li>{t("emptyChecklistPlugin")}</li>
+                  <li>{t("emptyChecklistRange")}</li>
+                  <li>{t("emptyChecklistFilters")}</li>
+                  <li>{t("emptyChecklistDb")}</li>
+                </ul>
+              </Card>
+            ) : null}
+
+            {!isEmptyRange ? (
+              <section aria-label={t("sectionDashboard")} className="space-y-3">
+                <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
+                  {t("sectionDashboard")}
+                </Typography.Title>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Card title={t("topResources")} bordered className="shadow-sm rounded-lg">
+                    <ul className="space-y-1.5">
+                      {(statsQ.data?.top_resources ?? []).length === 0 ? (
+                        <li className="text-sm text-muted-foreground">—</li>
+                      ) : (
+                        statsQ.data!.top_resources.map((r, idx) => (
+                          <li key={r.uri} className="last:border-0">
+                            <div className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded px-1 py-1 text-left">
+                              <span
+                                className={cn(
+                                  "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                                  topRankColorClass(idx + 1),
+                                )}
+                              >
+                                {idx + 1}
+                              </span>
+                              <Popover
+                                content={
+                                  <div className="max-w-md break-all text-xs">
+                                    {formatMemorySearchUriForDisplay(r.uri) || "—"}
+                                  </div>
+                                }
+                              >
+                                <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                                  {maskUri(formatMemorySearchUriForDisplay(r.uri))}
+                                </Typography.Text>
+                              </Popover>
+                              <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                                {Math.round(r.count).toLocaleString()}
+                              </span>
+                            </div>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </Card>
+                  <Card title={t("topResourceDuration")} bordered className="shadow-sm rounded-lg">
+                    <ul className="space-y-1.5">
+                      {topDurationEventRows.length === 0 ? (
+                        <li className="text-sm text-muted-foreground">—</li>
+                      ) : (
+                        topDurationEventRows.map((r, idx) => (
+                          <li key={`${r.span_id}-${idx}`} className="last:border-0">
+                            <button
+                              type="button"
+                              className="grid w-full grid-cols-[1.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/40"
+                              onClick={() => setSpanInspectRow(resourceAuditEventToSpanRecord(r))}
+                            >
+                              <span
+                                className={cn(
+                                  "inline-flex w-6 shrink-0 items-center justify-center text-base font-semibold leading-none",
+                                  topRankColorClass(idx + 1),
+                                )}
+                              >
+                                {idx + 1}
+                              </span>
+                              <Popover
+                                content={
+                                  <div className="max-w-md break-all text-xs">
+                                    {formatMemorySearchUriForDisplay(r.resource_uri) || "—"}
+                                  </div>
+                                }
+                              >
+                                <Typography.Text ellipsis className="min-w-0 text-xs text-[#1D2129] dark:text-foreground">
+                                  {maskUri(formatMemorySearchUriForDisplay(r.resource_uri))}
+                                </Typography.Text>
+                              </Popover>
+                              <span className="shrink-0 text-right text-sm tabular-nums text-[#86909C]">
+                                {`${Math.round(Number(r.duration_ms ?? 0))} ms`}
+                              </span>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </Card>
+                  <Card title={t("classDist")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                    {classPieOpt ? (
+                      <div className="h-[260px] w-full min-w-0">
+                        <ReactEChart option={classPieOpt} />
                       </div>
-                    ))}
-                  </Space>
-                ) : (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    {t("emptyWidget")}
-                  </div>
-                ))}
-              </Card>
-              <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
-                {statsQ.isFetching && !statsQ.data ? (
-                  <Spin className="py-8" />
-                ) : dailyChart}
-              </Card>
-            </div>
+                    ) : (
+                      <Space direction="vertical" size={8} className="w-full py-4">
+                        {(statsQ.data?.class_distribution ?? []).map((c) => (
+                          <div key={c.semantic_class} className="flex items-center justify-between text-sm">
+                            <span>{classLabel(t, c.semantic_class)}</span>
+                            <Tag>{c.count}</Tag>
+                          </div>
+                        ))}
+                      </Space>
+                    )}
+                  </Card>
+                  <Card title={t("dailyTrend")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                    {statsQ.isFetching && !statsQ.data ? <Spin className="py-8" /> : dailyChart}
+                  </Card>
+                </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
-                {riskBarOpt ? (
-                  <div className="h-[200px] w-full min-w-0">
-                    <ReactEChart option={riskBarOpt} />
-                  </div>
-                ) : (
-                  <Typography.Text type="secondary" className="text-sm">
-                    {t("emptyRiskChart")}
-                  </Typography.Text>
-                )}
-              </Card>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Card title={t("chartRiskHits")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                    {riskBarOpt ? (
+                      <div className="h-[200px] w-full min-w-0">
+                        <ReactEChart option={riskBarOpt} />
+                      </div>
+                    ) : (
+                      <Typography.Text type="secondary" className="text-sm">
+                        {t("emptyRiskChart")}
+                      </Typography.Text>
+                    )}
+                  </Card>
 
-              <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }} headerStyle={{ borderBottom: 'none' }}>
-                {toolsBarOpt ? (
-                  <div className="h-[240px] w-full min-w-0">
-                    <ReactEChart option={toolsBarOpt} />
-                  </div>
-                ) : (
-                  <Typography.Text type="secondary" className="text-sm">
-                    {t("emptyWidget")}
-                  </Typography.Text>
-                )}
-              </Card>
-            </div>
-          </section>
+                  <Card title={t("chartTopTools")} bordered className="shadow-sm rounded-lg" bodyStyle={{ paddingBottom: 8 }}>
+                    {toolsBarOpt ? (
+                      <div className="h-[240px] w-full min-w-0">
+                        <ReactEChart option={toolsBarOpt} />
+                      </div>
+                    ) : (
+                      <Typography.Text type="secondary" className="text-sm">
+                        —
+                      </Typography.Text>
+                    )}
+                  </Card>
+                </div>
+              </section>
+            ) : null}
+          </>
+        ) : null}
 
-        <section aria-label={t("sectionTable")} className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+        {viewKind === "details" ? (
+          <section aria-label={t("sectionTable")} className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Typography.Title heading={6} className="!m-0 text-sm font-semibold">
               {t("sectionTable")}
             </Typography.Title>
@@ -930,33 +1001,28 @@ export function ResourceAuditDashboard() {
             </div>
           ) : (
             <>
-              {(eventsQ.data?.items.length ?? 0) === 0 ? (
-                <ListEmptyState title={t("emptyStateTitle")} className="min-h-[300px]" />
-              ) : (
-                <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
-                  <ScrollableTableFrame
-                    variant="neutral"
-                    contentKey={`${eventsQ.data?.items.length ?? 0}`}
-                    scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
-                  >
-                    <div className="min-w-0 w-full">
-                      <Table
-                        tableLayoutFixed
-                        size="small"
-                        border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                        columns={columns}
-                        data={eventsQ.data?.items ?? []}
-                        rowKey="span_id"
-                        pagination={false}
-                        scroll={OBSERVE_TABLE_SCROLL_X}
-                        hover={true}
-                      />
-                    </div>
-                  </ScrollableTableFrame>
-                </div>
-              )}
-              {(eventsQ.data?.items?.length ?? 0) > 0 ? (
-                <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
+              <div className={OBSERVE_TABLE_FRAME_CLASSNAME}>
+                <ScrollableTableFrame
+                  variant="neutral"
+                  contentKey={`${eventsQ.data?.items.length ?? 0}`}
+                  scrollClassName="overflow-x-visible touch-pan-x overscroll-x-contain"
+                >
+                  <div className="min-w-0 w-full">
+                    <Table
+                      tableLayoutFixed
+                      size="small"
+                      border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
+                      columns={columns}
+                      data={eventsQ.data?.items ?? []}
+                      rowKey="span_id"
+                      pagination={false}
+                      scroll={OBSERVE_TABLE_SCROLL_X}
+                      hover={true}
+                    />
+                  </div>
+                </ScrollableTableFrame>
+              </div>
+              <div className="flex flex-col items-center gap-2 pt-4 sm:flex-row sm:justify-between">
                 <Typography.Text type="secondary" className="text-xs">
                   {t("showingOfTotal", {
                     from: String(eventsQ.data?.items.length ? (page - 1) * pageSize + 1 : 0),
@@ -992,11 +1058,10 @@ export function ResourceAuditDashboard() {
                   />
                 </div>
               </div>
-              ) : null}
             </>
           )}
-        </section>
-        </div>
+          </section>
+        ) : null}
       </main>
 
       <SpanRecordInspectDrawer
@@ -1012,22 +1077,18 @@ export function ResourceAuditDashboard() {
         baseUrl={baseUrl}
         apiKey={apiKey}
       />
-
       <TraceRecordInspectDialog
-        open={messageInspectTrace != null}
+        open={inspectTraceRow != null}
         onOpenChange={(next) => {
           if (!next) {
-            setMessageInspectTrace(null);
-            setMessageInspectInitialSpanId(null);
+            setInspectTraceRow(null);
+            setInspectTraceInitialSpanId(null);
           }
         }}
-        row={messageInspectTrace}
-        initialSpanId={messageInspectInitialSpanId}
-        rows={messageInspectTrace ? [messageInspectTrace] : []}
-        onNavigate={(r) => {
-          setMessageInspectTrace(r);
-          setMessageInspectInitialSpanId(null);
-        }}
+        row={inspectTraceRow}
+        initialSpanId={inspectTraceInitialSpanId}
+        rows={inspectTraceRow ? [inspectTraceRow] : []}
+        onNavigate={(nextRow) => setInspectTraceRow(nextRow)}
         baseUrl={baseUrl}
         apiKey={apiKey}
       />

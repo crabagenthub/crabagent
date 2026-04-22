@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ShellCommandCategory = "file" | "network" | "system" | "process" | "package" | "other";
@@ -19,14 +18,11 @@ export type ShellParsedLite = {
   cwd: string | null;
   userId: string | null;
   host: string | null;
-  platform: "unix" | "windows_cmd" | "powershell";
 };
 
 export type ShellExecDbSnapshot = {
   tool_spans: number;
   shell_like_spans: number;
-  /** agent_exec_commands 行数（统计/明细数据源） */
-  exec_command_rows?: number;
   top_tool_names: { name: string; count: number }[];
   /** 新版 Collector 返回，便于核对是否连上预期库文件 */
   db_basename?: string;
@@ -41,19 +37,10 @@ export type ShellExecSummary = {
     success: number;
     failed: number;
     unknown: number;
-    /** 当前摘要扫描范围内命中 Token 风险启发式的条数（与 token_risks 列表 TopN 无关）。 */
-    token_risk_total?: number;
   };
   category_breakdown: Record<ShellCommandCategory, number>;
+  duration_buckets: { lt100ms: number; ms100to1s: number; gt1s: number };
   success_trend: { day: string; total: number; failed: number }[];
-  daily_risk_series?: {
-    day: string;
-    commands: number;
-    failed: number;
-    token_risk_count: number;
-    diagnostic_count: number;
-    network_system_count: number;
-  }[];
   top_commands: { command: string; count: number }[];
   slowest: { span_id: string; trace_id: string; command: string; duration_ms: number | null }[];
   loop_alerts: { trace_id: string; thread_key: string | null; command: string; repeat_count: number }[];
@@ -70,14 +57,9 @@ export type ShellExecSummary = {
     permission_denied: number;
     illegal_arg_hint: number;
   };
+  idempotency_samples: { command_key: string; traces: number; outcomes: number }[];
   chain_preview: { trace_id: string; steps: { kind: string; name: string }[] } | null;
   redundant_read_hints: { trace_id: string; command: string; repeats: number }[];
-  /** 死循环告警按重复次数分桶（柱状图） */
-  loop_repeat_buckets?: { label: string; value: number }[];
-  /** Token 风险按 stdout 体量分桶 */
-  token_risk_stdout_buckets?: { label: string; value: number }[];
-  /** 重复读取类命令 Top（条形图） */
-  redundant_read_top?: { trace_id: string; command: string; repeats: number }[];
   /** 全库统计（不受当前时间窗影响），用于排查错库 / 时间窗 / 规则 */
   db_snapshot?: ShellExecDbSnapshot;
 };
@@ -85,34 +67,11 @@ export type ShellExecSummary = {
 export type ShellExecListRow = Record<string, unknown> & {
   span_id?: string;
   trace_id?: string;
-  /** 与观测「执行步骤列表」一致，用于步骤 ID 列副标题 */
-  span_type?: string | null;
-  name?: string | null;
   parsed?: ShellParsedLite;
 };
 
 export type ShellExecDetail = Record<string, unknown> & {
   parsed?: Record<string, unknown>;
-};
-
-export type ShellExecReplayItem = {
-  span_id: string;
-  trace_id: string;
-  start_time_ms: number | null;
-  duration_ms: number | null;
-  command: string;
-  command_key: string;
-  category: ShellCommandCategory | string;
-  platform: string;
-  exit_code: number | null;
-  success: boolean | null;
-  token_risk: boolean;
-  span_name: string;
-  workspace_name: string | null;
-  project_name: string | null;
-  thread_key: string | null;
-  agent_name: string | null;
-  channel_name: string | null;
 };
 
 export type ShellExecQueryParams = {
@@ -127,7 +86,6 @@ export type ShellExecQueryParams = {
 };
 
 function appendShellParams(sp: URLSearchParams, q: ShellExecQueryParams): void {
-  appendWorkspaceNameParam(sp);
   if (q.sinceMs != null) {
     sp.set("since_ms", String(q.sinceMs));
   }
@@ -166,7 +124,11 @@ export async function loadShellExecSummary(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  return readCollectorFetchResult<ShellExecSummary>(res, `shell summary HTTP ${res.status}`);
+  const body = (await res.json()) as ShellExecSummary;
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return body;
 }
 
 export async function loadShellExecList(
@@ -184,11 +146,11 @@ export async function loadShellExecList(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  const raw = await readCollectorFetchResult<{ items?: ShellExecListRow[]; total?: number }>(
-    res,
-    `shell list HTTP ${res.status}`,
-  );
-  return { items: collectorItemsArray<ShellExecListRow>(raw.items), total: raw.total ?? 0 };
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const raw = (await res.json()) as { items?: ShellExecListRow[]; total?: number };
+  return { items: raw.items ?? [], total: raw.total ?? 0 };
 }
 
 export async function loadShellExecDetail(
@@ -203,24 +165,8 @@ export async function loadShellExecDetail(
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  return readCollectorFetchResult<ShellExecDetail>(res, `shell detail HTTP ${res.status}`);
-}
-
-export async function loadShellExecReplay(
-  baseUrl: string,
-  apiKey: string,
-  traceId: string,
-): Promise<{ trace_id: string; items: ShellExecReplayItem[] }> {
-  const b = baseUrl.replace(/\/+$/, "");
-  const sp = new URLSearchParams();
-  sp.set("trace_id", traceId.trim());
-  const res = await fetch(`${b}${COLLECTOR_API.shellExecReplay}?${sp.toString()}`, {
-    headers: collectorAuthHeaders(apiKey),
-    cache: "no-store",
-  });
-  const raw = await readCollectorFetchResult<{ trace_id?: string; items?: ShellExecReplayItem[] }>(
-    res,
-    `shell replay HTTP ${res.status}`,
-  );
-  return { trace_id: raw.trace_id ?? traceId, items: collectorItemsArray<ShellExecReplayItem>(raw.items) };
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return (await res.json()) as ShellExecDetail;
 }

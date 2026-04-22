@@ -4,6 +4,7 @@ import "@/lib/arco-react19-setup";
 import {
   IconMenuFold,
   IconMenuUnfold,
+  IconSettings,
   IconExport,
   IconUp,
   IconDown,
@@ -19,7 +20,7 @@ import Image from "next/image";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import type { ComponentType, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
 import { useTheme } from "@/components/theme-provider";
@@ -34,7 +35,6 @@ import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
 } from "@/lib/sidebar-storage";
 import type { ThemePreference } from "@/lib/theme-storage";
-import { readWorkspaceName, saveWorkspaceName, WORKSPACE_FILTER_EVENT, WORKSPACE_OPTIONS, type WorkspaceName } from "@/lib/workspace-filter";
 import {
   NavIconAlerts,
   NavIconAnalytics,
@@ -44,6 +44,7 @@ import {
   NavIconMetrics,
   NavIconOptimization,
   NavIconOverview,
+  NavIconSettings,
   NavIconResourceAudit,
   NavIconTraces,
 } from "@/components/nav-icons";
@@ -65,6 +66,10 @@ function SidebarRailIcon({ collapsed }: { collapsed: boolean }) {
   ) : (
     <IconMenuFold className="shrink-0 text-sidebar-foreground" />
   );
+}
+
+function IconGear({ className }: { className?: string }) {
+  return <IconSettings className={className} />;
 }
 
 function IconLogout({ className }: { className?: string }) {
@@ -164,37 +169,6 @@ function UserAvatarSilhouette({ className }: { className?: string }) {
   return <IconUser className={className} />;
 }
 
-function OpenclawWorkspaceIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 1146 1024" xmlns="http://www.w3.org/2000/svg" className={className} aria-hidden>
-      <path
-        d="M386.406135 77.128551l8.642457 9.084932L402.643724 93.366141c14.500168-0.499306 27.092418-2.76445 41.125756-6.137809 29.300731-6.714243 57.785522-7.436816 87.760113-7.306915l15.22274 0.004059c31.05439 0.312574 59.137302 2.403163 89.038823 11.171462 12.072648 2.63049 19.006099 2.074352 30.713401-1.790195 8.764239-5.971374 8.764239-5.971374 17.000757-13.448783 24.202127-19.464811 48.57475-33.453494 80.424782-30.697164 12.299974 1.802372 15.287691 2.602074 24.356384 11.670768-1.522274 10.655918-1.522274 10.655918-4.059397 20.296987l-7.737212-0.568315c-37.115071-1.566927-57.39988 9.917108-85.628929 33.043495l11.609877 6.421966c90.528622 51.371674 154.74423 128.622008 185.031394 228.909421L889.771416 353.167576l9.657307-0.426236c32.913594-0.852473 53.096918 0.462771 78.890329 22.245498 17.252439 20.702927 19.038574 40.1515 18.518971 66.391445-3.397716 29.637661-14.073931 57.042653-36.790319 76.953997-14.487989 10.891363-23.625693 14.008981-41.860506 13.956208l-10.91166 0.032475C897.890211 531.781063 897.890211 531.781063 889.771416 527.721666l-1.380195 7.944241c-19.793622 94.563663-82.243392 189.362771-162.867084 242.971174C673.778998 811.879486 673.778998 811.879486 654.326365 811.879486v81.187949h-81.187949v-77.128552l-12.178192 4.059398c-8.703348 0.385643-17.418874 0.527722-26.1344 0.507425l-13.935912 0.032475C508.188058 819.998281 508.188058 819.998281 491.950468 815.938883v77.128552H410.762519v-81.187949l-20.296987-4.059397c-94.778811-42.075654-161.170256-129.628738-199.925323-223.352106-6.990282-18.449961-11.638292-37.374872-15.222741-56.746317l-8.118795 4.059397c-20.114314 2.208312-36.010915 2.2895-54.29444-6.852262-25.545788-22.50124-40.338232-48.578809-44.718322-82.59656C67.268487 416.327741 69.582343 394.378579 86.010725 373.464564c22.001934-17.877586 38.239524-20.853125 65.965208-20.55273l13.257992 0.113664L175.317468 353.167576l4.185239-12.210667C199.328804 284.746433 224.789345 235.753565 264.624212 190.791679l7.120183-8.281171C299.307703 152.633343 337.303663 126.572012 374.227942 109.603731c-24.25084-19.034515-41.795556-31.947458-73.069153-32.47518l-12.178193-0.255742L280.861802 77.128551c-2.537123-9.641069-2.537123-9.641069-4.059398-20.296987 31.683597-31.683597 80.70894 0.101485 109.603731 20.296987z"
-        fill="#CC3434"
-      />
-      <path
-        d="M666.504557 235.445051c16.602935 7.335331 27.043706 17.008875 36.534577 32.475179 2.549302 20.402531 0.13396 32.296566-12.178192 48.71277-11.175521 13.038785-20.418769 15.709868-37.549426 18.015605-20.029067-2.338213-30.640332-11.041561-43.638523-26.1344-5.013356-15.044127-5.906423-24.754206-4.059397-40.593975 16.57452-25.805589 29.804096-34.586066 60.890961-32.475179z"
-        fill="#0A0A12"
-      />
-      <path
-        d="M442.636908 245.118595c11.756015 12.425816 16.460857 20.365997 19.119762 37.516951C458.501033 302.218079 450.382238 316.0931 435.118904 328.811192c-15.044127 5.013356-24.754206 5.906423-40.593974 4.059397-14.394623-7.708796-25.687867-16.870856-31.379143-32.491417C360.425991 283.557029 361.619454 270.396463 370.168545 255.742038c7.241965-8.69117 13.055022-14.759969 23.341535-19.53788 18.449961-1.534452 33.977156-2.399104 49.126828 8.914437z"
-        fill="#090A12"
-      />
-      <path
-        d="M762.407822 45.923963l9.547702 0.966137C780.167685 48.712769 780.167685 48.712769 788.28648 56.831564c-1.522274 10.655918-1.522274 10.655918-4.059397 20.296987l-7.737212-0.568315c-44.551887-1.879501-66.736494 16.659767-99.374049 45.522082-10.838591 7.984835-17.682735 10.473245-30.908252 11.877797-3.30029-8.881962-3.30029-8.881962-4.059397-20.296987 8.118795-9.896811 8.118795-9.896811 20.296987-20.296987l6.405729-5.979493c26.235886-23.966682 56.782851-45.587033 93.556933-41.466744z"
-        fill="#FE4C4C"
-      />
-      <path
-        d="M386.406135 77.128551c14.114525 10.156612 28.277762 20.987085 36.534577 36.534577-1.270591 11.163343-1.270591 11.163343-4.059398 20.296987-18.770654-1.997224-27.896179-9.214832-41.864566-21.567578C344.561866 85.141802 323.729038 73.966281 280.861802 77.128551c-2.537123-9.641069-2.537123-9.641069-4.059398-20.296987 32.00023-32.00023 80.278644 0.621088 109.603731 20.296987z"
-        fill="#FE4D4D"
-      />
-      <path
-        d="M678.68275 259.801436c5.370583 21.965399 5.370583 21.965399-0.255742 32.223496-11.561164 6.340779-19.777384 3.292171-32.219438 0.251683-5.370583-21.965399-5.370583-21.965399 0.255742-32.223497 11.561164-6.340779 19.777384-3.292171 32.219438-0.251682zM435.118904 259.801436c5.370583 21.965399 5.370583 21.965399-0.255742 32.223496C423.306057 298.365711 415.089837 295.317104 402.643724 292.276615c-5.370583-21.965399-5.370583-21.965399 0.255742-32.223497C414.456571 253.712339 422.672791 256.765006 435.118904 259.801436z"
-        fill="#00DAC2"
-      />
-    </svg>
-  );
-}
-
 /** 双尖角：收起底部用户条（与参考产品一致） */
 function UserStripCollapseChevrons({ className }: { className?: string }) {
   return (
@@ -249,6 +223,14 @@ function SidebarUserProfile({
         </div>
       </div>
       <div className="mt-2 border-t border-border px-2 py-1">
+        <LocalizedLink
+          href="/settings"
+          className="flex items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium text-popover-foreground no-underline transition hover:bg-accent hover:text-accent-foreground"
+          onClick={() => setOpen(false)}
+        >
+          <IconGear className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {t("userAccountSettings")}
+        </LocalizedLink>
         <Button
           type="button"
           variant="ghost"
@@ -357,103 +339,6 @@ function NavSectionLabel({ children, first }: { children: ReactNode; first?: boo
   );
 }
 
-function WorkspaceSwitcher({ collapsed }: { collapsed: boolean }) {
-  const t = useTranslations("Nav");
-  const [open, setOpen] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState<WorkspaceName>(() => readWorkspaceName());
-
-  useEffect(() => {
-    const onChanged = () => setWorkspaceName(readWorkspaceName());
-    window.addEventListener(WORKSPACE_FILTER_EVENT, onChanged);
-    return () => window.removeEventListener(WORKSPACE_FILTER_EVENT, onChanged);
-  }, []);
-
-  const current = WORKSPACE_OPTIONS.find((x) => x.value === workspaceName) ?? WORKSPACE_OPTIONS[0]!;
-
-  if (collapsed) {
-    return null;
-  }
-
-  return (
-    <div className="px-2.5 pb-1">
-      <Popover
-        trigger="click"
-        position="bottom"
-        popupVisible={open}
-        onVisibleChange={setOpen}
-        content={
-          <div className="min-w-[220px] rounded-xl bg-popover p-2">
-            <div className="mb-1 px-2 text-[11px] text-muted-foreground">{t("workspaceSwitchLabel")}</div>
-            <div className="space-y-1">
-              {WORKSPACE_OPTIONS.map((opt) => {
-                const active = opt.value === workspaceName;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm",
-                      active ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
-                    )}
-                    onClick={() => {
-                      if (opt.value !== workspaceName) {
-                        saveWorkspaceName(opt.value);
-                        window.location.reload();
-                      }
-                      setOpen(false);
-                    }}
-                  >
-                    <span className="grid h-6 w-6 place-items-center rounded-full bg-primary/15 text-primary">
-                      {opt.value === "OpenClaw" ? (
-                        <OpenclawWorkspaceIcon className="h-4 w-4" />
-                      ) : opt.value === "Hermes-Agent" ? (
-                        <Image
-                          src="/hermes-agent.png"
-                          alt="Hermes-Agent"
-                          width={16}
-                          height={16}
-                          className="h-4 w-4 rounded-full object-cover"
-                        />
-                      ) : (
-                        <IconUser className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                    <span className="truncate">{opt.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        }
-      >
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/60 px-2.5 py-2 text-left"
-          aria-label={t("workspaceSwitchAria")}
-        >
-          <span className="grid h-6 w-6 place-items-center rounded-md bg-primary/15 text-primary">
-            {current.value === "OpenClaw" ? (
-              <OpenclawWorkspaceIcon className="h-4 w-4" />
-            ) : current.value === "Hermes-Agent" ? (
-              <Image
-                src="/hermes-agent.png"
-                alt="Hermes-Agent"
-                width={16}
-                height={16}
-                className="h-4 w-4 rounded-full object-cover"
-              />
-            ) : (
-              <IconUser className="h-3.5 w-3.5" />
-            )}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">{current.label}</span>
-          <ChevronDownThin className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
-      </Popover>
-    </div>
-  );
-}
-
 export function SiteNav() {
   const t = useTranslations("Nav");
   const pathname = usePathname();
@@ -513,6 +398,7 @@ export function SiteNav() {
   const auditItems: NavDef[] = useMemo(
     () => [
       { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
+      { href: "/data-security-audit", label: t("dataSecurityAudit"), Icon: NavIconDataSecurity },
       { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
     ],
     [t],
@@ -525,6 +411,7 @@ export function SiteNav() {
 
   const settingsItems: NavDef[] = useMemo(
     () => [
+      { href: "/settings", label: t("settings"), Icon: NavIconSettings },
       { href: "/alerts", label: t("alerts"), Icon: NavIconAlerts },
     ],
     [t],
@@ -644,7 +531,6 @@ export function SiteNav() {
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
-        <WorkspaceSwitcher collapsed={collapsed} />
         {groups.map((g, idx) => (
           <Fragment key={g.title}>
             {!collapsed ? <NavSectionLabel first={idx === 0}>{g.title}</NavSectionLabel> : null}

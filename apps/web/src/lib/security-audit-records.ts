@@ -1,5 +1,4 @@
-import { appendWorkspaceNameParam, collectorAuthHeaders } from "@/lib/collector";
-import { readCollectorFetchResult } from "@/lib/collector-json";
+import { collectorAuthHeaders } from "@/lib/collector";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 /** Collector `findings_json` 解析后单项（无明文、无 vault 原文）。 */
@@ -25,11 +24,6 @@ export type SecurityAuditEventRow = {
   observe_only: number;
 };
 
-export type SecurityAuditPolicyEventCountRow = {
-  policy_id: string;
-  event_count: number;
-};
-
 export type LoadSecurityAuditEventsParams = {
   limit?: number;
   offset?: number;
@@ -38,7 +32,6 @@ export type LoadSecurityAuditEventsParams = {
   untilMs?: number;
   traceId?: string;
   spanId?: string;
-  policyId?: string;
 };
 
 export function parseSecurityAuditFindings(raw: string | null | undefined): SecurityAuditFinding[] {
@@ -87,16 +80,12 @@ export async function loadSecurityAuditEvents(
   if (params.spanId?.trim()) {
     sp.set("span_id", params.spanId.trim());
   }
-  if (params.policyId?.trim()) {
-    sp.set("policy_id", params.policyId.trim());
-  }
-  appendWorkspaceNameParam(sp);
   const url = `${b}${COLLECTOR_API.securityAuditEvents}?${sp.toString()}`;
   const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
-  const data = await readCollectorFetchResult<{ items?: unknown[]; total?: number }>(
-    res,
-    `security audit events HTTP ${res.status}`,
-  );
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { items?: unknown[]; total?: number };
   const items = Array.isArray(data.items)
     ? data.items.map((r) => {
         const o = r as Record<string, unknown>;
@@ -116,31 +105,4 @@ export async function loadSecurityAuditEvents(
       })
     : [];
   return { items, total: Number(data.total ?? items.length) || 0 };
-}
-
-export async function loadSecurityAuditPolicyEventCounts(
-  baseUrl: string,
-  apiKey: string,
-): Promise<SecurityAuditPolicyEventCountRow[]> {
-  const b = baseUrl.replace(/\/+$/, "");
-  const sp = new URLSearchParams();
-  appendWorkspaceNameParam(sp);
-  const url = `${b}${COLLECTOR_API.securityAuditPolicyEventCounts}?${sp.toString()}`;
-  const res = await fetch(url, { headers: { Accept: "application/json", ...collectorAuthHeaders(apiKey) } });
-  const data = await readCollectorFetchResult<{ items?: unknown[] }>(
-    res,
-    `security audit policy counts HTTP ${res.status}`,
-  );
-  if (!Array.isArray(data.items)) {
-    return [];
-  }
-  return data.items
-    .map((row) => {
-      const o = row as Record<string, unknown>;
-      return {
-        policy_id: String(o.policy_id ?? "").trim(),
-        event_count: Number(o.event_count ?? 0) || 0,
-      } satisfies SecurityAuditPolicyEventCountRow;
-    })
-    .filter((row) => !!row.policy_id);
 }

@@ -234,7 +234,7 @@ flowchart TB
 | 组件 | 规划职责 |
 |------|----------|
 | `packages/openclaw-trace-plugin` | 产生 Span（或 OTLP 客户端）；注入/提取上下文。 |
-| `iseeagentc` | Collector（Go）：ingest、Trace/Span API、企业模式可接 OTLP/分析存储等（以代码与配置为准）。 |
+| `services/collector` | OTLP Receiver、Span 存储、Trace JSON API、可选 Exporter。 |
 | `apps/web` | 标准 Trace 树组件、路由、与 `msg_id` 联动。 |
 
 ---
