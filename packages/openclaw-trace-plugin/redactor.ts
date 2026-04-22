@@ -16,12 +16,29 @@ export interface RedactionRule {
   policyAction?: string;
 }
 
+export type LocationType = "user_prompt" | "model_output" | "tool_input_params" | "tool_output" | "metadata";
+
+export type LocationInfo = {
+  type: LocationType;
+  path: string;
+  char_position: {
+    start: number;
+    end: number;
+  };
+  line_position?: {
+    line: number;
+    column: number;
+  };
+};
+
 export type RedactionAuditFinding = {
   policy_id: string;
   policy_name: string;
   match_count: number;
   policy_action: string;
   redact_type: RedactionType;
+  matched_text?: string;
+  location?: LocationInfo;
 };
 
 export type RedactionAuditInterceptionMeta = {
@@ -147,7 +164,7 @@ export class Redactor {
       if (!regex) {
         continue;
       }
-      let n = 0;
+      const matches: Array<{text: string; start: number; end: number}> = [];
       try {
         regex.lastIndex = 0;
         for (;;) {
@@ -155,17 +172,16 @@ export class Redactor {
           if (!m) {
             break;
           }
-          n += 1;
+          matches.push({ text: m[0], start: m.index, end: m.index + m[0].length });
           if (m[0] === "") {
             regex.lastIndex += 1;
           }
-          if (n > 10_000) {
+          if (matches.length > 10_000) {
             break;
           }
         }
       } catch (err) {
         console.error(`[Redactor] scan exec failed rule=${rule.id} name=${rule.name ?? ""}`, err);
-        n = 0;
       } finally {
         try {
           regex.lastIndex = 0;
@@ -173,16 +189,33 @@ export class Redactor {
           /* ignore */
         }
       }
-      if (n <= 0) {
+      if (matches.length <= 0) {
         continue;
       }
       const action = (rule.policyAction ?? "data_mask").toLowerCase();
+      
+      // Create location info for the first match (representative location)
+      const firstMatch = matches[0];
+      const locationType = this.detectLocationType(obj, firstMatch.start);
+      const locationPath = this.detectJsonPath(obj, firstMatch.start);
+      const linePos = this.calculateLinePosition(text, firstMatch.start);
+      
       findings.push({
         policy_id: rule.id,
         policy_name: rule.name ?? rule.id,
-        match_count: n,
+        match_count: matches.length,
         policy_action: action,
         redact_type: rule.redactType,
+        matched_text: firstMatch.text,
+        location: {
+          type: locationType,
+          path: locationPath,
+          char_position: {
+            start: firstMatch.start,
+            end: firstMatch.end,
+          },
+          line_position: linePos,
+        },
       });
     }
 
@@ -210,6 +243,45 @@ export class Redactor {
       policy_ids: [...new Set(findings.map((f) => f.policy_id))],
     };
     return { findings, hit_count, intercepted, observe_only, interception };
+  }
+
+  private detectLocationType(obj: any, charPos: number): LocationType {
+    // Simple heuristic: detect based on object structure
+    const str = JSON.stringify(obj, null, 2);
+    if (str.includes('"role": "user"') && str.includes('"content"')) {
+      return "user_prompt";
+    }
+    if (str.includes('"role": "assistant"') || str.includes('"content"')) {
+      return "model_output";
+    }
+    if (str.includes('"function"') || str.includes('"arguments"')) {
+      return "tool_input_params";
+    }
+    if (str.includes('"tool_outputs"') || str.includes('"result"')) {
+      return "tool_output";
+    }
+    return "metadata";
+  }
+
+  private detectJsonPath(obj: any, charPos: number): string {
+    // Simplified path detection - in production, this would use a proper JSON parser
+    // to track the exact path at the character position
+    const str = JSON.stringify(obj, null, 2);
+    const lines = str.substring(0, charPos).split('\n');
+    const lastLine = lines[lines.length - 1];
+    const match = lastLine.match(/^\s*"([^"]+)":/);
+    if (match) {
+      return match[1];
+    }
+    return "unknown";
+  }
+
+  private calculateLinePosition(text: string, charPos: number): {line: number; column: number} | undefined {
+    const beforePos = text.substring(0, charPos);
+    const lines = beforePos.split('\n');
+    const line = lines.length;
+    const column = lines[lines.length - 1].length + 1;
+    return { line, column };
   }
 
   private applyMask(match: string): string {

@@ -1,6 +1,6 @@
 {
   "name": "@crabagent/openclaw-trace-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Crabagent trace ingest plugin for OpenClaw",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,7 @@
   },
   "scripts": {
     "typecheck": "pnpm exec tsc -p tsconfig.json",
-    "test": "pnpm exec tsx --test opik-runtime-non-llm.test.ts trace-session-key.test.ts llm-input-routing-meta.test.ts session-store-routing.test.ts plugin-register-smoke.test.ts resource-audit-span.test.ts redact-batch.test.ts vault-pipeline.test.ts sql-heuristic.test.ts",
+    "test": "pnpm exec tsx --test opik-runtime-non-llm.test.ts trace-session-key.test.ts llm-input-routing-meta.test.ts session-store-routing.test.ts plugin-register-smoke.test.ts redact-batch.test.ts vault-pipeline.test.ts sql-heuristic.test.ts",
     "lint": "echo \"no lint yet\""
   }
 }

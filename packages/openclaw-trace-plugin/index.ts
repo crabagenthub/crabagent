@@ -372,7 +372,7 @@ export default definePluginEntry({
         return;
       }
       try {
-        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies/pull-report`;
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies/pull-report?workspace_name=OpenClaw`;
         const headers: Record<string, string> = {
           Accept: "application/json",
           "Content-Type": "application/json",
@@ -395,7 +395,7 @@ export default definePluginEntry({
       const c = getCfg();
       if (!c.collectorBaseUrl) return;
       try {
-        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies`;
+        const url = `${c.collectorBaseUrl.replace(/\/+$/, "")}/v1/policies?workspace_name=OpenClaw&update_pulled=true`;
         const headers: Record<string, string> = {
           "Accept": "application/json",
         };

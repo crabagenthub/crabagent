@@ -16,7 +16,6 @@ import {
   extractRoutingFromPendingUserTurn,
   mergeOpenclawRoutingLayers,
 } from "./llm-input-routing-meta.js";
-import { enrichToolSpanResourceAudit } from "./resource-audit-span.js";
 import { looksLikeSqlDump } from "./sql-heuristic.js";
 import { Redactor, type RedactionRule } from "./redactor.js";
 import {
@@ -2191,7 +2190,6 @@ export class OpikOpenClawRuntime {
         message: typeof ev.error === "string" ? ev.error : JSON.stringify(ev.error),
       };
     }
-    enrichToolSpanResourceAudit(span);
     tagToolSpanSqlDumpHeuristic(span);
   }
 
