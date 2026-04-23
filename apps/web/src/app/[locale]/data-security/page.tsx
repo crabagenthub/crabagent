@@ -2,7 +2,10 @@
 
 import { useCallback, useState } from "react";
 import Input from "@arco-design/web-react/es/Input";
-import { IconSearch, IconList, IconApps, IconPlus, IconFile, IconInfoCircle } from "@arco-design/web-react/icon";
+import Dropdown from "@arco-design/web-react/es/Dropdown";
+import Menu from "@arco-design/web-react/es/Menu";
+import Modal from "@arco-design/web-react/es/Modal";
+import { IconSearch, IconApps, IconPlus, IconFile, IconInfoCircle } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import { AppPageShell } from "@/components/app-page-shell";
 import { InterceptorPoliciesManager } from "@/components/interceptor-policies-manager";
@@ -155,10 +158,10 @@ type DataSecurityTemplatePolicy = {
 
 export default function DataSecurityPage() {
   const t = useTranslations("DataSecurity");
-  const [activeTab, setActiveTab] = useState<"policies" | "templates">("policies");
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [templatePolicy, setTemplatePolicy] = useState<Partial<DataSecurityTemplatePolicy> & { targets?: string[] } | null>(null);
+  const [isTemplateModalVisible, setIsTemplateModalVisible] = useState(false);
 
   const handleRefreshList = useCallback(() => {
     setRefreshSignal((prev) => prev + 1);
@@ -177,6 +180,10 @@ export default function DataSecurityPage() {
     });
   }, []);
 
+  const handleOpenTemplateList = useCallback(() => {
+    setIsTemplateModalVisible(true);
+  }, []);
+
   const handleUseTemplate = useCallback(
     (template: PolicyTemplate) => {
       setTemplatePolicy({
@@ -189,7 +196,7 @@ export default function DataSecurityPage() {
         severity: "high",
         policy_action: "data_mask",
       });
-      setActiveTab("policies");
+      setIsTemplateModalVisible(false);
     },
     [t],
   );
@@ -201,102 +208,80 @@ export default function DataSecurityPage() {
           <h1 className="ca-page-title">{t("title")}</h1>
         </header>
 
-        <section className="mb-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab("policies")}
-              className={cn(
-                "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
-                activeTab === "policies"
-                  ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
-                  : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100"
-              )}
-            >
-              <IconList
-                className={cn(
-                  "size-4 shrink-0",
-                  activeTab === "policies"
-                    ? "text-neutral-800 dark:text-zinc-100"
-                    : "text-neutral-600 dark:text-zinc-400"
-                )}
-                strokeWidth={activeTab === "policies" ? 3 : 2}
-                aria-hidden
-              />
-              <span className="whitespace-nowrap">{t("tabPolicies")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("templates")}
-              className={cn(
-                "inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-[color,background-color] sm:px-3",
-                activeTab === "templates"
-                  ? "bg-[#f2f5fa] font-semibold text-neutral-800 dark:bg-zinc-800/75 dark:text-zinc-100"
-                  : "text-neutral-600 hover:bg-[#f2f5fa] hover:text-neutral-900 dark:text-zinc-400 dark:hover:bg-zinc-800/75 dark:hover:text-zinc-100"
-              )}
-            >
-              <IconApps
-                className={cn(
-                  "size-4 shrink-0",
-                  activeTab === "templates"
-                    ? "text-neutral-800 dark:text-zinc-100"
-                    : "text-neutral-600 dark:text-zinc-400"
-                )}
-                strokeWidth={activeTab === "templates" ? 3 : 2}
-                aria-hidden
-              />
-              <span className="whitespace-nowrap">{t("tabTemplates")}</span>
-            </button>
-          </div>
-        </section>
-
         <section className="space-y-4">
-          {activeTab === "policies" ? (
-            <>
-              <div className="rounded-xl border border-neutral-200/90 bg-neutral-50/40 p-2 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/25 sm:p-2.5">
-                <div className="flex flex-wrap items-center gap-2 gap-y-3 xl:flex-nowrap">
-                  <div className="flex min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink flex-1 basis-[min(100%,44rem)] items-center gap-2 sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
-                    <div className="group/sch relative min-w-[12rem] flex-1">
-                      <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-neutral-500 transition-colors duration-150 dark:text-zinc-500 group-hover/sch:text-neutral-600 dark:group-hover/sch:text-zinc-400 group-focus-within/sch:text-neutral-950 dark:group-focus-within/sch:text-zinc-50">
-                        <IconSearch className="h-4 w-4" aria-hidden />
-                      </span>
-                      <Input
-                        value={searchQuery}
-                        onChange={(value) => setSearchQuery(value)}
-                        placeholder={t("searchPlaceholder")}
-                        allowClear
-                        className="h-9 w-full rounded-md border border-neutral-200 bg-white py-2 pl-9 pr-3 text-sm text-neutral-800 shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-neutral-400 focus-visible:border-neutral-400 focus-visible:ring-2 focus-visible:ring-neutral-300/60 dark:border-zinc-600 dark:bg-zinc-950/50 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus-visible:border-zinc-500 dark:focus-visible:ring-zinc-600/50 group-hover/sch:placeholder:text-neutral-500 dark:group-hover/sch:placeholder:text-zinc-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 xl:flex-nowrap">
-                    <Button variant="outline" size="sm" onClick={handleRefreshList}>
-                      {t("refreshList")}
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleAddPolicy}
-                      className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl px-4 [&_svg]:size-4 [&_svg]:shrink-0"
-                    >
-                      <IconPlus aria-hidden />
-                      {t("addPolicy")}
-                    </Button>
-                  </div>
+          <div className="rounded-xl border border-neutral-200/90 bg-neutral-50/40 p-2 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/25 sm:p-2.5">
+            <div className="flex flex-wrap items-center gap-2 gap-y-3 xl:flex-nowrap">
+              <div className="flex min-w-[min(100%,18rem)] max-w-[min(80rem,94vw)] shrink flex-1 basis-[min(100%,44rem)] items-center gap-2 sm:min-w-[22rem] md:basis-[min(100%,48rem)] lg:max-w-[min(88rem,94vw)]">
+                <div className="group/sch relative min-w-[12rem] flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-neutral-500 transition-colors duration-150 dark:text-zinc-500 group-hover/sch:text-neutral-600 dark:group-hover/sch:text-zinc-400 group-focus-within/sch:text-neutral-950 dark:group-focus-within/sch:text-zinc-50">
+                    <IconSearch className="h-4 w-4" aria-hidden />
+                  </span>
+                  <Input
+                    value={searchQuery}
+                    onChange={(value) => setSearchQuery(value)}
+                    placeholder={t("searchPlaceholder")}
+                    allowClear
+                    className="h-9 w-full rounded-md border border-neutral-200 bg-white py-2 pl-9 pr-3 text-sm text-neutral-800 shadow-sm outline-none transition-[color,box-shadow,border-color] placeholder:text-neutral-400 focus-visible:border-neutral-400 focus-visible:ring-2 focus-visible:ring-neutral-300/60 dark:border-zinc-600 dark:bg-zinc-950/50 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus-visible:border-zinc-500 dark:focus-visible:ring-zinc-600/50 group-hover/sch:placeholder:text-neutral-500 dark:group-hover/sch:placeholder:text-zinc-500"
+                  />
                 </div>
               </div>
 
-              <div>
-                <InterceptorPoliciesManager
-                  templatePolicy={templatePolicy}
-                  onTemplatePolicyHandled={() => setTemplatePolicy(null)}
-                  searchQuery={searchQuery}
-                  refreshSignal={refreshSignal}
-                />
+              <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 xl:flex-nowrap">
+                <Button variant="outline" size="sm" onClick={handleRefreshList}>
+                  {t("refreshList")}
+                </Button>
+                <Dropdown
+                  trigger="hover"
+                  position="bl"
+                  droplist={
+                    <Menu
+                      onClickMenuItem={(key) => {
+                        if (key === "custom") {
+                          handleAddPolicy();
+                        }
+                        if (key === "template") {
+                          handleOpenTemplateList();
+                        }
+                      }}
+                    >
+                      <Menu.Item key="custom">{t("addPolicy")}</Menu.Item>
+                      <Menu.Item key="template">{t("addFromTemplate")}</Menu.Item>
+                    </Menu>
+                  }
+                >
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl px-4 [&_svg]:size-4 [&_svg]:shrink-0"
+                  >
+                    <IconPlus aria-hidden />
+                    {t("addPolicy")}
+                  </Button>
+                </Dropdown>
               </div>
-            </>
-          ) : (
+            </div>
+          </div>
+
+          <div>
+            <InterceptorPoliciesManager
+              templatePolicy={templatePolicy}
+              onTemplatePolicyHandled={() => setTemplatePolicy(null)}
+              searchQuery={searchQuery}
+              refreshSignal={refreshSignal}
+            />
+          </div>
+        </section>
+
+        <Modal
+          title={t("templateModalTitle")}
+          visible={isTemplateModalVisible}
+          onCancel={() => setIsTemplateModalVisible(false)}
+          footer={null}
+          style={{ width: 920, maxWidth: "calc(100vw - 2rem)" }}
+          maskClosable={false}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t("templateModalDescription")}</p>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {POLICY_TEMPLATES.map((template, templateIndex) => (
                 <Card
@@ -364,8 +349,8 @@ export default function DataSecurityPage() {
                 </Card>
               ))}
             </div>
-          )}
-        </section>
+          </div>
+        </Modal>
 
       </main>
     </AppPageShell>
