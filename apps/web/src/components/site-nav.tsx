@@ -219,7 +219,7 @@ function SidebarUserProfile({
   };
 
   const avatarFace = (
-    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm ring-2 ring-background">
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
       <UserAvatarSilhouette className="h-5 w-5 text-primary-foreground" />
     </div>
   );
@@ -281,16 +281,14 @@ function SidebarUserProfile({
     ) : null;
 
   const triggerBtn = (
-    <Button
+    <button
       type="button"
-      variant="ghost"
-      size={sidebarCollapsed ? "icon" : "sm"}
-      className={[
-        "ring-offset-2 ring-offset-sidebar transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+      className={cn(
+        "ring-offset-2 ring-offset-sidebar transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         sidebarCollapsed
-          ? "h-auto w-auto flex-col items-center rounded-full p-1"
-          : "h-auto min-w-0 w-full flex-row items-center gap-2.5 rounded-lg py-1.5 pl-1 pr-2 text-left",
-      ].join(" ")}
+          ? "flex h-auto w-auto flex-col items-center rounded-full p-1"
+          : "flex h-12 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left",
+      )}
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-label={t("userMenuOpen")}
@@ -298,16 +296,23 @@ function SidebarUserProfile({
     >
       {avatarFace}
       {!sidebarCollapsed ? (
-        <div className="min-w-0 flex-1 text-left leading-tight">
-          <p className="truncate text-sm font-semibold text-sidebar-foreground">{t("userDisplayName")}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{t("userHandle")}</p>
-        </div>
+        <span className="min-w-0 flex-1 truncate whitespace-nowrap font-semibold leading-none text-sidebar-foreground">
+          <span className="text-sm align-middle">{t("userDisplayName")}</span>
+          <span className="mx-1 text-xs align-middle font-normal text-muted-foreground">·</span>
+          <span className="text-xs align-middle font-normal text-muted-foreground">{t("userHandle")}</span>
+        </span>
       ) : null}
-    </Button>
+    </button>
   );
 
   return (
-    <div className={[sidebarCollapsed ? "px-2 pb-1.5 pt-1" : "px-2.5 pb-2.5 pt-1.5"].join(" ")}>
+    <div
+      className={cn(
+        "px-2.5 pb-2 pt-1.5",
+        !sidebarCollapsed && "rounded-none bg-sidebar transition-colors hover:bg-sidebar-accent/40",
+        sidebarCollapsed && "px-2 pb-1.5 pt-1",
+      )}
+    >
       <div
         className={cn(
           "flex min-w-0 items-center gap-2",
@@ -327,8 +332,7 @@ function SidebarUserProfile({
             triggerProps={{
               showArrow: false,
               duration: { enter: 180, exit: 140, appear: 180 },
-              /** 避免 Arco 将触发器包成块级导致头像与文案上下叠放 */
-              className: sidebarCollapsed ? undefined : "flex w-full min-w-0 flex-row items-stretch",
+              className: sidebarCollapsed ? undefined : "flex w-full min-w-0 items-center",
             }}
             content={userMenuPanel}
           >
@@ -447,6 +451,38 @@ function WorkspaceSwitcher({ collapsed }: { collapsed: boolean }) {
           <ChevronDownThin className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
       </Popover>
+    </div>
+  );
+}
+
+function SidebarBottomLinks({ collapsed }: { collapsed: boolean }) {
+  const t = useTranslations("Nav");
+  if (collapsed) {
+    return null;
+  }
+
+  return (
+    <div className="px-3 pb-1.5">
+      <div className="space-y-0.5">
+        <a
+          href="/feedback/bug"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="group flex min-w-0 items-center gap-2.5 rounded-lg py-2 pl-2 pr-2.5 text-sm text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70 transition group-hover:bg-current" />
+          <span className="truncate">{t("bugFeedback")}</span>
+        </a>
+        <a
+          href="/feedback/feature"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="group flex min-w-0 items-center gap-2.5 rounded-lg py-2 pl-2 pr-2.5 text-sm text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70 transition group-hover:bg-current" />
+          <span className="truncate">{t("featureRequest")}</span>
+        </a>
+      </div>
     </div>
   );
 }
@@ -686,12 +722,15 @@ export function SiteNav() {
         ))}
       </nav>
 
-      <div className="relative z-20 isolate shrink-0 border-0 bg-sidebar">
+      <div className="group/user-strip relative z-20 isolate shrink-0 border-t border-sidebar-border bg-sidebar">
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          className="absolute left-1/2 top-0 z-30 h-7 min-w-[2.25rem] -translate-x-1/2 -translate-y-1/2 border border-sidebar-border bg-sidebar px-2 text-muted-foreground shadow-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring pointer-events-auto"
+          className={cn(
+            "absolute left-1/2 top-0 z-30 h-7 min-w-[2.25rem] -translate-x-1/2 -translate-y-1/2 border border-sidebar-border bg-sidebar px-2 text-muted-foreground shadow-sm transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring",
+            "opacity-0 pointer-events-none group-hover/user-strip:opacity-100 group-hover/user-strip:pointer-events-auto group-focus-within/user-strip:opacity-100 group-focus-within/user-strip:pointer-events-auto",
+          )}
           aria-expanded={bottomExpanded}
           aria-label={bottomExpanded ? t("collapseBottom") : t("expandBottom")}
           onClick={(e) => {
@@ -699,15 +738,15 @@ export function SiteNav() {
             toggleBottomExpanded();
           }}
         >
-          {bottomExpanded ? <ChevronUpThin className="h-4 w-4" /> : <ChevronDownThin className="h-4 w-4" />}
+          {bottomExpanded ? <ChevronDownThin className="h-4 w-4" /> : <ChevronUpThin className="h-4 w-4" />}
         </Button>
-        {bottomExpanded ? (
-          <div className="pointer-events-auto pt-3">
-            <SidebarUserProfile sidebarCollapsed={collapsed} onRequestStripCollapse={closeBottomStrip} />
-          </div>
-        ) : (
-          <div className="h-6 shrink-0" aria-hidden />
-        )}
+        <div className={cn("pointer-events-auto transition-[padding] duration-200", bottomExpanded ? "pt-3" : "pt-1.5")}>
+          {bottomExpanded ? <SidebarBottomLinks collapsed={collapsed} /> : null}
+          <SidebarUserProfile
+            sidebarCollapsed={collapsed}
+            onRequestStripCollapse={bottomExpanded ? closeBottomStrip : undefined}
+          />
+        </div>
       </div>
     </aside>
   );
