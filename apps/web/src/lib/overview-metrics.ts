@@ -26,7 +26,7 @@ export function enumerateLocalYMDInclusive(sinceMs: number, untilMs: number, max
   const end = new Date(untilMs);
   const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  let span = Math.floor((endDay.getTime() - startDay.getTime()) / 86400000) + 1;
+  const span = Math.floor((endDay.getTime() - startDay.getTime()) / 86400000) + 1;
   if (span < 1) {
     return [];
   }

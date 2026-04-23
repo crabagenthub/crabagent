@@ -8,7 +8,6 @@ export const OV_CHART_TOTAL = "#475569";
 export const OV_PIE_COLORS = ["#7c3aed", "#14b8a6", "#f59e0b", "#ec4899", "#3b82f6", "#64748b"];
 
 const MUTED = "#64748b";
-const GRID = { left: 4, right: 10, top: 8, bottom: 4, containLabel: true } as const;
 const GRID_LEGEND = { left: 4, right: 10, top: 8, bottom: 36, containLabel: true } as const;
 
 function dayLabels(days: string[]) {

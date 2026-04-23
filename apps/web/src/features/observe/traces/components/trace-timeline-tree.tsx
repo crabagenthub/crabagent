@@ -10,7 +10,7 @@ import { TraceCrabagentLayersPanel } from "@/features/observe/traces/components/
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { eventRunId } from "@/lib/trace-event-run-id";
 import { parseCrabagentPayload } from "@/lib/trace-crabagent-layers";
-import { cn, formatShortId } from "@/lib/utils";
+import { formatShortId } from "@/lib/utils";
 
 export type TraceTimelineEvent = {
   id?: number;

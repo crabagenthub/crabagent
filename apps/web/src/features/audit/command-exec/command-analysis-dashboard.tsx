@@ -16,10 +16,8 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import {
-  IconApps,
   IconArrowFall,
   IconArrowRise,
-  IconList,
   IconRefresh,
   IconShareExternal,
 } from "@arco-design/web-react/icon";
@@ -28,6 +26,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { usePathname } from "@/i18n/navigation";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TitleHintIcon } from "@/shared/components/message-hint";
@@ -37,7 +36,8 @@ import { LocalizedLink } from "@/shared/components/localized-link";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
 import { toast } from "@/components/ui/feedback";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
-import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
+import { AuditWorkbenchFilterBar } from "@/shared/components/audit-workbench-filter-bar";
+import { AuditLinkActions } from "@/shared/components/audit-link-actions";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
@@ -45,13 +45,13 @@ import { loadObserveFacets } from "@/lib/observe-facets";
 import {
   defaultCommandAnalysisDateRange,
   readCommandAnalysisDateRange,
-  writeCommandAnalysisDateRange,
 } from "@/lib/command-analysis-date-range";
 import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
+import { parseObserveDateRangeFromListUrl } from "@/lib/observe-list-deep-link";
 import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/observe-table-style";
 import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
+import { buildAuditLink } from "@/lib/audit-linkage";
 import type { TraceRecordRow } from "@/lib/trace-records";
-import { resourceRiskBarOption } from "@/lib/resource-audit-echarts-options";
 import {
   loadShellExecList,
   loadShellExecSummary,
@@ -68,8 +68,6 @@ const kpiShellClass =
 
 const kpiMetricCardClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
-
-type CommandAnalysisViewKind = "metrics" | "details";
 
 type MomTagTone = "green" | "red" | "gray";
 
@@ -302,8 +300,17 @@ function ShellExecSpanIdCell({
 export function CommandAnalysisDashboard() {
   const t = useTranslations("CommandAnalysis");
   const tTr = useTranslations("Traces");
+  const tNav = useTranslations("Nav");
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const urlTraceId = searchParams.get("trace_id")?.trim() ?? "";
+  const urlChannel = searchParams.get("channel")?.trim() ?? "";
+  const urlAgent = searchParams.get("agent")?.trim() ?? "";
+  const sourceFromUrl = searchParams.get("source")?.trim().toLowerCase() ?? "";
+  const dateRangeFromUrl = useMemo(
+    () => parseObserveDateRangeFromListUrl(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
 
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -319,6 +326,24 @@ export function CommandAnalysisDashboard() {
   const [pageSize, setPageSize] = useState(50);
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
+  const isInvestigationCenterRoute = pathname === "/investigation-center";
+  const pageTitle = isInvestigationCenterRoute ? tNav("investigationCenter") : tNav("commandAnalysisLegacy");
+  const sourceLabel = useMemo(() => {
+    switch (sourceFromUrl) {
+      case "policy":
+        return t("sourcePolicy");
+      case "resource":
+        return t("sourceResource");
+      case "command":
+        return t("sourceCommand");
+      case "messages":
+        return t("sourceMessages");
+      case "steps":
+        return t("sourceSteps");
+      default:
+        return "";
+    }
+  }, [sourceFromUrl, t]);
 
   const openMessageInspectFromShellRow = useCallback(
     async (traceId: string, spanId: string) => {
@@ -349,6 +374,20 @@ export function CommandAnalysisDashboard() {
   useEffect(() => {
     setTraceFilter(urlTraceId);
   }, [urlTraceId]);
+
+  useEffect(() => {
+    setChannel(urlChannel || undefined);
+  }, [urlChannel]);
+
+  useEffect(() => {
+    setAgent(urlAgent || undefined);
+  }, [urlAgent]);
+
+  useEffect(() => {
+    if (dateRangeFromUrl) {
+      setDateRange(dateRangeFromUrl);
+    }
+  }, [dateRangeFromUrl]);
 
   useEffect(() => {
     const onSettings = () => {
@@ -448,12 +487,6 @@ export function CommandAnalysisDashboard() {
     return shellTrendOption(summary.daily_risk_series?.length ? summary.daily_risk_series : fallback, t);
   }, [summary, t]);
 
-  const onDateChange = useCallback((next: ObserveDateRange) => {
-    setDateRange(next);
-    writeCommandAnalysisDateRange(next);
-    setPage(1);
-  }, []);
-
   const listColumns: TableColumnProps<ShellExecListRow>[] = useMemo(
     () => [
       {
@@ -545,10 +578,52 @@ export function CommandAnalysisDashboard() {
         render: (_: unknown, row) =>
           row.parsed?.tokenRisk ? <Tag color="orangered">{t("riskTag")}</Tag> : "—",
       },
+      {
+        title: t("colAction"),
+        width: 108,
+        render: (_: unknown, row) => {
+          const traceId = String(row.trace_id ?? "").trim();
+          const spanId = String(row.span_id ?? "").trim();
+          if (!traceId) {
+            return "—";
+          }
+          return (
+            <AuditLinkActions
+              actions={[
+                {
+                  label: t("openSecurityAudit"),
+                  href: buildAuditLink("/data-security-audit", {
+                    source: "command",
+                    trace_id: traceId,
+                    span_id: spanId || undefined,
+                    since_ms: sinceMs,
+                    until_ms: untilMs,
+                    channel: channel || undefined,
+                    agent: agent || undefined,
+                  }),
+                },
+              ]}
+            />
+          );
+        },
+      },
     ],
-    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl],
+    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl, sinceMs, untilMs, channel, agent],
   );
   const s: ShellExecSummary | undefined = summaryQuery.data;
+  const buildInvestigationTraceLink = useCallback(
+    (traceId: string) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      if (traceId.trim()) {
+        sp.set("trace_id", traceId.trim());
+      } else {
+        sp.delete("trace_id");
+      }
+      const qs = sp.toString();
+      return qs ? `${pathname}?${qs}` : pathname;
+    },
+    [pathname, searchParams],
+  );
   const totalRows = listQuery.data?.total ?? 0;
   const snap = s?.db_snapshot;
   const narrowedTime =
@@ -606,11 +681,32 @@ export function CommandAnalysisDashboard() {
         <header className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between">
           <div>
             <Typography.Title heading={4} className="ca-page-title !m-0">
-              {t("title")}
+              {pageTitle}
             </Typography.Title>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {isInvestigationCenterRoute ? (
+                <LocalizedLink
+                  href="/command-analysis"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {tNav("commandAnalysisLegacy")}
+                </LocalizedLink>
+              ) : (
+                <LocalizedLink
+                  href="/investigation-center"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {tNav("investigationCenter")}
+                </LocalizedLink>
+              )}
+              {sourceLabel ? (
+                <Tag color="arcoblue" size="small">
+                  {t("filterChipSource", { source: sourceLabel })}
+                </Tag>
+              ) : null}
+            </div>
           </div>
           <Space>
-            <ObserveDateRangeTrigger value={dateRange} onChange={onDateChange} />
             <Button
               type="outline"
               icon={<IconRefresh />}
@@ -626,6 +722,7 @@ export function CommandAnalysisDashboard() {
             </Button>
           </Space>
         </header>
+        <AuditWorkbenchFilterBar withChannelAgent={true} />
 
         {summaryQuery.isError ? (
           <Typography.Text type="error">
@@ -835,7 +932,7 @@ export function CommandAnalysisDashboard() {
                       <li key={`${lo.trace_id}-${lo.command}`} className="rounded-md bg-muted/40 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Tag color="red">{t("loopTag", { n: lo.repeat_count })}</Tag>
-                          <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(lo.trace_id)}`}>
+                          <LocalizedLink className="font-mono text-xs text-primary" href={buildInvestigationTraceLink(lo.trace_id)}>
                             {formatShortId(lo.trace_id)}
                           </LocalizedLink>
                           <Button
@@ -870,7 +967,7 @@ export function CommandAnalysisDashboard() {
                   <ul className="space-y-2 text-sm">
                     {s.redundant_read_hints.map((r) => (
                       <li key={`${r.trace_id}-${r.command}`} className="flex flex-wrap items-center gap-2">
-                        <LocalizedLink className="font-mono text-xs text-primary" href={`/command-analysis?trace_id=${encodeURIComponent(r.trace_id)}`}>
+                        <LocalizedLink className="font-mono text-xs text-primary" href={buildInvestigationTraceLink(r.trace_id)}>
                           {formatShortId(r.trace_id)}
                         </LocalizedLink>
                         <span className="text-xs text-muted-foreground">×{r.repeats} {r.command.slice(0, 80)}</span>

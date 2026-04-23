@@ -100,7 +100,6 @@ export async function loadActivityTimelineData(
     });
 
     // 生成星期数据
-    const maxCount = Math.max(...Array.from(dayStats.values()).map(d => d.count), 1);
     const dayData: DayActivity[] = WEEK_DAYS.map((day, index) => {
       const stats = dayStats.get(index) || { count: 0, tokens: 0 };
       return {

@@ -44,7 +44,7 @@ export function ScrollableTableFrame({
     const eps = 3;
     setShowLeft(scrollLeft > eps);
     setShowRight(max > eps && scrollLeft < max - eps);
-  }, [contentKey]);
+  }, []);
 
   useEffect(() => {
     const el = ref.current;

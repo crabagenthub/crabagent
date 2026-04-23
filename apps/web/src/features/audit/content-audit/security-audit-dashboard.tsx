@@ -12,7 +12,8 @@ import { ReactEChart } from "@/shared/components/react-echart";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint } from "@/shared/components/message-hint";
-import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
+import { AuditWorkbenchFilterBar } from "@/shared/components/audit-workbench-filter-bar";
+import { AuditLinkActions } from "@/shared/components/audit-link-actions";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { buildAuditLink } from "@/lib/audit-linkage";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
@@ -22,9 +23,9 @@ import {
   defaultObserveDateRange,
   readStoredObserveDateRange,
   resolveObserveSinceUntil,
-  writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
+import { parseObserveDateRangeFromListUrl } from "@/lib/observe-list-deep-link";
 import {
   securityHitPieOption,
   securityTopSourcesBarOption,
@@ -45,7 +46,6 @@ import {
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 
-const PAGE_SIZE = 50;
 /** Collector 对内容审计列表的 limit 上限 */
 const ANALYTICS_LIMIT = 200;
 const cardShellClass =
@@ -72,6 +72,13 @@ export function SecurityAuditDashboard() {
   const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
   const spanFromUrl = searchParams.get("span_id")?.trim() ?? "";
   const policyIdFromUrl = searchParams.get("policy_id")?.trim() ?? "";
+  const channelFromUrl = searchParams.get("channel")?.trim() ?? "";
+  const agentFromUrl = searchParams.get("agent")?.trim() ?? "";
+  const sourceFromUrl = searchParams.get("source")?.trim().toLowerCase() ?? "";
+  const dateRangeFromUrl = useMemo(
+    () => parseObserveDateRangeFromListUrl(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -80,6 +87,22 @@ export function SecurityAuditDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [viewKind, setViewKind] = useState<SecurityAuditViewKind>("metrics");
+  const sourceLabel = useMemo(() => {
+    switch (sourceFromUrl) {
+      case "policy":
+        return t("sourcePolicy");
+      case "resource":
+        return t("sourceResource");
+      case "command":
+        return t("sourceCommand");
+      case "messages":
+        return t("sourceMessages");
+      case "steps":
+        return t("sourceSteps");
+      default:
+        return "";
+    }
+  }, [sourceFromUrl, t]);
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -90,6 +113,12 @@ export function SecurityAuditDashboard() {
       setDateRange(stored);
     }
   }, []);
+
+  useEffect(() => {
+    if (dateRangeFromUrl) {
+      setDateRange(dateRangeFromUrl);
+    }
+  }, [dateRangeFromUrl]);
 
   useEffect(() => {
     const stored = readStoredPageSize(50);
@@ -107,11 +136,6 @@ export function SecurityAuditDashboard() {
   }, [queryClient]);
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
-
-  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
-    setDateRange(next);
-    writeStoredObserveDateRange(next);
-  }, []);
 
   const listParams = useMemo(
     () => ({
@@ -266,33 +290,46 @@ export function SecurityAuditDashboard() {
       },
       {
         title: t("colLink"),
-        width: 120,
+        width: 180,
         render: (_: unknown, row: SecurityAuditEventRow) => {
           const findings = parseSecurityAuditFindings(row.findings_json);
           const first = findings[0];
           return (
-            <Button
-              type="text"
-              size="mini"
-              className="!h-auto !px-0 text-xs text-primary"
-              onClick={() =>
-                router.push(
-                  buildAuditLink("/resource-access", {
+            <AuditLinkActions
+              actions={[
+                {
+                  label: t("securityToResource"),
+                  href: buildAuditLink("/risk-center", {
                     source: "policy",
                     trace_id: row.trace_id,
                     span_id: row.span_id ?? undefined,
                     policy_id: first?.policy_id || undefined,
+                    since_ms: sinceMs,
+                    until_ms: untilMs,
+                    channel: channelFromUrl || undefined,
+                    agent: agentFromUrl || undefined,
                   }),
-                )
-              }
-            >
-              {t("securityToResource")}
-            </Button>
+                },
+                {
+                  label: t("securityToInvestigation"),
+                  href: buildAuditLink("/investigation-center", {
+                    source: "policy",
+                    trace_id: row.trace_id,
+                    span_id: row.span_id ?? undefined,
+                    policy_id: first?.policy_id || undefined,
+                    since_ms: sinceMs,
+                    until_ms: untilMs,
+                    channel: channelFromUrl || undefined,
+                    agent: agentFromUrl || undefined,
+                  }),
+                },
+              ]}
+            />
           );
         },
       },
     ],
-    [t, router],
+    [t, sinceMs, untilMs, channelFromUrl, agentFromUrl],
   );
 
   const riskTrendChart =
@@ -365,8 +402,13 @@ export function SecurityAuditDashboard() {
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="ca-page-title">{t("title")}</h1>
-            {traceFromUrl || spanFromUrl ? (
+            {traceFromUrl || spanFromUrl || sourceLabel ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                {sourceLabel ? (
+                  <Tag color="arcoblue" size="small">
+                    {t("filterChipSource", { source: sourceLabel })}
+                  </Tag>
+                ) : null}
                 {traceFromUrl ? (
                   <Tag color="arcoblue" size="small">
                     {t("filterChipTrace", { id: formatShortId(traceFromUrl) })}
@@ -384,7 +426,6 @@ export function SecurityAuditDashboard() {
             ) : null}
           </div>
           <Space>
-            <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
             <Button
               type="outline"
               size="small"
@@ -399,6 +440,7 @@ export function SecurityAuditDashboard() {
             </Button>
           </Space>
         </header>
+        <AuditWorkbenchFilterBar withChannelAgent={true} />
 
         <section aria-label={t("viewSwitcherAria")} className="space-y-3">
           <div role="radiogroup" aria-label={t("viewSwitcherAria")} className="flex flex-wrap items-center gap-1.5 sm:gap-2">

@@ -11,16 +11,13 @@ import { ExecutionTraceFlow } from "@/features/observe/traces/components/executi
 import { TraceSemanticTree } from "@/features/observe/traces/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/features/observe/traces/components/trace-span-run-panel";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
 import {
-  formatDurationMs,
   traceRecordAgentName,
   traceRecordChannel,
-  traceRecordDurationMs,
   type TraceRecordRow,
 } from "@/lib/trace-records";
 import { collectSkillsUsedFromSemanticSpans } from "@/lib/trace-skills-used";
@@ -36,17 +33,6 @@ type Props = {
   baseUrl: string;
   apiKey: string;
 };
-
-function SidebarMetricRow({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-4 text-sm">
-      <span className="text-neutral-600 dark:text-neutral-400">{label}</span>
-      <span className={cn("tabular-nums font-semibold text-neutral-800 dark:text-neutral-100", accent && "text-amber-700 dark:text-amber-500")}>
-        {value}
-      </span>
-    </div>
-  );
-}
 
 export function TraceRecordInspectDialog({
   open,
@@ -136,14 +122,7 @@ export function TraceRecordInspectDialog({
     return items.find((s) => s.span_id === selectedSpanId) ?? null;
   }, [items, selectedSpanId]);
 
-  const rowDur = row ? traceRecordDurationMs(row) : null;
-  const traceRowWhenLabel =
-    row && row.start_time
-      ? formatTraceDateTimeLocal(new Date(row.start_time).toISOString())
-      : "—";
-
   const traceShort = formatShortId(traceId);
-  const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
   const traceAgent = row ? traceRecordAgentName(row) : null;
   const traceChannel = row ? traceRecordChannel(row) : null;
   const serviceName =

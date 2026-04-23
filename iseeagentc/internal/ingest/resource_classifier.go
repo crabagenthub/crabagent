@@ -152,6 +152,56 @@ func ExtractResourceURI(params map[string]interface{}) string {
 	return ""
 }
 
+// IsValidResourceURI returns true when uri looks like a real resource identifier
+// (url, filesystem path, or allowed logical resource scheme).
+func IsValidResourceURI(uri string) bool {
+	u := strings.TrimSpace(uri)
+	if u == "" {
+		return false
+	}
+
+	low := strings.ToLower(u)
+	switch low {
+	case "unknown", "none", "null", "nil", "n/a":
+		return false
+	}
+
+	// Explicitly reject synthetic placeholders.
+	if strings.HasPrefix(low, "tool://") {
+		return false
+	}
+
+	// Allowed explicit schemes.
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return true
+	}
+	if strings.HasPrefix(low, "file://") || strings.HasPrefix(low, "memory://") {
+		return true
+	}
+
+	// If there is some other scheme (x://), reject by default.
+	if strings.Contains(low, "://") {
+		return false
+	}
+
+	// Unix absolute / relative paths.
+	if strings.HasPrefix(u, "/") || strings.HasPrefix(u, "./") || strings.HasPrefix(u, "../") || strings.HasPrefix(u, "~/") {
+		return true
+	}
+
+	// Windows absolute path: C:\... or C:/...
+	if len(u) >= 3 && isASCIIAlpha(u[0]) && u[1] == ':' && (u[2] == '\\' || u[2] == '/') {
+		return true
+	}
+
+	// Common relative path forms like "dir/file.txt" or "dir\\file.txt".
+	if strings.Contains(u, "/") || strings.Contains(u, "\\") {
+		return true
+	}
+
+	return false
+}
+
 // CalculateChars calculates the character count from tool output
 // It supports UTF-8 normalization to match the behavior of the Plugin
 func CalculateChars(output interface{}) int64 {
@@ -374,4 +424,8 @@ func firstPathOperand(tokens []string, from ...int) string {
 
 func isWhitespace(ch rune) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+func isASCIIAlpha(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
 }

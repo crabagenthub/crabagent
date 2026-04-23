@@ -10,12 +10,10 @@ import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button"
 import { TraceSemanticTree } from "@/features/observe/traces/components/trace-semantic-tree";
 import { TraceSpanRunPanel } from "@/features/observe/traces/components/trace-span-run-panel";
 import { Drawer, DrawerClose } from "@/components/ui/drawer";
-import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { buildSpanForest, filterSpanForest } from "@/lib/build-span-tree";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import type { SemanticSpanRow } from "@/lib/semantic-spans";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
-import { formatDurationMs } from "@/lib/trace-records";
 import type { SpanRecordRow } from "@/lib/span-records";
 import { cn, formatShortId } from "@/lib/utils";
 import { SpanInspectAuditBridge } from "@/components/span-inspect-audit-bridge";
@@ -35,8 +33,6 @@ export function SpanRecordInspectDrawer({
   open,
   onOpenChange,
   row,
-  rows: _rows,
-  onNavigate: _onNavigate,
   baseUrl,
   apiKey,
 }: Props) {
@@ -112,37 +108,6 @@ export function SpanRecordInspectDrawer({
     }
     return items.find((s) => s.span_id === selectedSpanId) ?? null;
   }, [items, selectedSpanId]);
-
-  const rowDur = row?.duration_ms ?? null;
-  const listStartLabel =
-    row != null && row.start_time_ms != null
-      ? formatTraceDateTimeLocal(new Date(row.start_time_ms).toISOString())
-      : "—";
-  const listEndLabel =
-    row != null && row.end_time_ms != null
-      ? formatTraceDateTimeLocal(new Date(row.end_time_ms).toISOString())
-      : "—";
-
-  const spanStartLabel = selectedSpan
-    ? formatTraceDateTimeLocal(new Date(selectedSpan.start_time).toISOString())
-    : listStartLabel;
-  const spanEndLabel =
-    selectedSpan && selectedSpan.end_time != null
-      ? formatTraceDateTimeLocal(new Date(selectedSpan.end_time).toISOString())
-      : listEndLabel;
-
-  const whenLine =
-    selectedSpan && selectedSpan.end_time != null
-      ? `${spanStartLabel} – ${spanEndLabel}`
-      : spanStartLabel;
-
-  const traceShort = formatShortId(traceId);
-  const metaDuration = rowDur != null ? formatDurationMs(rowDur) : "—";
-
-  const inspectChipTags = useMemo(() => {
-    const m = selectedSpan?.module?.trim();
-    return m ? [m] : [];
-  }, [selectedSpan?.module]);
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>

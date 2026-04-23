@@ -382,7 +382,6 @@ export default function TracesPage() {
     return () => window.clearTimeout(id);
   }, [listKind, searchDraft]);
 
-  const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
   const tracesSinceUntil = useMemo(() => resolveObserveSinceUntil(tracesUi.dateRange), [tracesUi.dateRange]);
   const threadsSinceUntil = useMemo(() => resolveObserveSinceUntil(threadsUi.dateRange), [threadsUi.dateRange]);
   const spansSinceUntil = useMemo(() => resolveObserveSinceUntil(spansUi.dateRange), [spansUi.dateRange]);
@@ -963,7 +962,7 @@ export default function TracesPage() {
     if (pageIndex > maxPage) {
       setPageIndex(maxPage);
     }
-  }, [q.isSuccess, total, pageIndex, pageSize]);
+  }, [q.isSuccess, total, pageIndex, pageSize, setPageIndex]);
 
   const lastUpdated =
     q.dataUpdatedAt > 0 ? formatTraceDateTimeLocal(new Date(q.dataUpdatedAt).toISOString()) : null;

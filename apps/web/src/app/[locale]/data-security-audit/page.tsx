@@ -1,5 +1,10 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { SecurityAuditDashboard } from "@/features/audit/content-audit/security-audit-dashboard";
 
 export default function DataSecurityAuditPage() {
-  redirect("/resource-audit");
+  return (
+    <Suspense fallback={null}>
+      <SecurityAuditDashboard />
+    </Suspense>
+  );
 }

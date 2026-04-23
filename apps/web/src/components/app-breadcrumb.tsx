@@ -53,12 +53,28 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupObserve") }, { label: tNav("traces") }];
     }
 
-    if (p === "/resource-audit") {
-      return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
+    if (p === "/risk-center" || p.startsWith("/risk-center?")) {
+      return [{ label: tNav("groupAudit") }, { label: tNav("riskCenter") }];
+    }
+
+    if (p === "/investigation-center" || p.startsWith("/investigation-center?")) {
+      return [{ label: tNav("groupAudit") }, { label: tNav("investigationCenter") }];
+    }
+
+    if (p === "/resource-audit" || p.startsWith("/resource-audit?")) {
+      return [
+        { label: tNav("groupAudit") },
+        { label: tNav("advancedTools") },
+        { label: tNav("resourceAuditLegacy") },
+      ];
     }
 
     if (p === "/command-analysis" || p.startsWith("/command-analysis?")) {
-      return [{ label: tNav("groupAudit") }, { label: tNav("commandAnalysis") }];
+      return [
+        { label: tNav("groupAudit") },
+        { label: tNav("advancedTools") },
+        { label: tNav("commandAnalysisLegacy") },
+      ];
     }
 
     if (p === "/logs") {
@@ -73,12 +89,12 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupSettings") }, { label: tNav("machines") }];
     }
 
-    if (p === "/alerts") {
-      return [{ label: tNav("groupSettings") }, { label: tNav("alerts") }];
+    if (p === "/data-security" || p === "/data-security-audit" || p.startsWith("/data-security-audit?")) {
+      return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
     }
 
-    if (p === "/data-security") {
-      return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
+    if (p === "/settings") {
+      return [{ label: tNav("groupSettings") }, { label: tNav("settings") }];
     }
 
     return [{ label: tNav("brand") }];

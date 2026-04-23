@@ -47,10 +47,10 @@ function unescapeForCopy(text: string): string {
 function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?: string }) {
   const t = useTranslations("Traces");
   const s = value.trim();
-  if (!s) {
-    return <span className="text-[11px] text-ca-muted">—</span>;
-  }
   const displayValue = useMemo(() => {
+    if (!s) {
+      return "";
+    }
     if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
       try {
         const parsed = JSON.parse(s);
@@ -61,6 +61,9 @@ function JsonSnippet({ value, maxHeightClass }: { value: string; maxHeightClass?
     }
     return s;
   }, [s]);
+  if (!s) {
+    return <span className="text-[11px] text-ca-muted">—</span>;
+  }
 
   return (
     <div className="relative group">

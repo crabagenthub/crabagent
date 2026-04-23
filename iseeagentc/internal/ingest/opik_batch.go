@@ -442,6 +442,197 @@ func mergeCrabagentInterception(metadata interface{}, summary scanSummary, findi
 	return base
 }
 
+func metadataObject(metadata interface{}) map[string]interface{} {
+	if m, ok := metadata.(map[string]interface{}); ok && m != nil {
+		return m
+	}
+	if s, ok := metadata.(string); ok && strings.TrimSpace(s) != "" {
+		out := map[string]interface{}{}
+		if json.Unmarshal([]byte(s), &out) == nil {
+			return out
+		}
+	}
+	return nil
+}
+
+func boolish01(v interface{}) int {
+	switch x := v.(type) {
+	case bool:
+		if x {
+			return 1
+		}
+	case float64:
+		if int(x) != 0 {
+			return 1
+		}
+	case int:
+		if x != 0 {
+			return 1
+		}
+	case int64:
+		if x != 0 {
+			return 1
+		}
+	case string:
+		s := strings.ToLower(strings.TrimSpace(x))
+		if s == "1" || s == "true" || s == "yes" {
+			return 1
+		}
+	}
+	return 0
+}
+
+func stringSliceFromAny(v interface{}) []string {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+func fallbackPolicyAction(summary map[string]interface{}, intercepted int) string {
+	if mode, ok := summary["mode"].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "observe":
+			return "audit_only"
+		case "enforce":
+			return "abort_run"
+		}
+	}
+	if intercepted == 1 {
+		return "abort_run"
+	}
+	return "audit_only"
+}
+
+func extractSecurityScanFromMetadata(metadata interface{}) (spanSecurityScan, bool) {
+	meta := metadataObject(metadata)
+	if len(meta) == 0 {
+		return spanSecurityScan{}, false
+	}
+
+	var findings []securityAuditFinding
+	if raw, ok := meta["crabagent_interception_findings"].([]interface{}); ok {
+		findings = make([]securityAuditFinding, 0, len(raw))
+		for _, item := range raw {
+			obj, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			matchCount := int(pickInt(obj, 0, "match_count"))
+			policyID := jString(obj, "policy_id")
+			policyName := jString(obj, "policy_name")
+			policyAction := jString(obj, "policy_action")
+			if policyAction == "" {
+				policyAction = "audit_only"
+			}
+			redactType := jString(obj, "redact_type")
+			if redactType == "" {
+				redactType = "mask"
+			}
+			var hintType *string
+			if ht := jString(obj, "hint_type"); ht != "" {
+				hintType = &ht
+			}
+			findings = append(findings, securityAuditFinding{
+				PolicyID:     policyID,
+				PolicyName:   policyName,
+				MatchCount:   matchCount,
+				PolicyAction: policyAction,
+				RedactType:   redactType,
+				HintType:     hintType,
+			})
+		}
+	}
+
+	summaryObj, _ := meta["crabagent_interception"].(map[string]interface{})
+	summary := scanSummary{}
+	if len(findings) > 0 {
+		summary = summarizeFindings(findings)
+	}
+	if len(summaryObj) > 0 {
+		if hits := int(pickInt(summaryObj, 0, "hit_count")); hits > 0 {
+			summary.HitCount = hits
+		}
+		if inter := boolish01(summaryObj["intercepted"]); inter == 1 {
+			summary.Intercepted = 1
+			summary.ObserveOnly = 0
+		} else if strings.EqualFold(strings.TrimSpace(jString(summaryObj, "mode")), "observe") {
+			summary.ObserveOnly = 1
+			summary.Intercepted = 0
+		}
+	}
+
+	if len(findings) == 0 && len(summaryObj) > 0 {
+		policyIDs := stringSliceFromAny(summaryObj["policy_ids"])
+		tags := stringSliceFromAny(summaryObj["tags"])
+		n := len(policyIDs)
+		if len(tags) > n {
+			n = len(tags)
+		}
+		if n == 0 && summary.HitCount > 0 {
+			n = 1
+		}
+		action := fallbackPolicyAction(summaryObj, summary.Intercepted)
+		for i := 0; i < n; i++ {
+			pid := ""
+			if i < len(policyIDs) {
+				pid = policyIDs[i]
+			}
+			name := ""
+			if i < len(tags) {
+				name = tags[i]
+			}
+			if name == "" {
+				name = pid
+			}
+			matchCount := 0
+			if n > 0 && summary.HitCount > 0 {
+				matchCount = summary.HitCount / n
+				if i < summary.HitCount%n {
+					matchCount++
+				}
+			}
+			findings = append(findings, securityAuditFinding{
+				PolicyID:     pid,
+				PolicyName:   name,
+				MatchCount:   matchCount,
+				PolicyAction: action,
+				RedactType:   "mask",
+			})
+		}
+	}
+
+	if summary.HitCount <= 0 && (summary.Intercepted == 1 || summary.ObserveOnly == 1) && len(findings) > 0 {
+		for _, f := range findings {
+			summary.HitCount += f.MatchCount
+		}
+		if summary.HitCount <= 0 {
+			summary.HitCount = len(findings)
+		}
+	}
+
+	if summary.HitCount <= 0 && summary.Intercepted == 0 && summary.ObserveOnly == 0 && len(findings) == 0 {
+		return spanSecurityScan{}, false
+	}
+
+	return spanSecurityScan{
+		Findings:    findings,
+		HitCount:    summary.HitCount,
+		Intercepted: summary.Intercepted,
+		ObserveOnly: summary.ObserveOnly,
+	}, true
+}
+
 func redactStringByPolicies(in string, policies []compiledPolicy) string {
 	out := in
 	for _, cp := range policies {
@@ -503,26 +694,58 @@ func applyIngestPolicyRedaction(env map[string]interface{}, policies []compiledP
 func scanOpikBatchForSecurityAudit(env map[string]interface{}, policies []compiledPolicy) (map[string]spanSecurityScan, map[string]spanSecurityScan) {
 	traceScans := map[string]spanSecurityScan{}
 	spanScans := map[string]spanSecurityScan{}
-	if len(policies) == 0 {
-		return traceScans, spanScans
+	if len(policies) > 0 {
+		for _, row := range sliceMap("traces", env) {
+			traceID := jString(row, "trace_id", "id")
+			if traceID == "" {
+				continue
+			}
+			text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
+			findings := scanTextByPolicies(policies, text)
+			sum := summarizeFindings(findings)
+			if sum.HitCount <= 0 {
+				continue
+			}
+			traceScans[traceID] = spanSecurityScan{
+				TraceID:     traceID,
+				Findings:    findings,
+				HitCount:    sum.HitCount,
+				Intercepted: sum.Intercepted,
+				ObserveOnly: sum.ObserveOnly,
+			}
+		}
+		for _, row := range sliceMap("spans", env) {
+			spanID := jString(row, "span_id", "id")
+			traceID := jString(row, "trace_id")
+			if spanID == "" || traceID == "" {
+				continue
+			}
+			text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
+			findings := scanTextByPolicies(policies, text)
+			sum := summarizeFindings(findings)
+			if sum.HitCount <= 0 {
+				continue
+			}
+			spanScans[spanID] = spanSecurityScan{
+				TraceID:     traceID,
+				Findings:    findings,
+				HitCount:    sum.HitCount,
+				Intercepted: sum.Intercepted,
+				ObserveOnly: sum.ObserveOnly,
+			}
+		}
 	}
 	for _, row := range sliceMap("traces", env) {
 		traceID := jString(row, "trace_id", "id")
 		if traceID == "" {
 			continue
 		}
-		text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
-		findings := scanTextByPolicies(policies, text)
-		sum := summarizeFindings(findings)
-		if sum.HitCount <= 0 {
+		if _, ok := traceScans[traceID]; ok {
 			continue
 		}
-		traceScans[traceID] = spanSecurityScan{
-			TraceID:     traceID,
-			Findings:    findings,
-			HitCount:    sum.HitCount,
-			Intercepted: sum.Intercepted,
-			ObserveOnly: sum.ObserveOnly,
+		if scan, ok := extractSecurityScanFromMetadata(row["metadata"]); ok {
+			scan.TraceID = traceID
+			traceScans[traceID] = scan
 		}
 	}
 	for _, row := range sliceMap("spans", env) {
@@ -531,18 +754,12 @@ func scanOpikBatchForSecurityAudit(env map[string]interface{}, policies []compil
 		if spanID == "" || traceID == "" {
 			continue
 		}
-		text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
-		findings := scanTextByPolicies(policies, text)
-		sum := summarizeFindings(findings)
-		if sum.HitCount <= 0 {
+		if _, ok := spanScans[spanID]; ok {
 			continue
 		}
-		spanScans[spanID] = spanSecurityScan{
-			TraceID:     traceID,
-			Findings:    findings,
-			HitCount:    sum.HitCount,
-			Intercepted: sum.Intercepted,
-			ObserveOnly: sum.ObserveOnly,
+		if scan, ok := extractSecurityScanFromMetadata(row["metadata"]); ok {
+			scan.TraceID = traceID
+			spanScans[spanID] = scan
 		}
 	}
 	return traceScans, spanScans
@@ -875,12 +1092,18 @@ ON CONFLICT(trace_id) DO UPDATE SET
 			jsonStrPick(row, "error_info", "errorInfo"), jBool01(row, "success"), pickIntOrNull(row, "duration_ms", "durationMs"), pickIntOrNull(row, "total_cost", "totalCost"),
 			created, pickIntOrNull(row, "updated_at_ms", "updatedAtMs"), pickIntOrNull(row, "ended_at_ms", "end_time_ms", "endTimeMs"),
 			pickInt(row, 0, "is_complete", "isComplete"), cf)
-		if err != nil {
-			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("traces[%d]", i)})
-			continue
+			if err != nil {
+				out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("traces[%d]", i)})
+				continue
+			}
+			if _, ok := traceScans[traceID]; !ok {
+				if scan, ok := extractSecurityScanFromMetadata(merged); ok {
+					scan.TraceID = traceID
+					traceScans[traceID] = scan
+				}
+			}
+			out.Accepted.Traces++
 		}
-		out.Accepted.Traces++
-	}
 	backfillSubagentParents(tx, touched, db)
 
 	shellCfg := shellexec.LoadResourceAuditConfig()
@@ -992,11 +1215,17 @@ ON CONFLICT(span_id) DO UPDATE SET
 			jsonStr(merged), jsonStr(inSpan), jsonStr(row["output"]), setting, jsonStr(row["usage"]), uprev,
 			nullable(jString(row, "model")), nullable(jString(row, "provider")), jsonStrPick(row, "error_info", "errorInfo"),
 			nullable(jString(row, "status")), pickIntOrNull(row, "total_cost", "totalCost"), pickInt(row, 0, "sort_index", "sortIndex"), pickInt(row, 0, "is_complete", "isComplete"))
-		if err != nil {
-			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("spans[%d]", i)})
-			continue
-		}
-		out.Accepted.Spans++
+			if err != nil {
+				out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("spans[%d]", i)})
+				continue
+			}
+			if _, ok := spanScans[sid]; !ok {
+				if scan, ok := extractSecurityScanFromMetadata(merged); ok {
+					scan.TraceID = tid
+					spanScans[sid] = scan
+				}
+			}
+			out.Accepted.Spans++
 
 		inStr := jsonStr(inSpan)
 		outStr := jsonStr(row["output"])
@@ -1172,6 +1401,11 @@ func mergeMeta(incoming map[string]interface{}, prev *sql.NullString) interface{
 	if prevMap["crabagent_interception"] != nil {
 		if _, ok := incoming["crabagent_interception"]; !ok {
 			out["crabagent_interception"] = prevMap["crabagent_interception"]
+		}
+	}
+	if prevMap["crabagent_interception_findings"] != nil {
+		if _, ok := incoming["crabagent_interception_findings"]; !ok {
+			out["crabagent_interception_findings"] = prevMap["crabagent_interception_findings"]
 		}
 	}
 	return out

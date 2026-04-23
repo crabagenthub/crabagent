@@ -107,9 +107,6 @@ const kpiCardShellClass =
 const kpiMetricGradientClass =
   "border-[#DCE3F8] bg-gradient-to-br from-[#F7F9FF] via-[#F9FBFF] to-[#EEF3FF]";
 
-/** 消息列表页默认入口（其它 KPI 仍指向列表，由用户在目标页选时间） */
-const OVERVIEW_KPI_TRACES_HREF = "/traces";
-
 type KpiCardProps = {
   title: string;
   hint?: string;

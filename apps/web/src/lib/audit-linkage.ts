@@ -9,6 +9,8 @@ export function buildAuditLink(pathname: string, ctx: AuditLinkContext): string 
   if (ctx.trace_id) sp.set("trace_id", ctx.trace_id);
   if (ctx.span_id) sp.set("span_id", ctx.span_id);
   if (ctx.workspace) sp.set("workspace", ctx.workspace);
+  if (ctx.channel) sp.set("channel", ctx.channel);
+  if (ctx.agent) sp.set("agent", ctx.agent);
   if (ctx.since_ms != null) sp.set("since_ms", String(ctx.since_ms));
   if (ctx.until_ms != null) sp.set("until_ms", String(ctx.until_ms));
   if (ctx.risk_flags?.length) sp.set("risk_flags", ctx.risk_flags.join(","));

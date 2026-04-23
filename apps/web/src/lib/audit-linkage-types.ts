@@ -1,9 +1,11 @@
-export type AuditLinkSource = "messages" | "steps" | "resource" | "policy";
+export type AuditLinkSource = "messages" | "steps" | "resource" | "policy" | "command";
 
 export type AuditLinkContext = {
   trace_id?: string;
   span_id?: string;
   workspace?: string;
+  channel?: string;
+  agent?: string;
   since_ms?: number;
   until_ms?: number;
   risk_flags?: string[];

@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
-import { IconCopy, IconRefresh } from "@arco-design/web-react/icon";
+import { IconRefresh } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
@@ -31,7 +31,8 @@ import { MessageHint } from "@/shared/components/message-hint";
 import { SpanRecordInspectDrawer } from "@/features/audit/resource-access/components/span-record-inspect-drawer";
 import { ListEmptyState } from "@/components/list-empty-state";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
-import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
+import { AuditWorkbenchFilterBar } from "@/shared/components/audit-workbench-filter-bar";
+import { AuditLinkActions } from "@/shared/components/audit-link-actions";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
@@ -40,9 +41,9 @@ import {
   defaultObserveDateRange,
   readStoredObserveDateRange,
   resolveObserveSinceUntil,
-  writeStoredObserveDateRange,
   type ObserveDateRange,
 } from "@/lib/observe-date-range";
+import { parseObserveDateRangeFromListUrl } from "@/lib/observe-list-deep-link";
 import {
   OBSERVE_TABLE_FRAME_CLASSNAME,
   OBSERVE_TABLE_SCROLL_X,
@@ -65,6 +66,7 @@ import type { SpanRecordRow } from "@/lib/span-records";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
 import { toast } from "@/components/ui/feedback";
+import { buildAuditLink } from "@/lib/audit-linkage";
 
 const kpiShellClass =
   "overflow-hidden rounded-lg border border-solid border-[#E5E6EB] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[box-shadow] duration-200 ease-out hover:shadow-[0_4px_14px_rgba(0,0,0,0.08)] dark:border-border dark:bg-card dark:shadow-sm dark:hover:shadow-md";
@@ -216,11 +218,19 @@ function topRankColorClass(rank: number): string {
 
 export function ResourceAuditDashboard() {
   const t = useTranslations("ResourceAudit");
+  const tNav = useTranslations("Nav");
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
   const traceFromUrl = searchParams.get("trace_id")?.trim() ?? "";
+  const channelFromUrl = searchParams.get("channel")?.trim() ?? "";
+  const agentFromUrl = searchParams.get("agent")?.trim() ?? "";
+  const sourceFromUrl = searchParams.get("source")?.trim().toLowerCase() ?? "";
+  const dateRangeFromUrl = useMemo(
+    () => parseObserveDateRangeFromListUrl(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
   const [mounted, setMounted] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -235,6 +245,24 @@ export function ResourceAuditDashboard() {
   const [spanInspectRow, setSpanInspectRow] = useState<SpanRecordRow | null>(null);
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
+  const isRiskCenterRoute = pathname === "/risk-center";
+  const pageTitle = isRiskCenterRoute ? tNav("riskCenter") : tNav("resourceAuditLegacy");
+  const sourceLabel = useMemo(() => {
+    switch (sourceFromUrl) {
+      case "policy":
+        return t("sourcePolicy");
+      case "resource":
+        return t("sourceResource");
+      case "command":
+        return t("sourceCommand");
+      case "messages":
+        return t("sourceMessages");
+      case "steps":
+        return t("sourceSteps");
+      default:
+        return "";
+    }
+  }, [sourceFromUrl, t]);
 
   useEffect(() => {
     setBaseUrl(loadCollectorUrl());
@@ -245,6 +273,12 @@ export function ResourceAuditDashboard() {
       setDateRange(stored);
     }
   }, []);
+
+  useEffect(() => {
+    if (dateRangeFromUrl) {
+      setDateRange(dateRangeFromUrl);
+    }
+  }, [dateRangeFromUrl]);
 
   useEffect(() => {
     const stored = readStoredPageSize(50);
@@ -263,11 +297,6 @@ export function ResourceAuditDashboard() {
   }, [queryClient]);
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
-
-  const setDateRangePersist = useCallback((next: ObserveDateRange) => {
-    setDateRange(next);
-    writeStoredObserveDateRange(next);
-  }, []);
 
   const listParams = useMemo(
     () => ({
@@ -340,12 +369,6 @@ export function ResourceAuditDashboard() {
   const clearUriPrefix = useCallback(() => {
     setUriPrefixDraft("");
     setUriPrefix("");
-    setPage(1);
-  }, []);
-
-  const filterByResourceUri = useCallback((prefix: string) => {
-    setUriPrefixDraft(prefix);
-    setUriPrefix(prefix);
     setPage(1);
   }, []);
 
@@ -522,12 +545,23 @@ export function ResourceAuditDashboard() {
             >
               {t("filterSameTrace")}
             </Button>
-            <LocalizedLink
-              href={`/data-security-audit?trace_id=${encodeURIComponent(row.trace_id)}&span_id=${encodeURIComponent(row.span_id)}`}
-              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-            >
-              {t("openSecurityAudit")}
-            </LocalizedLink>
+            <AuditLinkActions
+              vertical
+              actions={[
+                {
+                  label: t("openSecurityAudit"),
+                  href: buildAuditLink("/data-security-audit", {
+                    source: "resource",
+                    trace_id: row.trace_id,
+                    span_id: row.span_id,
+                    since_ms: sinceMs,
+                    until_ms: untilMs,
+                    channel: channelFromUrl || undefined,
+                    agent: agentFromUrl || undefined,
+                  }),
+                },
+              ]}
+            />
           </Space>
         ),
       },
@@ -546,7 +580,7 @@ export function ResourceAuditDashboard() {
         ),
       },
     ],
-    [t, setTraceFilterUrl, traceMetaById, openMessageInspectFromAuditRow],
+    [t, setTraceFilterUrl, traceMetaById, openMessageInspectFromAuditRow, sinceMs, untilMs, channelFromUrl, agentFromUrl],
   );
 
   const dailyRows = useMemo(() => {
@@ -650,19 +684,38 @@ export function ResourceAuditDashboard() {
     );
 
   const summary = statsQ.data?.summary;
-  const isEmptyRange = Boolean(statsQ.isSuccess && summary && summary.total_events === 0);
-
   return (
     <AppPageShell variant="overview">
       <main className="ca-page relative z-[1] space-y-6 pb-10">
         <header className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <Typography.Title heading={4} className="ca-page-title !m-0">
-              {t("title")}
+              {pageTitle}
             </Typography.Title>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {isRiskCenterRoute ? (
+                <LocalizedLink
+                  href="/resource-audit"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {tNav("resourceAuditLegacy")}
+                </LocalizedLink>
+              ) : (
+                <LocalizedLink
+                  href="/risk-center"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {tNav("riskCenter")}
+                </LocalizedLink>
+              )}
+              {sourceLabel ? (
+                <Tag color="arcoblue" size="small">
+                  {t("filterChipSource", { source: sourceLabel })}
+                </Tag>
+              ) : null}
+            </div>
           </div>
           <Space wrap>
-            <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
             <Button
               type="default"
               size="small"
@@ -677,6 +730,7 @@ export function ResourceAuditDashboard() {
             </Button>
           </Space>
         </header>
+        <AuditWorkbenchFilterBar withChannelAgent={false} />
 
         <div className="space-y-3">
           <section aria-label={t("sectionKpi")} className="space-y-3">

@@ -36,7 +36,6 @@ import {
 import {
   layoutDagreTb,
   refineLlmToolFanoutLayout,
-  EXEC_GRAPH_NODE_W,
 } from "@/lib/execution-graph-layout";
 import { loadExecutionGraph, type ExecutionGraphNodeDto } from "@/lib/execution-graph";
 import { loadSemanticSpans } from "@/lib/semantic-spans";
@@ -45,7 +44,6 @@ import { formatDurationMs } from "@/lib/trace-records";
 import { LlmModelIcon, MemoryBranchesIcon, ToolWrenchIcon } from "@/icons";
 import { cn } from "@/lib/utils";
 
-const NODE_W = EXEC_GRAPH_NODE_W;
 /** Includes inner “call time” strip. */
 const NODE_H = 118;
 const NODE_TRACE_H = 72;

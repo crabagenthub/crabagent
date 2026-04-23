@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Popover, Table } from "@arco-design/web-react";
-import { IconCopy, IconHistory } from "@arco-design/web-react/icon";
+import { IconHistory } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
@@ -22,9 +22,6 @@ import { ObserveStatusColumnFilter } from "@/components/observe-status-column-fi
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
-import { Button } from "@/shared/ui/button";
-import { toast } from "@/components/ui/feedback";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { shouldIgnoreRowClick } from "@/lib/table-row-click-guard";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
@@ -51,7 +48,7 @@ import {
   traceRecordOpenclawRouting,
   type TraceRecordRow,
 } from "@/lib/trace-records";
-import { cn, formatShortId } from "@/lib/utils";
+import { formatShortId } from "@/lib/utils";
 
 /** Bump when default column visibility changes so new defaults apply. */
 export const OBSERVE_TRACES_TABLE_ID = "observe-traces-v4";
@@ -144,17 +141,6 @@ function TraceIdCell({ traceId, traceTypeLabel }: { traceId: string; traceTypeLa
 /** OpenClaw 路由列：中文下不用全大写，列头用 title 展示说明 */
 const openclawRoutingHeaderClass =
   "inline-flex items-center whitespace-nowrap text-xs font-semibold text-neutral-600 [&_.arco-table-th-item]:whitespace-nowrap [&_.arco-table-th-item]:text-neutral-600";
-
-function OpenclawRoutingTextCell({ value }: { value: string | undefined }) {
-  if (value === undefined || value === "") {
-    return <span className="text-xs text-neutral-400">—</span>;
-  }
-  return (
-    <span className="line-clamp-2 min-w-0 break-words text-xs text-neutral-800 dark:text-neutral-100" title={value}>
-      {value}
-    </span>
-  );
-}
 
 function OpenclawRoutingMappedCell({
   raw,
@@ -539,7 +525,6 @@ export function TracesOpikTable({
       t,
       sortKey,
       listOrder,
-      onColumnSort,
       channelFilter,
       channelOptions,
       onChannelFilterChange,

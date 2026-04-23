@@ -219,13 +219,6 @@ export function extractPromptStagesFromMetadata(meta: Record<string, unknown>): 
       if (text.trim()) {
         const stageId = typeof o.id === "string" ? o.id : `stage-${idx}`;
         const stageLabel = label;
-        const stageLooksLlmInput =
-          stageLabel.toLowerCase().includes("phasellminput") ||
-          stageLabel.toLowerCase().includes("llm_input") ||
-          stageId.toLowerCase().includes("phasellminput") ||
-          stageId.toLowerCase().includes("llm_input") ||
-          stageLabel.toLowerCase().includes("进入模型") ||
-          stageLabel.toLowerCase().includes("llm input");
         stages.push({
           id: stageId,
           label: stageLabel,

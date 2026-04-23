@@ -3,7 +3,7 @@
 import "@/lib/arco-react19-setup";
 import type { TableColumnProps, TableProps } from "@arco-design/web-react";
 import { Popover, Table } from "@arco-design/web-react";
-import { IconCopy, IconHistory } from "@arco-design/web-react/icon";
+import { IconHistory } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { useCallback, useMemo } from "react";
@@ -22,9 +22,6 @@ import { ObserveStatusColumnFilter } from "@/components/observe-status-column-fi
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
-import { Button } from "@/shared/ui/button";
-import { toast } from "@/components/ui/feedback";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { ObserveListSortParam, ObserveListStatusParam } from "@/lib/observe-facets";
 import {
   OBSERVE_TABLE_FRAME_CLASSNAME,
@@ -420,7 +417,6 @@ export function SpansDataTable({
       t,
       sortKey,
       listOrder,
-      onColumnSort,
       channelFilter,
       channelOptions,
       onChannelFilterChange,

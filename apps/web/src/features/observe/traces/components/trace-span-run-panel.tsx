@@ -1,6 +1,6 @@
 "use client";
 
-import { IconRight, IconSearch } from "@arco-design/web-react/icon";
+import { IconRight } from "@arco-design/web-react/icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { MessageHint } from "@/shared/components/message-hint";
@@ -28,7 +28,7 @@ function formatJson(obj: unknown): string {
   }
 
   // Helper to recursively beautify JSON strings inside an object
-  const beautifyNested = (input: any): any => {
+  const beautifyNested = (input: unknown): unknown => {
     if (typeof input === "string") {
       const s = input.trim();
       if ((s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"))) {
@@ -45,9 +45,9 @@ function formatJson(obj: unknown): string {
       return input.map(beautifyNested);
     }
     if (typeof input === "object" && input !== null) {
-      const res: any = {};
-      for (const key in input) {
-        res[key] = beautifyNested(input[key]);
+      const res: Record<string, unknown> = {};
+      for (const key of Object.keys(input)) {
+        res[key] = beautifyNested((input as Record<string, unknown>)[key]);
       }
       return res;
     }

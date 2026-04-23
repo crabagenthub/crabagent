@@ -19,12 +19,9 @@ import {
 } from "@/features/observe/traces/components/observe-table-column-manager";
 import { Markdown } from "@/components/prompt-kit/markdown";
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
-import { Button } from "@/shared/ui/button";
-import { toast } from "@/components/ui/feedback";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { ScrollableTableFrame } from "@/components/scrollable-table-frame";
 import { IconClockCircle } from "@arco-design/web-react/icon";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { Popover } from "@arco-design/web-react";
 import type { ObserveListSortParam } from "@/lib/observe-facets";
 import {

@@ -10,6 +10,21 @@ import (
 	"iseeagentc/internal/sqlutil"
 )
 
+func parseResourceAccessParams(inputJSON *string) map[string]interface{} {
+	if inputJSON == nil || strings.TrimSpace(*inputJSON) == "" {
+		return nil
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(*inputJSON), &root); err != nil {
+		return nil
+	}
+	if p, ok := root["params"].(map[string]interface{}); ok && p != nil {
+		return p
+	}
+	return root
+}
+
 // ResourceAccessRow represents a parsed resource access record from span metadata
 type ResourceAccessRow struct {
 	ResourceURI     string
@@ -98,47 +113,22 @@ func intFromMap(m map[string]interface{}, key string) int {
 // Risk flags are calculated and updated separately by the query layer to avoid import cycles.
 func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
 	spanID, traceID string,
-	spanName, spanType string, startMs, endMs, durMs int64, spanWorkspace string,
+	spanName, _ string, startMs, endMs, durMs int64, spanWorkspace string,
 	inputJSON, outputJSON, errorInfoJSON, metadataJSON *string,
 	workspaceNameAug, projectNameAug, threadKey, agentName, channelName *string,
 ) error {
 	tbl := sqltables.TableAgentResourceAccess
 
 	// Parse params from input JSON
-	var params map[string]interface{}
-	if inputJSON != nil && strings.TrimSpace(*inputJSON) != "" {
-		if err := json.Unmarshal([]byte(*inputJSON), &params); err != nil {
-			// If parsing fails, try to extract params from root
-			var root map[string]interface{}
-			if err2 := json.Unmarshal([]byte(*inputJSON), &root); err2 == nil {
-				if p, ok := root["params"].(map[string]interface{}); ok {
-					params = p
-				} else {
-					params = root
-				}
-			}
-		}
-	}
+	params := parseResourceAccessParams(inputJSON)
 
 	// Classify resource access using the new classifier
 	resourceInfo := ClassifyResourceAccess(spanName, params, nil)
 
-	// If not a tool span and no resource URI, delete existing row
-	// But allow tool spans without URI to be recorded (e.g., for tool_io classification)
-	if strings.ToLower(strings.TrimSpace(spanType)) != "tool" && resourceInfo.URI == "" {
+	// resource_uri must be a real resource identifier; otherwise remove stale row and skip.
+	if !IsValidResourceURI(resourceInfo.URI) {
 		_, err := tx.Exec(sqlutil.RebindIfPostgres(db, fmt.Sprintf(`DELETE FROM %s WHERE span_id = ?`, tbl)), spanID)
 		return err
-	}
-
-	// If URI is empty, use span_name as a fallback URI for tool spans
-	if resourceInfo.URI == "" {
-		if strings.ToLower(strings.TrimSpace(spanType)) == "tool" {
-			resourceInfo.URI = "tool://" + spanName
-		} else {
-			// For non-tool spans, still delete if no URI
-			_, err := tx.Exec(sqlutil.RebindIfPostgres(db, fmt.Sprintf(`DELETE FROM %s WHERE span_id = ?`, tbl)), spanID)
-			return err
-		}
 	}
 
 	// Calculate character count from output
