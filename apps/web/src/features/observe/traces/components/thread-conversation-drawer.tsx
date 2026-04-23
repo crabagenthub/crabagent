@@ -10,7 +10,7 @@ import { filterTraceEventsToThreadKey, loadTraceEvents } from "@/lib/trace-event
 import { type ThreadRecordRow } from "@/lib/thread-records";
 import { formatDurationMsSemantic } from "@/lib/trace-records";
 import {
-  buildConversationTurnWindowEvents,
+  buildTranscriptEventList,
   buildDetailEventList,
   filterEventsForRun,
   buildUserTurnList,
@@ -159,9 +159,9 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
   }, [merged, userTurns]);
 
   const turnWindowEventsByKey = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof buildConversationTurnWindowEvents>>();
+    const m = new Map<string, ReturnType<typeof buildTranscriptEventList>>();
     for (const u of userTurns) {
-      m.set(u.listKey, buildConversationTurnWindowEvents(merged, u, userTurns));
+      m.set(u.listKey, buildTranscriptEventList(merged, u, userTurns));
     }
     return m;
   }, [merged, userTurns]);
@@ -171,14 +171,17 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     for (const u of userTurns) {
       const linkedRunId = resolveLinkedRunIdForTurn(u, merged);
       const runEv = filterEventsForRun(merged, linkedRunId);
-      const windowEv = turnWindowEventsByKey.get(u.listKey) ?? buildConversationTurnWindowEvents(merged, u, userTurns);
+      const windowEv = turnWindowEventsByKey.get(u.listKey) ?? buildTranscriptEventList(merged, u, userTurns);
       const mergedLlmForTokens = mergeTurnLlmOutputEventsForTurnTokenRollup(merged, u, windowEv, threadKey);
       const runMetrics = runEv.length > 0 ? inferTurnWindowMetrics(runEv, threadKey) : null;
       const windowMetrics = inferTurnWindowMetrics(windowEv, threadKey, { tokenEventsOverride: mergedLlmForTokens });
-      const startedAtMs = runMetrics?.startedAtMs ?? windowMetrics.startedAtMs;
+      /** 以回合窗口优先，避免 run 的 llm 起点与窗口「尾条输出」混用导致起止倒挂 */
+      const startedAtMs = windowMetrics.startedAtMs ?? runMetrics?.startedAtMs ?? null;
       const endedAtMs = windowMetrics.endedAtMs ?? runMetrics?.endedAtMs ?? null;
       const durationMs =
-        startedAtMs != null && endedAtMs != null && endedAtMs >= startedAtMs ? endedAtMs - startedAtMs : null;
+        startedAtMs != null && endedAtMs != null && endedAtMs >= startedAtMs
+          ? endedAtMs - startedAtMs
+          : null;
       const e2eTimeline = inferTurnE2ETimeline(u, windowEv, { startedAtMs, endedAtMs, durationMs });
       m.set(u.listKey, {
         durationMs,
@@ -298,14 +301,23 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
     const st = turnStatusByKey.get(u.listKey) ?? "unknown";
     const metrics = turnMetricsByKey.get(u.listKey);
     const e2eTimeline = metrics?.e2eTimeline;
+    const e2ePopoverChrono = (() => {
+      const a = e2eTimeline?.e2eStartedAtMs;
+      const b = e2eTimeline?.e2eEndedAtMs;
+      if (a == null || b == null) {
+        return { start: a, end: b } as { start: number | null; end: number | null };
+      }
+      return b < a ? { start: b, end: a } : { start: a, end: b };
+    })();
+    /** 与消息详情中「首条 llm → 最后输出」执行段同口径，避免 e2e（用户锚点→结束）与步骤 LLM 时长不一致 */
     const durLabel =
-      e2eTimeline?.e2eDurationMs != null && e2eTimeline.e2eDurationMs >= 0
-        ? formatDurationMsSemantic(e2eTimeline.e2eDurationMs)
-        : metrics?.durationMs != null && metrics.durationMs >= 0
-          ? formatDurationMsSemantic(metrics.durationMs)
+      metrics?.durationMs != null && metrics.durationMs >= 0
+        ? formatDurationMsSemantic(metrics.durationMs)
+        : e2eTimeline?.e2eDurationMs != null && e2eTimeline.e2eDurationMs >= 0
+          ? formatDurationMsSemantic(e2eTimeline.e2eDurationMs)
           : "—";
     const windowEv =
-      turnWindowEventsByKey.get(u.listKey) ?? buildConversationTurnWindowEvents(merged, u, userTurns);
+      turnWindowEventsByKey.get(u.listKey) ?? buildTranscriptEventList(merged, u, userTurns);
     const mergedLlmForTokens = mergeTurnLlmOutputEventsForTurnTokenRollup(merged, u, windowEv, threadKey);
     /* 左侧 token：本条锚点 → 下一条锚点之前窗口内全部 llm_output（与端到端耗时同范围）→ usageRecordDisplayTotals.displayTotal。 */
     let tokenEntries = aggregateLlmOutputTokenEntries(mergedLlmForTokens);
@@ -384,19 +396,19 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
                 content={
                   <div className="max-w-[22rem] space-y-2 p-1 text-xs">
                     <div className="font-medium text-foreground">{t("threadDrawerTurnE2ETitle")}</div>
-                    {e2eTimeline?.e2eStartedAtMs != null &&
-                    e2eTimeline.e2eStartedAtMs > 0 &&
-                    e2eTimeline?.e2eEndedAtMs != null &&
-                    e2eTimeline.e2eEndedAtMs > 0 ? (
+                    {e2ePopoverChrono.start != null &&
+                    e2ePopoverChrono.start > 0 &&
+                    e2ePopoverChrono.end != null &&
+                    e2ePopoverChrono.end > 0 ? (
                       <div className="space-y-1 text-[10px] leading-snug tabular-nums text-foreground">
                         <p className="m-0">
                           {t("threadDrawerE2EPopoverStartLine", {
-                            time: formatTraceDateTimeFromMs(e2eTimeline.e2eStartedAtMs),
+                            time: formatTraceDateTimeFromMs(e2ePopoverChrono.start),
                           })}
                         </p>
                         <p className="m-0">
                           {t("threadDrawerE2EPopoverEndLine", {
-                            time: formatTraceDateTimeFromMs(e2eTimeline.e2eEndedAtMs),
+                            time: formatTraceDateTimeFromMs(e2ePopoverChrono.end),
                           })}
                         </p>
                       </div>

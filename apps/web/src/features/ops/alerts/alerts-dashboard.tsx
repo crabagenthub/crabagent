@@ -13,22 +13,29 @@ import {
   Spin,
   Switch,
   Table,
+  Tabs,
   Tag,
   Typography,
 } from "@arco-design/web-react";
 import type { TableColumnProps } from "@arco-design/web-react";
-import { IconDelete, IconEdit, IconPlus } from "@arco-design/web-react/icon";
+import { IconDelete, IconEdit, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
 import { useTranslations } from "next-intl";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppPageShell } from "@/components/app-page-shell";
 import { LocalizedLink } from "@/components/localized-link";
 import {
-  appendAlertHistory,
+  deleteAlertRuleApi,
+  fetchAlertEvents,
+  fetchAlertRules,
+  migrateLocalStorageRulesToServer,
+  postAlertRuleEvaluate,
+  postAlertRuleTest,
+  saveAlertRuleApi,
+} from "@/lib/alert-rules-api";
+import {
   newRuleId,
-  readAlertHistory,
-  readAlertRules,
-  writeAlertRules,
   type AlertDelivery,
   type AlertHistoryEntry,
   type AlertMatchType,
@@ -45,6 +52,8 @@ import {
 } from "@/lib/audit-silence-storage";
 import { getAuditSeverityColor } from "@/lib/audit-ui-semantics";
 import { cn } from "@/lib/utils";
+
+const { TabPane } = Tabs;
 
 type TemplateDef = {
   id: string;
@@ -423,9 +432,27 @@ const cardShellClass =
 export function AlertsDashboard() {
   const t = useTranslations("Alerts");
   const sp = useSearchParams();
+  const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
-  const [rules, setRules] = useState<AlertRule[]>([]);
-  const [history, setHistory] = useState<AlertHistoryEntry[]>([]);
+  const rulesQuery = useQuery({
+    queryKey: ["alertRules"],
+    queryFn: fetchAlertRules,
+    enabled: mounted,
+  });
+  const historyQuery = useQuery({
+    queryKey: ["alertEvents"],
+    queryFn: fetchAlertEvents,
+    enabled: mounted,
+  });
+  const [mainTab, setMainTab] = useState<"rules" | "events" | "help">("rules");
+  const rules = rulesQuery.data ?? [];
+  const historyWithNames = useMemo((): AlertHistoryEntry[] => {
+    const h = historyQuery.data ?? [];
+    return h.map((row) => {
+      const r = rules.find((x) => x.id === row.ruleId);
+      return { ...row, ruleName: r?.name?.trim() ? r.name : row.ruleId || "—" };
+    });
+  }, [historyQuery.data, rules]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AlertRule | null>(null);
@@ -520,15 +547,28 @@ export function AlertsDashboard() {
     return "unknown";
   }, [eventTypeFromUrl]);
 
-  const reload = useCallback(() => {
-    setRules(readAlertRules());
-    setHistory(readAlertHistory());
+  useEffect(() => {
+    setMounted(true);
   }, []);
 
   useEffect(() => {
-    setMounted(true);
-    reload();
-  }, [reload]);
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void queryClient.invalidateQueries({ queryKey: ["alertEvents"] });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [queryClient]);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    void migrateLocalStorageRulesToServer().then(() => {
+      void queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+    });
+  }, [mounted, queryClient]);
 
   useEffect(() => {
     if (hasAppliedInvestigationPreset || !source) {
@@ -639,7 +679,7 @@ export function AlertsDashboard() {
     setWebhookType(rule.webhookType);
     setWebhookUrl(rule.webhookUrl);
     setEnabled(rule.enabled);
-    setAdvancedConfigOpen(true);
+    setAdvancedConfigOpen(false);
     setModalOpen(true);
   }, []);
 
@@ -649,39 +689,44 @@ export function AlertsDashboard() {
       Message.warning(t("validateName"));
       return;
     }
-    const now = Date.now();
-    const fallbackAdvanced = inferAdvancedCondition(eventTypeFromUrl, metricKey);
-    const resolvedSourceTable = sourceTable.trim() || fallbackAdvanced.sourceTable || undefined;
-    const resolvedConditionField = conditionField.trim() || fallbackAdvanced.conditionField || undefined;
-    const resolvedMatchType = matchType || fallbackAdvanced.matchType;
-    const resolvedCountThreshold = Math.max(1, Math.floor(Number(countThreshold)) || fallbackAdvanced.countThreshold || 1);
-    const next: AlertRule = {
-      id: editingId ?? newRuleId(),
-      name: n,
-      alertCode: alertCode.trim() || undefined,
-      severity,
-      aggregateKey: aggregateKey.trim() || undefined,
-      conditionSummary: conditionSummary.trim() || undefined,
-      sourceTable: resolvedSourceTable,
-      conditionField: resolvedConditionField,
-      matchType: resolvedMatchType,
-      countThreshold: resolvedCountThreshold,
-      metricKey,
-      operator,
-      threshold: Number(threshold),
-      windowMinutes: Math.max(1, Math.floor(Number(windowMinutes)) || 1),
-      delivery,
-      webhookType,
-      webhookUrl: webhookUrl.trim(),
-      enabled,
-      createdAt: editingId ? rules.find((r) => r.id === editingId)?.createdAt ?? now : now,
-      updatedAt: now,
-    };
-    const others = editingId ? rules.filter((r) => r.id !== editingId) : rules;
-    writeAlertRules([next, ...others]);
-    reload();
-    setModalOpen(false);
-    Message.success(t("saveOk"));
+    void (async () => {
+      const now = Date.now();
+      const fallbackAdvanced = inferAdvancedCondition(eventTypeFromUrl, metricKey);
+      const resolvedSourceTable = sourceTable.trim() || fallbackAdvanced.sourceTable || undefined;
+      const resolvedConditionField = conditionField.trim() || fallbackAdvanced.conditionField || undefined;
+      const resolvedMatchType = matchType || fallbackAdvanced.matchType;
+      const resolvedCountThreshold = Math.max(1, Math.floor(Number(countThreshold)) || fallbackAdvanced.countThreshold || 1);
+      const next: AlertRule = {
+        id: editingId ?? newRuleId(),
+        name: n,
+        alertCode: alertCode.trim() || undefined,
+        severity,
+        aggregateKey: aggregateKey.trim() || undefined,
+        conditionSummary: conditionSummary.trim() || undefined,
+        sourceTable: resolvedSourceTable,
+        conditionField: resolvedConditionField,
+        matchType: resolvedMatchType,
+        countThreshold: resolvedCountThreshold,
+        metricKey,
+        operator,
+        threshold: Number(threshold),
+        windowMinutes: Math.max(1, Math.floor(Number(windowMinutes)) || 1),
+        delivery,
+        webhookType,
+        webhookUrl: webhookUrl.trim(),
+        enabled,
+        createdAt: editingId ? rules.find((r) => r.id === editingId)?.createdAt ?? now : now,
+        updatedAt: now,
+      };
+      try {
+        await saveAlertRuleApi(next, editingId);
+        await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+        setModalOpen(false);
+        Message.success(t("saveOk"));
+      } catch (e) {
+        Message.error(String(e));
+      }
+    })();
   }, [
     delivery,
     alertCode,
@@ -694,7 +739,7 @@ export function AlertsDashboard() {
     metricKey,
     name,
     operator,
-    reload,
+    queryClient,
     rules,
     sourceTable,
     matchType,
@@ -711,44 +756,61 @@ export function AlertsDashboard() {
     if (!deleteTarget) {
       return;
     }
-    writeAlertRules(rules.filter((r) => r.id !== deleteTarget.id));
-    reload();
-    setDeleteTarget(null);
-    Message.success(t("deleteOk"));
-  }, [deleteTarget, reload, rules, t]);
+    void (async () => {
+      try {
+        await deleteAlertRuleApi(deleteTarget.id);
+        await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+        setDeleteTarget(null);
+        Message.success(t("deleteOk"));
+      } catch (e) {
+        Message.error(String(e));
+      }
+    })();
+  }, [deleteTarget, queryClient, t]);
 
   const toggleEnabled = useCallback(
     (rule: AlertRule, on: boolean) => {
       const now = Date.now();
-      writeAlertRules(
-        rules.map((r) => (r.id === rule.id ? { ...r, enabled: on, updatedAt: now } : r)),
-      );
-      reload();
+      void (async () => {
+        try {
+          await saveAlertRuleApi({ ...rule, enabled: on, updatedAt: now }, rule.id);
+          await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+        } catch (e) {
+          Message.error(String(e));
+        }
+      })();
     },
-    [reload, rules],
+    [queryClient],
   );
 
   const testNotify = useCallback(
     (rule: AlertRule) => {
-      const preview = formatConditionPreview(rule);
-      appendAlertHistory({
-        ruleId: rule.id,
-        ruleName: rule.name,
-        alertCode: rule.alertCode,
-        severity: rule.severity,
-        firedAt: Date.now(),
-        summary: `${formatRuleSummary(rule, t)} · ${t("conditionPreviewLabel")}: ${preview}`,
-        conditionPreview: preview,
-        sourceTable: rule.sourceTable,
-        conditionField: rule.conditionField,
-        matchType: rule.matchType,
-        countThreshold: rule.countThreshold,
-        status: "pending",
-      });
-      reload();
-      Message.info(t("testNotifyQueued"));
+      void (async () => {
+        try {
+          await postAlertRuleTest(rule.id);
+          await queryClient.invalidateQueries({ queryKey: ["alertEvents"] });
+          Message.info(t("testNotifyQueued"));
+        } catch (e) {
+          Message.error(String(e));
+        }
+      })();
     },
-    [reload, t],
+    [queryClient, t],
+  );
+
+  const runEvaluate = useCallback(
+    (rule: AlertRule) => {
+      void (async () => {
+        try {
+          await postAlertRuleEvaluate(rule.id);
+          await queryClient.invalidateQueries({ queryKey: ["alertEvents"] });
+          Message.info(t("evaluateQueued"));
+        } catch (e) {
+          Message.error(String(e));
+        }
+      })();
+    },
+    [queryClient, t],
   );
   const clearSilenceById = useCallback(
     (id: string) => {
@@ -911,6 +973,11 @@ export function AlertsDashboard() {
               <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 max-w-2xl text-sm leading-relaxed text-gray-500">
                 {t("pageBlurb")}
               </Typography.Paragraph>
+              {rulesQuery.isError ? (
+                <Typography.Paragraph className="!mb-0 !mt-2 text-sm text-red-600 dark:text-red-400">
+                  {t("loadRulesError")}
+                </Typography.Paragraph>
+              ) : null}
             </div>
             <Button type="primary" size="large" className="shrink-0 rounded-full" onClick={openCreate}>
               <IconPlus className="mr-1 inline" />
@@ -928,28 +995,10 @@ export function AlertsDashboard() {
               </Typography.Paragraph>
             </div>
           ) : null}
-          
-          <div className="flex flex-wrap gap-3">
-            <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-              <span className="font-medium text-gray-700 dark:text-gray-300">{t("localModeTitle")}</span>
-              <span className="ml-2">{t("localModeBody")}</span>
-            </div>
-            <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-              <span className="font-medium text-gray-700 dark:text-gray-300">{t("mappingTitle")}</span>
-              <span className="ml-2">{t("mappingBody")}</span>
-            </div>
-            <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-              <span className="font-medium text-gray-700 dark:text-gray-300">{t("silenceOverviewTitle")}</span>
-              <span className="ml-2">
-                {t("silenceOverviewBody", {
-                  activeCount: String(silenceOverview.activeCount),
-                  expiringSoonCount: String(silenceOverview.expiringSoonCount),
-                })}
-              </span>
-            </div>
-          </div>
         </header>
 
+        <Tabs activeTab={mainTab} onChange={(k) => setMainTab(k as "rules" | "events" | "help")} type="rounded">
+          <TabPane key="rules" title={t("tabRules")}>
         <section aria-label={t("activeRules")} className="space-y-4">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">🚨</span>
@@ -958,7 +1007,11 @@ export function AlertsDashboard() {
             </Typography.Title>
           </div>
 
-          {rules.length === 0 ? (
+          {rulesQuery.isLoading && rules.length === 0 ? (
+            <div className="flex justify-center py-16">
+              <Spin />
+            </div>
+          ) : rules.length === 0 ? (
             <Card bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: "32px" }}>
               <div className="text-center">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl dark:bg-gray-800">📋</div>
@@ -999,37 +1052,43 @@ export function AlertsDashboard() {
                   <Card key={rule.id} bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: "20px" }}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <Typography.Text bold className="block truncate text-[#1D2129] dark:text-foreground">
+                        <Typography.Text bold className="block truncate text-lg text-[#1D2129] dark:text-foreground">
                           {rule.name}
                         </Typography.Text>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
                           {rule.severity ? <Tag size="small" color={severityTagColor(rule.severity)}>{rule.severity}</Tag> : null}
                           {rule.alertCode ? <Tag size="small">{rule.alertCode}</Tag> : null}
                         </div>
-                        <p className="mt-1 text-xs leading-snug text-muted-foreground">{formatRuleSummary(rule, t)}</p>
-                        {rule.aggregateKey ? (
-                          <p className="mt-1 text-[11px] text-muted-foreground">{t("aggregateKeyLabel")}: {rule.aggregateKey}</p>
-                        ) : null}
-                        {rule.conditionSummary ? (
-                          <p className="mt-1 text-[11px] text-muted-foreground">{t("conditionLabel")}: {rule.conditionSummary}</p>
-                        ) : null}
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {t("conditionPreviewLabel")}: {formatConditionPreviewSqlLike(rule)}
-                        </p>
+                        <p className="mt-2 text-sm leading-snug text-foreground/80">{formatRuleSummary(rule, t)}</p>
                         {expandedRuleIds[rule.id] ? (
-                          <div className="mt-1 rounded border border-border/70 bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
-                            <div>sourceTable: {rule.sourceTable ?? "-"}</div>
-                            <div>conditionField: {rule.conditionField ?? "-"}</div>
-                            <div>matchType: {rule.matchType ?? "-"}</div>
-                            <div>countThreshold: {rule.countThreshold ?? "-"}</div>
+                          <div className="mt-2 space-y-1">
+                            {rule.aggregateKey ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                {t("aggregateKeyLabel")}: {rule.aggregateKey}
+                              </p>
+                            ) : null}
+                            {rule.conditionSummary ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                {t("conditionLabel")}: {rule.conditionSummary}
+                              </p>
+                            ) : null}
+                            <p className="text-[11px] text-muted-foreground">
+                              {t("conditionPreviewLabel")} (SQL): {formatConditionPreviewSqlLike(rule)}
+                            </p>
+                            <div className="rounded border border-border/70 bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
+                              <div>sourceTable: {rule.sourceTable ?? "-"}</div>
+                              <div>conditionField: {rule.conditionField ?? "-"}</div>
+                              <div>matchType: {rule.matchType ?? "-"}</div>
+                              <div>countThreshold: {rule.countThreshold ?? "-"}</div>
+                            </div>
+                            <Button type="text" size="mini" onClick={() => void copyConditionPreview(rule, "sql")}>
+                              {t("copyConditionPreview")}
+                            </Button>
                           </div>
                         ) : null}
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <div className="mt-1">
                           <Button type="text" size="mini" onClick={() => toggleRuleExpanded(rule.id)}>
                             {expandedRuleIds[rule.id] ? t("hideRuleDetails") : t("showRuleDetails")}
-                          </Button>
-                          <Button type="text" size="mini" onClick={() => void copyConditionPreview(rule, "sql")}>
-                            {t("copyConditionPreview")}
                           </Button>
                         </div>
                         <p className="mt-1 text-[11px] text-muted-foreground">
@@ -1043,6 +1102,9 @@ export function AlertsDashboard() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button type="outline" size="small" onClick={() => testNotify(rule)}>
                         {t("testNotify")}
+                      </Button>
+                      <Button type="outline" size="small" onClick={() => runEvaluate(rule)}>
+                        {t("evaluateRun")}
                       </Button>
                       <Button type="outline" size="small" icon={<IconEdit />} onClick={() => openEdit(rule)}>
                         {t("editRule")}
@@ -1086,23 +1148,28 @@ export function AlertsDashboard() {
                     key={tpl.id}
                     bordered={false}
                     className={cn(
-                      "rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col transition-all hover:shadow-md hover:border-blue-200 dark:border-gray-700 dark:bg-gray-800/50",
+                      "min-w-0 rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col transition-all hover:shadow-md hover:border-blue-200 dark:border-gray-700 dark:bg-gray-800/50",
                       templateCardGradientClass(tpl.id),
                     )}
                     bodyStyle={{ padding: "20px" }}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <Typography.Text bold className="text-sm text-[#1D2129] dark:text-foreground">
+                    {/* 标题与标签分两行，避免同列 flex 下标题被压成单字宽竖排 */}
+                    <div className="w-full min-w-0">
+                      <Typography.Text
+                        bold
+                        className="!block w-full min-w-0 break-words text-sm leading-snug text-[#1D2129] dark:text-foreground"
+                      >
                         {templateTitle(t, tpl.id)}
                       </Typography.Text>
-                      <Tag size="small" color={severityTagColor(tpl.severity)}>{tpl.severity}</Tag>
+                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-end gap-1">
+                        <Tag size="small" color={severityTagColor(tpl.severity)}>{tpl.severity}</Tag>
+                        <Tag size="small" className="max-w-full !text-[10px] break-all">
+                          {tpl.code}
+                        </Tag>
+                      </div>
                     </div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{tpl.code}</p>
                     <p className="mt-2 min-h-[3rem] flex-1 text-xs leading-relaxed text-muted-foreground">
                       {templateDesc(t, tpl.id)}
-                    </p>
-                    <p className="mt-2 text-[11px] text-muted-foreground">
-                      {t("aggregateKeyLabel")}: {tpl.aggregateKey}
                     </p>
                     <Button type="primary" size="small" className="mt-3 w-full" onClick={() => applyTemplate(tpl)}>
                       {t("templateAdd")}
@@ -1115,23 +1182,45 @@ export function AlertsDashboard() {
             </div>
           </div>
         </section>
+          </TabPane>
 
+          <TabPane key="events" title={t("tabEvents")}>
         <section aria-label={t("alertHistory")} className="space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">📜</span>
-            <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
-              {t("alertHistory")}
-            </Typography.Title>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">📜</span>
+              <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
+                {t("alertHistory")}
+              </Typography.Title>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Typography.Text type="secondary" className="text-xs">
+                {t("historyLastUpdated", {
+                  time:
+                    historyQuery.dataUpdatedAt > 0
+                      ? new Date(historyQuery.dataUpdatedAt).toLocaleString()
+                      : t("historyNeverFetched"),
+                })}
+              </Typography.Text>
+              <Button
+                type="outline"
+                size="small"
+                icon={<IconRefresh className={cn(historyQuery.isFetching && "animate-spin")} />}
+                onClick={() => void queryClient.invalidateQueries({ queryKey: ["alertEvents"] })}
+              >
+                {t("historyRefresh")}
+              </Button>
+            </div>
           </div>
           <Card bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: 0 }}>
-            {history.length === 0 ? (
+            {historyWithNames.length === 0 ? (
               <div className="py-14 text-center text-sm text-muted-foreground">{t("noHistory")}</div>
             ) : (
               <Table
                 size="small"
                 rowKey="id"
                 columns={historyColumns}
-                data={history}
+                data={historyWithNames}
                 pagination={false}
                 border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
                 className="[&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
@@ -1139,6 +1228,31 @@ export function AlertsDashboard() {
             )}
           </Card>
         </section>
+          </TabPane>
+
+          <TabPane key="help" title={t("tabHelp")}>
+            <div className="mb-4 flex flex-wrap gap-3">
+              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-300">{t("localModeTitle")}</span>
+                <span className="ml-2">{t("localModeBody")}</span>
+              </div>
+              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-300">{t("mappingTitle")}</span>
+                <span className="ml-2">{t("mappingBody")}</span>
+              </div>
+              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-300">{t("silenceOverviewTitle")}</span>
+                <span className="ml-2">
+                  {t("silenceOverviewBody", {
+                    activeCount: String(silenceOverview.activeCount),
+                    expiringSoonCount: String(silenceOverview.expiringSoonCount),
+                  })}
+                </span>
+              </div>
+            </div>
+            <Typography.Paragraph className="!mb-4 text-sm text-muted-foreground" type="secondary">
+              {t("helpFaqBlurb")}
+            </Typography.Paragraph>
         <section aria-label={t("silenceSectionTitle")} className="space-y-4">
           <div className="flex items-center gap-2">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">🔇</span>
@@ -1205,6 +1319,8 @@ export function AlertsDashboard() {
             )}
           </Card>
         </section>
+          </TabPane>
+        </Tabs>
 
         <Modal
           title={editingId ? t("modalEditTitle") : t("modalCreateTitle")}

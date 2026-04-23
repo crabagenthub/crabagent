@@ -91,7 +91,13 @@ func RunAgentTableMigrations(db *sql.DB) error {
 		if err := ensureAgentResourceAccessTable(db); err != nil {
 			return err
 		}
-		return ensureAgentResourceAccessColumns(db)
+		if err := ensureAgentResourceAccessColumns(db); err != nil {
+			return err
+		}
+		if err := ensureAgentAlertRulesTable(db); err != nil {
+			return err
+		}
+		return ensureAgentAlertEventsTable(db)
 	}
 	if sqlutil.IsSQLite(db) {
 		return execSQLiteAgentSchema(db)
@@ -414,6 +420,127 @@ CREATE INDEX idx_agent_resource_access_uri ON %s(resource_uri);
 	}
 	if _, err := db.Exec(ddl); err != nil {
 		return fmt.Errorf("migrate: create %s: %w", sqltables.TableAgentResourceAccess, err)
+	}
+	return nil
+}
+
+func ensureAgentAlertRulesTable(db *sql.DB) error {
+	has, err := tableExists(db, sqltables.TableAgentAlertRules)
+	if err != nil {
+		return fmt.Errorf("migrate: check alert rules table: %w", err)
+	}
+	if has {
+		return nil
+	}
+	ar := quoteIdent(db, sqltables.TableAgentAlertRules)
+	var ddl string
+	if sqlutil.IsSQLite(db) {
+		ddl = fmt.Sprintf(`
+CREATE TABLE %s (
+  id TEXT PRIMARY KEY,
+  workspace_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  alert_code TEXT,
+  severity TEXT,
+  aggregate_key TEXT,
+  condition_summary TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  metric_key TEXT NOT NULL DEFAULT 'error_rate_pct',
+  operator TEXT NOT NULL DEFAULT 'gt',
+  threshold REAL NOT NULL DEFAULT 0,
+  window_minutes INTEGER NOT NULL DEFAULT 5,
+  delivery TEXT NOT NULL DEFAULT 'webhook',
+  webhook_type TEXT NOT NULL DEFAULT 'generic',
+  webhook_url TEXT NOT NULL DEFAULT '',
+  advanced_json TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX idx_agent_alert_rules_ws ON %s(workspace_name);
+CREATE INDEX idx_agent_alert_rules_enabled ON %s(enabled);
+`, ar, ar, ar)
+	} else {
+		ddl = fmt.Sprintf(`
+CREATE TABLE %s (
+  id TEXT PRIMARY KEY,
+  workspace_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  alert_code TEXT,
+  severity TEXT,
+  aggregate_key TEXT,
+  condition_summary TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  metric_key TEXT NOT NULL DEFAULT 'error_rate_pct',
+  operator TEXT NOT NULL DEFAULT 'gt',
+  threshold DOUBLE PRECISION NOT NULL DEFAULT 0,
+  window_minutes INTEGER NOT NULL DEFAULT 5,
+  delivery TEXT NOT NULL DEFAULT 'webhook',
+  webhook_type TEXT NOT NULL DEFAULT 'generic',
+  webhook_url TEXT NOT NULL DEFAULT '',
+  advanced_json TEXT,
+  created_at_ms BIGINT NOT NULL,
+  updated_at_ms BIGINT NOT NULL
+);
+CREATE INDEX idx_agent_alert_rules_ws ON %s(workspace_name);
+CREATE INDEX idx_agent_alert_rules_enabled ON %s(enabled);
+`, ar, ar, ar)
+	}
+	if _, err := db.Exec(ddl); err != nil {
+		return fmt.Errorf("migrate: create %s: %w", sqltables.TableAgentAlertRules, err)
+	}
+	return nil
+}
+
+func ensureAgentAlertEventsTable(db *sql.DB) error {
+	has, err := tableExists(db, sqltables.TableAgentAlertEvents)
+	if err != nil {
+		return fmt.Errorf("migrate: check alert events table: %w", err)
+	}
+	if has {
+		return nil
+	}
+	ae := quoteIdent(db, sqltables.TableAgentAlertEvents)
+	ar := quoteIdent(db, sqltables.TableAgentAlertRules)
+	var ddl string
+	if sqlutil.IsSQLite(db) {
+		ddl = fmt.Sprintf(`
+CREATE TABLE %s (
+  id TEXT PRIMARY KEY,
+  workspace_name TEXT NOT NULL DEFAULT '',
+  rule_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'evaluate',
+  fired_at_ms INTEGER NOT NULL,
+  summary TEXT,
+  condition_preview TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_text TEXT,
+  breached INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT
+);
+CREATE INDEX idx_agent_alert_events_rule ON %s(rule_id, fired_at_ms DESC);
+CREATE INDEX idx_agent_alert_events_ws ON %s(workspace_name);
+`, ae, ae, ae)
+	} else {
+		ddl = fmt.Sprintf(`
+CREATE TABLE %s (
+  id TEXT PRIMARY KEY,
+  workspace_name TEXT NOT NULL DEFAULT '',
+  rule_id TEXT NOT NULL REFERENCES %s(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'evaluate',
+  fired_at_ms BIGINT NOT NULL,
+  summary TEXT,
+  condition_preview TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_text TEXT,
+  breached INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT
+);
+CREATE INDEX idx_agent_alert_events_rule ON %s(rule_id, fired_at_ms DESC);
+CREATE INDEX idx_agent_alert_events_ws ON %s(workspace_name);
+`, ae, ar, ae, ae)
+	}
+	if _, err := db.Exec(ddl); err != nil {
+		return fmt.Errorf("migrate: create %s: %w", sqltables.TableAgentAlertEvents, err)
 	}
 	return nil
 }

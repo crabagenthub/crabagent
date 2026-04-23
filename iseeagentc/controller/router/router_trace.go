@@ -51,5 +51,12 @@ func RegisterTrace(r *gin.Engine) {
 		traceV1.GET("/security-audit/events", GetTypedHandler(controller.SecurityAuditEvents))
 		traceV1.GET("/security-audit/policy-event-counts", GetTypedHandler(controller.SecurityAuditPolicyCounts))
 		traceV1.GET("/observe-facets", GetTypedHandler(controller.ObserveFacets))
+
+		traceV1.GET("/alert-rules", GetTypedHandler(controller.AlertRulesList))
+		traceV1.GET("/alert-events", GetTypedHandler(controller.AlertRulesEventsList))
+		traceV1.POST("/alert-rules", controller.AlertRulesUpsert)
+		traceV1.DELETE("/alert-rules/:id", controller.AlertRulesDelete)
+		traceV1.POST("/alert-rules/:id/test", controller.AlertRulesTest)
+		traceV1.POST("/alert-rules/:id/evaluate", controller.AlertRulesEvaluate)
 	}
 }

@@ -14,6 +14,8 @@ const (
 	TableAgentSecurityAuditLogs = "agent_security_audit_logs"
 	TableAgentExecCommands      = "agent_exec_commands"
 	TableAgentResourceAccess    = "agent_resource_access"
+	TableAgentAlertRules        = "agent_alert_rules"
+	TableAgentAlertEvents       = "agent_alert_events"
 )
 
 // Legacy names — migration only; do not use in application queries.

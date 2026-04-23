@@ -136,29 +136,29 @@ export function traceEventWhenMs(e: TraceTimelineEvent): number | null {
   const raw = e.client_ts ?? e.created_at;
   if (raw != null) {
     if (typeof raw === "number" && Number.isFinite(raw)) {
-      return raw > 0 ? raw : null;
+      return raw >= 0 ? raw : null;
     }
     const s = String(raw).trim();
     if (s.length > 0) {
       if (/^\d+$/.test(s)) {
         const n = Number(s);
-        if (Number.isFinite(n) && n > 0) {
+        if (Number.isFinite(n) && n >= 0) {
           return n < 1e12 ? n * 1000 : n;
         }
       }
       const parsed = Date.parse(s);
-      if (Number.isFinite(parsed) && parsed > 0) {
+      if (Number.isFinite(parsed) && parsed >= 0) {
         return parsed;
       }
     }
   }
-  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms >= 0) {
     return e.started_at_ms;
   }
-  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms >= 0) {
     return e.ended_at_ms;
   }
-  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms > 0) {
+  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms >= 0) {
     return e.updated_at_ms;
   }
   return null;
@@ -1262,13 +1262,13 @@ export function filterEventsForRun(
 }
 
 function parseEventTimeMs(e: TraceTimelineEvent): number | null {
-  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms >= 0) {
     return e.ended_at_ms;
   }
-  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms >= 0) {
     return e.started_at_ms;
   }
-  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms > 0) {
+  if (typeof e.updated_at_ms === "number" && Number.isFinite(e.updated_at_ms) && e.updated_at_ms >= 0) {
     return e.updated_at_ms;
   }
   const raw = e.client_ts ?? e.created_at;
@@ -1277,18 +1277,18 @@ function parseEventTimeMs(e: TraceTimelineEvent): number | null {
   }
   /** 与 {@link traceEventWhenMs} 一致：ingest 可能把 client_ts 存成 epoch 毫秒数字 */
   if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw > 0 ? raw : null;
+    return raw >= 0 ? raw : null;
   }
   const rs = typeof raw === "string" ? raw.trim() : "";
   if (rs.length > 0) {
     if (/^\d+$/.test(rs)) {
       const n = Number(rs);
-      if (Number.isFinite(n) && n > 0) {
+      if (Number.isFinite(n) && n >= 0) {
         return n < 1e12 ? n * 1000 : n;
       }
     }
     const t = Date.parse(rs);
-    if (Number.isFinite(t) && t > 0) {
+    if (Number.isFinite(t) && t >= 0) {
       return t;
     }
   }
@@ -1380,7 +1380,7 @@ export function inferTurnWindowMetrics(
   for (const e of sorted) {
     if ((e.type ?? "").toLowerCase() === "llm_input") {
       const t =
-        typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0
+        typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms >= 0
           ? e.started_at_ms
           : parseEventTimeMs(e);
       if (t != null) {
@@ -1392,29 +1392,43 @@ export function inferTurnWindowMetrics(
   if (firstMs == null && sorted.length > 0) {
     firstMs = parseEventTimeMs(sorted[0]!);
   }
+  /** 在「本回合首条 llm_input」之后，取所有 llm_output / agent_end 的结束时间之 max，避免从尾部倒序误拿到上一轮残留（导致 end < first，左侧误显示几十 ms） */
   let endMs: number | null = null;
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const ty = (sorted[i]!.type ?? "").toLowerCase();
-    if (ty === "llm_output" || ty === "agent_end") {
-      const row = sorted[i]!;
-      const t =
-        typeof row.ended_at_ms === "number" && Number.isFinite(row.ended_at_ms) && row.ended_at_ms > 0
-          ? row.ended_at_ms
-          : parseEventTimeMs(row);
-      if (t != null) {
-        endMs = t;
-        break;
-      }
+  for (const row of sorted) {
+    const ty = (row.type ?? "").toLowerCase();
+    if (ty !== "llm_output" && ty !== "agent_end") {
+      continue;
+    }
+    const t =
+      typeof row.ended_at_ms === "number" && Number.isFinite(row.ended_at_ms) && row.ended_at_ms >= 0
+        ? row.ended_at_ms
+        : parseEventTimeMs(row);
+    if (t == null) {
+      continue;
+    }
+    if (firstMs != null && t < firstMs) {
+      continue;
+    }
+    if (endMs == null || t > endMs) {
+      endMs = t;
     }
   }
   if (endMs == null) {
     for (let i = sorted.length - 1; i >= 0; i--) {
       const t = parseEventTimeMs(sorted[i]!);
-      if (t != null) {
-        endMs = t;
-        break;
+      if (t == null) {
+        continue;
       }
+      if (firstMs != null && t < firstMs) {
+        continue;
+      }
+      endMs = t;
+      break;
     }
+  }
+  /** 无有效「输出结束」晚于本回合 llm_input 起点时，勿保留早于 first 的 tail 时间，否则与下方 duration 行无法拼出 end=first+duration。 */
+  if (firstMs != null && endMs != null && endMs < firstMs) {
+    endMs = null;
   }
 
   let durationMs: number | null = null;
@@ -1483,7 +1497,7 @@ function inferAnchorMessageMs(turn: UserTurnListItem, sorted: TraceTimelineEvent
       }
     }
   }
-  if (typeof turn.whenMs === "number" && turn.whenMs > 0) {
+  if (typeof turn.whenMs === "number" && turn.whenMs >= 0) {
     return turn.whenMs;
   }
   if (sorted.length > 0) {
@@ -1493,14 +1507,14 @@ function inferAnchorMessageMs(turn: UserTurnListItem, sorted: TraceTimelineEvent
 }
 
 function segmentBoundaryMs(e: TraceTimelineEvent): number | null {
-  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms > 0) {
+  if (typeof e.started_at_ms === "number" && Number.isFinite(e.started_at_ms) && e.started_at_ms >= 0) {
     return e.started_at_ms;
   }
   return parseEventTimeMs(e);
 }
 
 function eventEndedAtMs(e: TraceTimelineEvent): number | null {
-  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0) {
+  if (typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms >= 0) {
     return e.ended_at_ms;
   }
   const s = segmentBoundaryMs(e);
@@ -1617,7 +1631,7 @@ function inferNodeDurationAndKind(
     return { durationMs: e.duration_ms, durationKind: "intrinsic" };
   }
   const s = segmentBoundaryMs(e);
-  const end = typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms > 0 ? e.ended_at_ms : null;
+  const end = typeof e.ended_at_ms === "number" && Number.isFinite(e.ended_at_ms) && e.ended_at_ms >= 0 ? e.ended_at_ms : null;
   if (s != null && end != null && end >= s) {
     return { durationMs: end - s, durationKind: "intrinsic" };
   }

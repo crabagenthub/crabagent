@@ -1370,7 +1370,36 @@ ON CONFLICT(span_id) DO UPDATE SET
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	if wss := collectOpikBatchWorkspaces(env); len(wss) > 0 {
+		triggerAfterOpikCommitIngest(db, wss)
+	}
 	return out, nil
+}
+
+// collectOpikBatchWorkspaces returns deduplicated workspace names touched by this batch (empty workspace → default).
+func collectOpikBatchWorkspaces(env map[string]interface{}) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(ws string) {
+		w := strings.TrimSpace(ws)
+		if w == "" {
+			w = defaultWorkspace
+		}
+		if _, ok := seen[w]; !ok {
+			seen[w] = struct{}{}
+			out = append(out, w)
+		}
+	}
+	for _, row := range sliceMap("threads", env) {
+		add(jString(row, "workspace_name"))
+	}
+	for _, row := range sliceMap("traces", env) {
+		add(jString(row, "workspace_name"))
+	}
+	for _, row := range sliceMap("spans", env) {
+		add(jString(row, "workspace_name"))
+	}
+	return out
 }
 
 func nullable(s string) interface{} {
