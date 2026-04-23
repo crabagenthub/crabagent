@@ -191,6 +191,18 @@ html[data-sidebar-collapsed="1"] .site-nav-skeleton-nav-label {
     border-radius: var(--radius) !important;
   }
 
+  /* 全站 Message 提示统一圆角 */
+  .arco-message-wrapper,
+  .arco-message-wrapper *,
+  .arco-message,
+  .arco-message *,
+  [class*="arco-message"] {
+    border-radius: var(--radius) !important;
+  }
+  .arco-message-wrapper .arco-icon {
+    border-radius: var(--radius) !important;
+  }
+
   /* SiteNav 用户菜单：与原先自绘面板一致，去掉 Arco Popover 默认内容区 padding */
   .site-nav-user-popover .arco-popover-content {
     padding: 0;

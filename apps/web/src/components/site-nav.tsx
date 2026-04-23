@@ -10,9 +10,6 @@ import {
   IconUser,
   IconCaretUp,
   IconCaretDown,
-  IconSun,
-  IconMoon,
-  IconDesktop,
 } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import Image from "next/image";
@@ -22,7 +19,6 @@ import type { ComponentType, ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { LocalizedLink } from "@/components/localized-link";
-import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AppLocale } from "@/i18n/routing";
@@ -33,7 +29,6 @@ import {
   SIDEBAR_BOTTOM_EXPANDED_STORAGE_KEY,
   SIDEBAR_COLLAPSED_STORAGE_KEY,
 } from "@/lib/sidebar-storage";
-import type { ThemePreference } from "@/lib/theme-storage";
 import { readWorkspaceName, saveWorkspaceName, WORKSPACE_FILTER_EVENT, WORKSPACE_OPTIONS, type WorkspaceName } from "@/lib/workspace-filter";
 import {
   NavIconAlerts,
@@ -107,43 +102,6 @@ function UserPanelLocale({ onAfterChange }: { onAfterChange?: () => void }) {
       <div className="flex gap-2">
         {btn("en", t("localeEn"))}
         {btn("zh-CN", t("localeZhCN"))}
-      </div>
-    </div>
-  );
-}
-
-function UserPanelTheme({ onAfterChange }: { onAfterChange?: () => void }) {
-  const t = useTranslations("Nav");
-  const { preference, setPreference } = useTheme();
-
-  const row = (pref: ThemePreference, label: string, Icon: NavGlyph) => {
-    const active = preference === pref;
-    return (
-      <Button
-        key={pref}
-        type="button"
-        aria-pressed={active}
-        variant={active ? "default" : "secondary"}
-        size="sm"
-        className="flex flex-1 flex-col items-center gap-1 py-2 text-center text-[11px] leading-tight"
-        onClick={() => {
-          setPreference(pref);
-          onAfterChange?.();
-        }}
-      >
-        <Icon className="size-4 shrink-0" />
-        <span className="line-clamp-2 w-full px-0.5">{label}</span>
-      </Button>
-    );
-  };
-
-  return (
-    <div className="border-t border-border px-3 py-3">
-      <p className="mb-2 text-[11px] font-semibold text-muted-foreground">{t("themeAppearance")}</p>
-      <div className="flex gap-2">
-        {row("light", t("themeLight"), IconSun)}
-        {row("dark", t("themeDark"), IconMoon)}
-        {row("system", t("themeSystem"), IconDesktop)}
       </div>
     </div>
   );
@@ -256,7 +214,6 @@ function SidebarUserProfile({
           {t("userLogout")}
         </Button>
       </div>
-      <UserPanelTheme onAfterChange={() => setOpen(false)} />
       <UserPanelLocale onAfterChange={() => setOpen(false)} />
     </div>
   );

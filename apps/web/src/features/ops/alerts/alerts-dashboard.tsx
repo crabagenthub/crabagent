@@ -8,6 +8,7 @@ import {
   InputNumber,
   Message,
   Modal,
+  Popconfirm,
   Radio,
   Select,
   Space,
@@ -388,7 +389,6 @@ export function AlertsDashboard() {
   }, [historyQuery.data, rules]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<AlertRule | null>(null);
 
   const [name, setName] = useState("");
   const [alertCode, setAlertCode] = useState("");
@@ -754,21 +754,15 @@ export function AlertsDashboard() {
     subWindowMode,
   ]);
 
-  const confirmDelete = useCallback(() => {
-    if (!deleteTarget) {
-      return;
+  const confirmDelete = useCallback(async (rule: AlertRule) => {
+    try {
+      await deleteAlertRuleApi(rule.id);
+      await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+      Message.success(t("deleteOk"));
+    } catch (e) {
+      Message.error(String(e));
     }
-    void (async () => {
-      try {
-        await deleteAlertRuleApi(deleteTarget.id);
-        await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
-        setDeleteTarget(null);
-        Message.success(t("deleteOk"));
-      } catch (e) {
-        Message.error(String(e));
-      }
-    })();
-  }, [deleteTarget, queryClient, t]);
+  }, [queryClient, t]);
 
   const toggleEnabled = useCallback(
     (ruleId: string, nextEnabled: boolean) => {
@@ -997,15 +991,23 @@ export function AlertsDashboard() {
                             <Button type="outline" size="small" icon={<IconEdit />} onClick={() => openEdit(rule)}>
                               {t("editRule")}
                             </Button>
-                            <Button
-                              type="outline"
-                              size="small"
-                              status="danger"
-                              icon={<IconDelete />}
-                              onClick={() => setDeleteTarget(rule)}
+                            <Popconfirm
+                              title={t("deleteConfirmTitle")}
+                              content={t("deleteConfirmBody", { name: rule.name })}
+                              onOk={() => confirmDelete(rule)}
+                              okText={t("confirmDelete")}
+                              cancelText={t("cancel")}
+                              okButtonProps={{ status: "danger" }}
                             >
-                              {t("deleteRule")}
-                            </Button>
+                              <Button
+                                type="outline"
+                                size="small"
+                                status="danger"
+                                icon={<IconDelete />}
+                              >
+                                {t("deleteRule")}
+                              </Button>
+                            </Popconfirm>
                           </div>
                         </Card>
                       ))}
@@ -1329,17 +1331,6 @@ export function AlertsDashboard() {
           </div>
         </Modal>
 
-        <Modal
-          title={t("deleteConfirmTitle")}
-          visible={deleteTarget != null}
-          onOk={confirmDelete}
-          onCancel={() => setDeleteTarget(null)}
-          okText={t("confirmDelete")}
-          cancelText={t("cancel")}
-          okButtonProps={{ status: "danger" }}
-        >
-          <p className="text-sm text-muted-foreground">{t("deleteConfirmBody", { name: deleteTarget?.name ?? "" })}</p>
-        </Modal>
       </main>
     </AppPageShell>
   );
