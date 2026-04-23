@@ -317,18 +317,33 @@ func fileResourceFromShellCommand(params map[string]interface{}) *ShellFileResou
 	}
 
 	bin := normalizeCmdBin(tokens[0])
-	if bin != "trash" && bin != "rm" && bin != "mv" && bin != "cp" {
+	switch bin {
+	case "trash", "rm", "mv", "cp":
+		uri := firstPathOperand(tokens)
+		if uri == "" {
+			return nil
+		}
+		return &ShellFileResource{URI: uri, AccessMode: "write"}
+	case "cat", "less", "head", "tail", "more":
+		uri := firstPathOperand(tokens)
+		if !looksLikePathCandidate(uri) {
+			uri = firstPathLikeOperand(tokens, 1)
+		}
+		if uri == "" {
+			return nil
+		}
+		return &ShellFileResource{URI: uri, AccessMode: "read"}
+	case "grep", "egrep", "fgrep", "sed", "awk":
+		uri := firstPathOperand(tokens, 2)
+		if !looksLikePathCandidate(uri) {
+			uri = firstPathOperand(tokens, 1)
+		}
+		if !looksLikePathCandidate(uri) {
+			return nil
+		}
+		return &ShellFileResource{URI: uri, AccessMode: "read"}
+	default:
 		return nil
-	}
-
-	uri := firstPathOperand(tokens)
-	if uri == "" {
-		return nil
-	}
-
-	return &ShellFileResource{
-		URI:        uri,
-		AccessMode: "write",
 	}
 }
 
@@ -422,8 +437,39 @@ func firstPathOperand(tokens []string, from ...int) string {
 	return ""
 }
 
+func firstPathLikeOperand(tokens []string, from int) string {
+	start := from
+	if start < 1 {
+		start = 1
+	}
+	for i := start; i < len(tokens); i++ {
+		t := strings.TrimSpace(tokens[i])
+		if t == "" || strings.HasPrefix(t, "-") {
+			continue
+		}
+		if looksLikePathCandidate(t) {
+			return t
+		}
+	}
+	return ""
+}
+
 func isWhitespace(ch rune) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+func looksLikePathCandidate(s string) bool {
+	v := strings.TrimSpace(s)
+	if v == "" {
+		return false
+	}
+	if strings.HasPrefix(v, "/") || strings.HasPrefix(v, "./") || strings.HasPrefix(v, "../") || strings.HasPrefix(v, "~/") {
+		return true
+	}
+	if len(v) >= 3 && isASCIIAlpha(v[0]) && v[1] == ':' && (v[2] == '\\' || v[2] == '/') {
+		return true
+	}
+	return strings.Contains(v, "/") || strings.Contains(v, "\\")
 }
 
 func isASCIIAlpha(ch byte) bool {

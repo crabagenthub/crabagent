@@ -97,7 +97,10 @@ func RunAgentTableMigrations(db *sql.DB) error {
 		if err := ensureAgentAlertRulesTable(db); err != nil {
 			return err
 		}
-		return ensureAgentAlertEventsTable(db)
+		if err := ensureAgentAlertEventsTable(db); err != nil {
+			return err
+		}
+		return ensureAgentAlertEventsWsFiredIndex(db)
 	}
 	if sqlutil.IsSQLite(db) {
 		return execSQLiteAgentSchema(db)
@@ -541,6 +544,23 @@ CREATE INDEX idx_agent_alert_events_ws ON %s(workspace_name);
 	}
 	if _, err := db.Exec(ddl); err != nil {
 		return fmt.Errorf("migrate: create %s: %w", sqltables.TableAgentAlertEvents, err)
+	}
+	return nil
+}
+
+// ensureAgentAlertEventsWsFiredIndex adds a composite index for list-by-workspace + time (alert history API).
+func ensureAgentAlertEventsWsFiredIndex(db *sql.DB) error {
+	has, err := tableExists(db, sqltables.TableAgentAlertEvents)
+	if err != nil {
+		return fmt.Errorf("migrate: check alert events: %w", err)
+	}
+	if !has {
+		return nil
+	}
+	ae := quoteIdent(db, sqltables.TableAgentAlertEvents)
+	q := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_alert_events_ws_fired ON %s (workspace_name, fired_at_ms DESC)`, ae)
+	if _, err := db.Exec(q); err != nil {
+		return fmt.Errorf("migrate: idx_agent_alert_events_ws_fired: %w", err)
 	}
 	return nil
 }

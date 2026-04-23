@@ -41,6 +41,36 @@ func parseAdvanced(r *model.AlertRuleRow) AdvancedFilter {
 		f, _ := v.Float64()
 		out.CountThreshold = f
 	}
+	if v, ok := raw["frequencyMode"].(string); ok {
+		out.FrequencyMode = strings.TrimSpace(v)
+	} else if v, ok := raw["frequency_mode"].(string); ok {
+		out.FrequencyMode = strings.TrimSpace(v)
+	}
+	// sub-window (minutes), camelCase or snake
+	switch v := raw["subWindowMinutes"].(type) {
+	case float64:
+		out.SubWindowMinutes = int(v)
+	case json.Number:
+		f, _ := v.Float64()
+		out.SubWindowMinutes = int(f)
+	}
+	if out.SubWindowMinutes == 0 {
+		switch v := raw["sub_window_minutes"].(type) {
+		case float64:
+			out.SubWindowMinutes = int(v)
+		case json.Number:
+			f, _ := v.Float64()
+			out.SubWindowMinutes = int(f)
+		}
+	}
+	if v, ok := raw["subWindowMode"].(string); ok {
+		out.SubWindowMode = strings.TrimSpace(v)
+	} else if v, ok := raw["sub_window_mode"].(string); ok {
+		out.SubWindowMode = strings.TrimSpace(v)
+	}
+	if out.SubWindowMode == "" {
+		out.SubWindowMode = "any_max"
+	}
 	return out
 }
 

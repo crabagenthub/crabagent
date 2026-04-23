@@ -306,6 +306,23 @@ func advancedJSONFromBody(body map[string]interface{}) map[string]interface{} {
 	} else if v, ok := body["countThreshold"]; ok {
 		out["countThreshold"] = parseFloat64(v)
 	}
+	if v, ok := firstString(body, "frequency_mode", "frequencyMode"); ok {
+		out["frequencyMode"] = v
+	}
+	if v, ok := firstString(body, "rule_language", "ruleLanguage"); ok {
+		out["ruleLanguage"] = v
+	}
+	if v, ok := firstString(body, "template_id", "templateId"); ok {
+		out["templateId"] = v
+	}
+	if v, ok := body["sub_window_minutes"]; ok {
+		out["subWindowMinutes"] = parseFloat64(v)
+	} else if v, ok := body["subWindowMinutes"]; ok {
+		out["subWindowMinutes"] = parseFloat64(v)
+	}
+	if v, ok := firstString(body, "sub_window_mode", "subWindowMode"); ok {
+		out["subWindowMode"] = v
+	}
 	return out
 }
 

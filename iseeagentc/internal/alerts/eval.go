@@ -48,11 +48,11 @@ func evalErrorFamily(db *sql.DB, ws string, since, until int64, r *model.AlertRu
 	if st == "agent_exec_commands" || st == "" {
 		switch cf {
 		case "permission_denied":
-			return execFlagCountEval(db, ws, since, until, "e.permission_denied = 1", r, "permission_denied count")
+			return execFlagCountEval(db, ws, since, until, "e.permission_denied = 1", r, "permission_denied count", adv)
 		case "command_not_found":
-			return execFlagCountEval(db, ws, since, until, "e.command_not_found = 1", r, "command_not_found count")
+			return execFlagCountEval(db, ws, since, until, "e.command_not_found = 1", r, "command_not_found count", adv)
 		case "token_risk":
-			return execFlagCountEval(db, ws, since, until, "e.token_risk = 1", r, "token_risk count")
+			return execFlagCountEval(db, ws, since, until, "e.token_risk = 1", r, "token_risk count", adv)
 		case "loop_alerts":
 			return evalLoopFromShellSummary(db, ws, since, until, r)
 		}
@@ -127,12 +127,68 @@ func evalLoopFromShellSummary(db *sql.DB, ws string, since, until int64, r *mode
 	}, nil
 }
 
-func execFlagCountEval(db *sql.DB, ws string, since, until int64, extraSQL string, r *model.AlertRuleRow, label string) (EvalResult, error) {
+// execFlagCountForRange runs shell-exec count SQL for [since, until].
+func execFlagCountForRange(db *sql.DB, ws string, since, until int64, extraSQL string) (int, error) {
 	q := baseExecQuery(db, ws, since, until)
 	sq, params := model.BuildShellExecCountSQLFromExec(db, q)
 	sq = sq + " AND (" + extraSQL + ")"
 	var c int
 	err := db.QueryRow(sqlutil.RebindIfPostgres(db, sq), params...).Scan(&c)
+	return c, err
+}
+
+func execFlagCountEval(db *sql.DB, ws string, since, until int64, extraSQL string, r *model.AlertRuleRow, label string, adv AdvancedFilter) (EvalResult, error) {
+	subM := adv.SubWindowMinutes
+	parentM := r.WindowMinutes
+	if subM < 1 || parentM < 1 || subM >= parentM {
+		return execFlagCountSingle(db, ws, since, until, extraSQL, r, label)
+	}
+	mode := strings.ToLower(strings.TrimSpace(adv.SubWindowMode))
+	if mode == "" {
+		mode = "any_max"
+	}
+	var maxC int
+	var parts []string
+	step := int64(subM) * 60 * 1000
+	for t := since; t < until; t += step {
+		t2 := t + step
+		if t2 > until {
+			t2 = until
+		}
+		if t2 <= t {
+			break
+		}
+		c, err := execFlagCountForRange(db, ws, t, t2, extraSQL)
+		if err != nil {
+			return EvalResult{}, err
+		}
+		parts = append(parts, fmt.Sprintf("%d", c))
+		if c > maxC {
+			maxC = c
+		}
+	}
+	thr := r.Threshold
+	v := float64(maxC)
+	preview := fmt.Sprintf("%s sub_%s sub=[%s] max=%d (parent=%dmin sub=%dmin)", label, mode, strings.Join(parts, ","), maxC, parentM, subM)
+	if mode == "any_max" {
+		return EvalResult{
+			Value:            v,
+			ConditionPreview: preview,
+			Breached:         compare(r.Operator, v, thr),
+			Details:          preview,
+		}, nil
+	}
+	// only any_max in v1; treat unknown mode as any_max
+	return EvalResult{
+		Value:            v,
+		ConditionPreview: preview,
+		Breached:         compare(r.Operator, v, thr),
+		Details:          preview,
+	}, nil
+}
+
+func execFlagCountSingle(db *sql.DB, ws string, since, until int64, extraSQL string, r *model.AlertRuleRow, label string) (EvalResult, error) {
+	c, err := execFlagCountForRange(db, ws, since, until, extraSQL)
 	if err != nil {
 		return EvalResult{}, err
 	}

@@ -8,18 +8,18 @@ import {
   InputNumber,
   Message,
   Modal,
+  Radio,
   Select,
   Space,
   Spin,
   Switch,
   Table,
-  Tabs,
   Tag,
   Typography,
 } from "@arco-design/web-react";
 import type { TableColumnProps } from "@arco-design/web-react";
 import { IconDelete, IconEdit, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -30,13 +30,13 @@ import {
   fetchAlertEvents,
   fetchAlertRules,
   migrateLocalStorageRulesToServer,
-  postAlertRuleEvaluate,
   postAlertRuleTest,
   saveAlertRuleApi,
 } from "@/lib/alert-rules-api";
 import {
   newRuleId,
   type AlertDelivery,
+  type AlertFrequencyMode,
   type AlertHistoryEntry,
   type AlertMatchType,
   type AlertMetricKey,
@@ -50,10 +50,7 @@ import {
   readActiveAuditSilences,
   removeAuditSilenceRule,
 } from "@/lib/audit-silence-storage";
-import { getAuditSeverityColor } from "@/lib/audit-ui-semantics";
 import { cn } from "@/lib/utils";
-
-const { TabPane } = Tabs;
 
 type TemplateDef = {
   id: string;
@@ -207,72 +204,62 @@ const TEMPLATES: TemplateDef[] = [
     threshold: 3,
     windowMinutes: 15,
   },
+];
+
+const TEMPLATE_GROUP_IDS: { labelKey: "templateGroupSec" | "templateGroupResource" | "templateGroupCmd"; ids: string[] }[] = [
+  { labelKey: "templateGroupSec", ids: ["sec_enforce_hit"] },
   {
-    id: "trace_error_rate_high",
-    code: "TRACE_ERROR_RATE_HIGH",
-    severity: "P2",
-    conditionSummary: "failed trace ratio > X%",
-    aggregateKey: "workspace + agent_name",
-    sourceTable: "trace_stats",
-    conditionField: "failed_trace_ratio",
-    matchType: "ratio_gt",
-    countThreshold: 5,
-    metricKey: "error_rate_pct",
-    operator: "gt",
-    threshold: 5,
-    windowMinutes: 15,
+    labelKey: "templateGroupResource",
+    ids: [
+      "resource_sensitive_path",
+      "resource_secret_credential_hint",
+      "resource_large_read_burst",
+      "resource_redundant_read_burst",
+    ],
   },
   {
-    id: "p95_latency_high",
-    code: "P95_LATENCY_HIGH",
-    severity: "P2",
-    conditionSummary: "p95 duration_ms > threshold",
-    aggregateKey: "workspace + agent_name",
-    sourceTable: "trace_stats",
-    conditionField: "p95_duration_ms",
-    matchType: "p95_gt",
-    countThreshold: 3000,
-    metricKey: "p95_latency_ms",
-    operator: "gt",
-    threshold: 3000,
-    windowMinutes: 15,
-  },
-  {
-    id: "sec_audit_only_spike",
-    code: "SEC_AUDIT_ONLY_SPIKE",
-    severity: "P2",
-    conditionSummary: "observe_only = 1 and hits > threshold",
-    aggregateKey: "workspace + policy_id",
-    sourceTable: "agent_security_audit_logs",
-    conditionField: "observe_only",
-    matchType: "count_gte",
-    countThreshold: 10,
-    metricKey: "sensitive_data_hits",
-    operator: "gt",
-    threshold: 10,
-    windowMinutes: 30,
+    labelKey: "templateGroupCmd",
+    ids: ["cmd_permission_denied_burst", "cmd_not_found_burst", "cmd_token_risk_burst", "cmd_loop_alert"],
   },
 ];
 
-function templateCardGradientClass(id: string): string {
+const CUSTOM_TEMPLATE_ID = "custom" as const;
+
+function findTemplateIdForRule(rule: AlertRule): string {
+  if (rule.templateId && TEMPLATES.some((x) => x.id === rule.templateId)) {
+    return rule.templateId;
+  }
+  if (rule.alertCode) {
+    const byCode = TEMPLATES.find((x) => x.code === rule.alertCode);
+    if (byCode) {
+      return byCode.id;
+    }
+  }
+  return CUSTOM_TEMPLATE_ID;
+}
+
+function templateEmoji(id: string): string {
   switch (id) {
     case "sec_enforce_hit":
+      return "🛡️";
     case "resource_sensitive_path":
+      return "📁";
     case "resource_secret_credential_hint":
+      return "🔑";
     case "cmd_permission_denied_burst":
-      return "border-[#ffd6d6] bg-gradient-to-br from-[#fff2f0] via-[#fff7f7] to-[#fff1f1]";
+      return "⛔";
     case "cmd_not_found_burst":
+      return "❓";
     case "cmd_token_risk_burst":
+      return "⚠️";
     case "cmd_loop_alert":
+      return "🔁";
     case "resource_large_read_burst":
+      return "📖";
     case "resource_redundant_read_burst":
-      return "border-[#e3dbff] bg-gradient-to-br from-[#f7f2ff] via-[#faf7ff] to-[#f1ecff]";
-    case "trace_error_rate_high":
-    case "p95_latency_high":
-    case "sec_audit_only_spike":
-      return "border-[#d8e2ff] bg-gradient-to-br from-[#f1f4ff] via-[#f7f9ff] to-[#edf3ff]";
+      return "🔂";
     default:
-      return "border-[#E5E6EB] bg-white";
+      return "📋";
   }
 }
 
@@ -282,17 +269,6 @@ function templateTitle(t: ReturnType<typeof useTranslations<"Alerts">>, id: stri
 
 function templateDesc(t: ReturnType<typeof useTranslations<"Alerts">>, id: string): string {
   return t(`tpl_${id}_desc`);
-}
-
-function severityTagColor(severity: AlertSeverity): string {
-  return getAuditSeverityColor(severity);
-}
-
-function severityWeight(severity?: AlertSeverity): number {
-  if (severity === "P0") return 0;
-  if (severity === "P1") return 1;
-  if (severity === "P2") return 2;
-  return 9;
 }
 
 const METRIC_OPTIONS: AlertMetricKey[] = [
@@ -338,57 +314,14 @@ function opLabel(t: ReturnType<typeof useTranslations<"Alerts">>, o: AlertOperat
 }
 
 function formatRuleSummary(rule: AlertRule, t: ReturnType<typeof useTranslations<"Alerts">>): string {
-  return `${metricLabel(t, rule.metricKey)} ${opLabel(t, rule.operator)} ${rule.threshold} · ${t("windowSummary", { n: String(rule.windowMinutes) })}`;
-}
-
-function formatConditionPreview(rule: Pick<AlertRule, "sourceTable" | "conditionField" | "matchType" | "countThreshold">): string {
-  const table = rule.sourceTable?.trim() || "?";
-  const field = rule.conditionField?.trim() || "?";
-  const match = rule.matchType ?? "eq";
-  const threshold = rule.countThreshold ?? 1;
-  if (match === "eq") {
-    return `${table}.${field} = 1`;
-  }
-  if (match === "contains") {
-    return `${table}.${field} CONTAINS (...)`;
-  }
-  if (match === "count_gte") {
-    return `COUNT(${table}.${field}) >= ${threshold}`;
-  }
-  if (match === "ratio_gt") {
-    return `RATIO(${table}.${field}) > ${threshold}%`;
-  }
-  return `P95(${table}.${field}) > ${threshold}`;
-}
-
-function formatConditionPreviewSqlLike(
-  rule: Pick<AlertRule, "sourceTable" | "conditionField" | "matchType" | "countThreshold">,
-): string {
-  const table = rule.sourceTable?.trim() || "unknown_table";
-  const field = rule.conditionField?.trim() || "unknown_field";
-  const match = rule.matchType ?? "eq";
-  const threshold = rule.countThreshold ?? 1;
-  if (match === "eq") {
-    return `SELECT * FROM ${table} WHERE ${field} = 1;`;
-  }
-  if (match === "contains") {
-    return `SELECT * FROM ${table} WHERE ${field} LIKE '%...%';`;
-  }
-  if (match === "count_gte") {
-    return `SELECT COUNT(*) FROM ${table} WHERE ${field} = 1 HAVING COUNT(*) >= ${threshold};`;
-  }
-  if (match === "ratio_gt") {
-    return `SELECT (SUM(CASE WHEN ${field} = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)) AS ratio FROM ${table} HAVING ratio > ${threshold};`;
-  }
-  return `SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${field}) AS p95 FROM ${table} HAVING p95 > ${threshold};`;
-}
-
-function formatMatchTypeLabel(matchType: AlertMatchType | undefined): string {
-  if (matchType === "contains") return "contains";
-  if (matchType === "count_gte") return "count_gte";
-  if (matchType === "ratio_gt") return "ratio_gt";
-  if (matchType === "p95_gt") return "p95_gt";
-  return "eq";
+  const tid = findTemplateIdForRule(rule);
+  const label =
+    tid !== CUSTOM_TEMPLATE_ID ? templateTitle(t, tid) : metricLabel(t, rule.metricKey);
+  const isImmediate = rule.frequencyMode === "immediate";
+  const freq = isImmediate
+    ? t("summaryFrequencyImmediate")
+    : t("summaryFrequencyWindowed", { n: String(rule.windowMinutes) });
+  return `${label} · ${freq} · ${opLabel(t, rule.operator)} ${rule.threshold}`;
 }
 
 type PrefillSource = "investigation" | "risk" | "";
@@ -431,6 +364,7 @@ const cardShellClass =
 
 export function AlertsDashboard() {
   const t = useTranslations("Alerts");
+  const locale = useLocale();
   const sp = useSearchParams();
   const queryClient = useQueryClient();
   const [mounted, setMounted] = useState(false);
@@ -444,7 +378,6 @@ export function AlertsDashboard() {
     queryFn: fetchAlertEvents,
     enabled: mounted,
   });
-  const [mainTab, setMainTab] = useState<"rules" | "events" | "help">("rules");
   const rules = rulesQuery.data ?? [];
   const historyWithNames = useMemo((): AlertHistoryEntry[] => {
     const h = historyQuery.data ?? [];
@@ -466,11 +399,7 @@ export function AlertsDashboard() {
   const [conditionField, setConditionField] = useState("");
   const [matchType, setMatchType] = useState<AlertMatchType>("eq");
   const [countThreshold, setCountThreshold] = useState(1);
-  const [ruleSeverityFilter, setRuleSeverityFilter] = useState<"all" | AlertSeverity>("all");
-  const [ruleCodeKeyword, setRuleCodeKeyword] = useState("");
-  const [conditionPreviewMode, setConditionPreviewMode] = useState<"human" | "sql">("human");
-  const [expandedRuleIds, setExpandedRuleIds] = useState<Record<string, boolean>>({});
-  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Record<string, boolean>>({});
+  const [ruleNameKeyword, setRuleNameKeyword] = useState("");
   const [metricKey, setMetricKey] = useState<AlertMetricKey>("error_rate_pct");
   const [operator, setOperator] = useState<AlertOperator>("gt");
   const [threshold, setThreshold] = useState<number>(5);
@@ -479,10 +408,13 @@ export function AlertsDashboard() {
   const [webhookType, setWebhookType] = useState<AlertWebhookType>("generic");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(TEMPLATES[0]!.id);
+  const [frequencyMode, setFrequencyMode] = useState<AlertFrequencyMode>("windowed");
+  const [subWindowMinutes, setSubWindowMinutes] = useState(0);
+  const [subWindowMode, setSubWindowMode] = useState("any_max");
   const [hasAppliedInvestigationPreset, setHasAppliedInvestigationPreset] = useState(false);
   const [silenceVersion, setSilenceVersion] = useState(0);
   const [silenceScopeFilter, setSilenceScopeFilter] = useState<"all" | "trace" | "event_type">("all");
-  const [advancedConfigOpen, setAdvancedConfigOpen] = useState(false);
   const source = normalizePrefillSource(sp.get("from")?.trim() ?? "");
   const traceIdFromUrl = sp.get("trace_id")?.trim() ?? "";
   const spanIdFromUrl = sp.get("span_id")?.trim() ?? "";
@@ -580,6 +512,14 @@ export function AlertsDashboard() {
       ? t("prefillNameWithTrace", { traceId: traceIdFromUrl.slice(0, 12) })
       : t("prefillName");
     setName(`[${eventTypeLabel}] ${prefillBase}`);
+    const prefillTid =
+      eventTypeFromUrl === "policy_hit"
+        ? "sec_enforce_hit"
+        : eventTypeFromUrl === "resource"
+          ? "resource_sensitive_path"
+          : "cmd_permission_denied_burst";
+    setSelectedTemplateId(prefillTid);
+    setFrequencyMode("windowed");
     setAlertCode("");
     setSeverity(eventTypeFromUrl === "policy_hit" ? "P0" : eventTypeFromUrl === "command" ? "P1" : "P0");
     setAggregateKey("workspace + trace_id");
@@ -596,7 +536,6 @@ export function AlertsDashboard() {
     setWebhookType("generic");
     setWebhookUrl("");
     setEnabled(true);
-    setAdvancedConfigOpen(false);
     setModalOpen(true);
   }, [
     eventTypeFromUrl,
@@ -610,29 +549,35 @@ export function AlertsDashboard() {
 
   const openCreate = useCallback(() => {
     setEditingId(null);
-    setName("");
-    setAlertCode("");
-    setSeverity("P1");
-    setAggregateKey("");
-    setConditionSummary("");
-    setSourceTable("");
-    setConditionField("");
-    setMatchType("eq");
-    setCountThreshold(1);
-    setMetricKey("error_rate_pct");
-    setOperator("gt");
-    setThreshold(5);
-    setWindowMinutes(5);
+    const def = TEMPLATES[0]!;
+    setSelectedTemplateId(def.id);
+    setFrequencyMode("windowed");
+    setName(templateTitle(t, def.id));
+    setAlertCode(def.code);
+    setSeverity(def.severity);
+    setAggregateKey(def.aggregateKey);
+    setConditionSummary(def.conditionSummary);
+    setSourceTable(def.sourceTable);
+    setConditionField(def.conditionField);
+    setMatchType(def.matchType);
+    setCountThreshold(def.countThreshold);
+    setMetricKey(def.metricKey);
+    setOperator(def.operator);
+    setThreshold(def.threshold);
+    setWindowMinutes(def.windowMinutes);
     setWebhookType("generic");
     setWebhookUrl("");
     setEnabled(true);
-    setAdvancedConfigOpen(false);
+    setSubWindowMinutes(0);
+    setSubWindowMode("any_max");
     setModalOpen(true);
-  }, []);
+  }, [t]);
 
   const applyTemplate = useCallback(
     (tpl: TemplateDef) => {
       setEditingId(null);
+      setSelectedTemplateId(tpl.id);
+      setFrequencyMode("windowed");
       setName(templateTitle(t, tpl.id));
       setAlertCode(tpl.code);
       setSeverity(tpl.severity);
@@ -649,7 +594,8 @@ export function AlertsDashboard() {
       setWebhookType("generic");
       setWebhookUrl("");
       setEnabled(true);
-      setAdvancedConfigOpen(false);
+      setSubWindowMinutes(0);
+      setSubWindowMode("any_max");
       setModalOpen(true);
     },
     [t],
@@ -664,6 +610,10 @@ export function AlertsDashboard() {
   const openEdit = useCallback((rule: AlertRule) => {
     setEditingId(rule.id);
     setName(rule.name);
+    setSelectedTemplateId(findTemplateIdForRule(rule));
+    setFrequencyMode(
+      rule.frequencyMode === "immediate" || rule.frequencyMode === "windowed" ? rule.frequencyMode : "windowed",
+    );
     setAlertCode(rule.alertCode ?? "");
     setSeverity(rule.severity ?? "P1");
     setAggregateKey(rule.aggregateKey ?? "");
@@ -679,7 +629,8 @@ export function AlertsDashboard() {
     setWebhookType(rule.webhookType);
     setWebhookUrl(rule.webhookUrl);
     setEnabled(rule.enabled);
-    setAdvancedConfigOpen(false);
+    setSubWindowMinutes(rule.subWindowMinutes ?? 0);
+    setSubWindowMode(rule.subWindowMode?.trim() ? rule.subWindowMode : "any_max");
     setModalOpen(true);
   }, []);
 
@@ -696,28 +647,74 @@ export function AlertsDashboard() {
       const resolvedConditionField = conditionField.trim() || fallbackAdvanced.conditionField || undefined;
       const resolvedMatchType = matchType || fallbackAdvanced.matchType;
       const resolvedCountThreshold = Math.max(1, Math.floor(Number(countThreshold)) || fallbackAdvanced.countThreshold || 1);
-      const next: AlertRule = {
-        id: editingId ?? newRuleId(),
-        name: n,
-        alertCode: alertCode.trim() || undefined,
-        severity,
-        aggregateKey: aggregateKey.trim() || undefined,
-        conditionSummary: conditionSummary.trim() || undefined,
-        sourceTable: resolvedSourceTable,
-        conditionField: resolvedConditionField,
-        matchType: resolvedMatchType,
-        countThreshold: resolvedCountThreshold,
-        metricKey,
-        operator,
-        threshold: Number(threshold),
-        windowMinutes: Math.max(1, Math.floor(Number(windowMinutes)) || 1),
-        delivery,
-        webhookType,
-        webhookUrl: webhookUrl.trim(),
-        enabled,
-        createdAt: editingId ? rules.find((r) => r.id === editingId)?.createdAt ?? now : now,
-        updatedAt: now,
-      };
+      const tpl = TEMPLATES.find((x) => x.id === selectedTemplateId);
+      const useCustom = !tpl || selectedTemplateId === CUSTOM_TEMPLATE_ID;
+      const winUser = Math.max(1, Math.floor(Number(windowMinutes)) || 1);
+      const thrUser = Number(threshold);
+      const finalWindow = frequencyMode === "immediate" ? 1 : winUser;
+      const finalThreshold = frequencyMode === "immediate" ? 1 : thrUser;
+      const swRaw = frequencyMode === "immediate" ? 0 : Math.max(0, Math.floor(Number(subWindowMinutes)) || 0);
+      const subOk = frequencyMode === "windowed" && swRaw > 0 && swRaw < finalWindow;
+      const idNew = editingId ?? newRuleId();
+      const created = editingId ? rules.find((r) => r.id === editingId)?.createdAt ?? now : now;
+      const next: AlertRule = useCustom
+        ? {
+            id: idNew,
+            name: n,
+            templateId: undefined,
+            frequencyMode,
+            ruleLanguage: locale,
+            subWindowMinutes: swRaw,
+            subWindowMode: subOk ? (subWindowMode || "any_max").trim() : "any_max",
+            alertCode: alertCode.trim() || undefined,
+            severity,
+            aggregateKey: aggregateKey.trim() || undefined,
+            conditionSummary: conditionSummary.trim() || undefined,
+            sourceTable: resolvedSourceTable,
+            conditionField: resolvedConditionField,
+            matchType: resolvedMatchType,
+            countThreshold: frequencyMode === "immediate" ? 1 : resolvedCountThreshold,
+            metricKey,
+            operator,
+            threshold: finalThreshold,
+            windowMinutes: finalWindow,
+            delivery,
+            webhookType,
+            webhookUrl: webhookUrl.trim(),
+            enabled,
+            createdAt: created,
+            updatedAt: now,
+          }
+        : {
+            id: idNew,
+            name: n,
+            templateId: tpl.id,
+            frequencyMode,
+            ruleLanguage: locale,
+            subWindowMinutes: swRaw,
+            subWindowMode: subOk ? (subWindowMode || "any_max").trim() : "any_max",
+            alertCode: tpl.code,
+            severity: tpl.severity,
+            aggregateKey: tpl.aggregateKey,
+            conditionSummary: tpl.conditionSummary,
+            sourceTable: tpl.sourceTable,
+            conditionField: tpl.conditionField,
+            matchType: tpl.matchType,
+            countThreshold:
+              frequencyMode === "immediate"
+                ? 1
+                : Math.max(1, Math.floor(Number(countThreshold)) || tpl.countThreshold),
+            metricKey: tpl.metricKey,
+            operator: tpl.operator,
+            threshold: finalThreshold,
+            windowMinutes: finalWindow,
+            delivery,
+            webhookType,
+            webhookUrl: webhookUrl.trim(),
+            enabled,
+            createdAt: created,
+            updatedAt: now,
+          };
       try {
         await saveAlertRuleApi(next, editingId);
         await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
@@ -750,6 +747,11 @@ export function AlertsDashboard() {
     webhookUrl,
     windowMinutes,
     eventTypeFromUrl,
+    selectedTemplateId,
+    frequencyMode,
+    locale,
+    subWindowMinutes,
+    subWindowMode,
   ]);
 
   const confirmDelete = useCallback(() => {
@@ -769,18 +771,43 @@ export function AlertsDashboard() {
   }, [deleteTarget, queryClient, t]);
 
   const toggleEnabled = useCallback(
-    (rule: AlertRule, on: boolean) => {
+    (ruleId: string, nextEnabled: boolean) => {
+      if (!ruleId) {
+        return;
+      }
+      const list = queryClient.getQueryData<AlertRule[]>(["alertRules"]) ?? [];
+      const ruleBefore = list.find((r) => r.id === ruleId);
+      if (!ruleBefore) {
+        return;
+      }
       const now = Date.now();
+      queryClient.setQueryData<AlertRule[]>(["alertRules"], (old) => {
+        if (!old) {
+          return old;
+        }
+        return old.map((r) => (r.id === ruleId ? { ...r, enabled: nextEnabled, updatedAt: now } : r));
+      });
       void (async () => {
         try {
-          await saveAlertRuleApi({ ...rule, enabled: on, updatedAt: now }, rule.id);
+          const latest = (queryClient.getQueryData<AlertRule[]>(["alertRules"]) ?? []).find((r) => r.id === ruleId);
+          if (!latest) {
+            return;
+          }
+          await saveAlertRuleApi({ ...latest, enabled: nextEnabled, updatedAt: now }, ruleId);
           await queryClient.invalidateQueries({ queryKey: ["alertRules"] });
+          Message.success(nextEnabled ? t("toggleEnabledOn") : t("toggleEnabledOff"));
         } catch (e) {
+          queryClient.setQueryData<AlertRule[]>(["alertRules"], (old) => {
+            if (!old) {
+              return old;
+            }
+            return old.map((r) => (r.id === ruleId ? { ...ruleBefore } : r));
+          });
           Message.error(String(e));
         }
       })();
     },
-    [queryClient],
+    [queryClient, t],
   );
 
   const testNotify = useCallback(
@@ -798,20 +825,6 @@ export function AlertsDashboard() {
     [queryClient, t],
   );
 
-  const runEvaluate = useCallback(
-    (rule: AlertRule) => {
-      void (async () => {
-        try {
-          await postAlertRuleEvaluate(rule.id);
-          await queryClient.invalidateQueries({ queryKey: ["alertEvents"] });
-          Message.info(t("evaluateQueued"));
-        } catch (e) {
-          Message.error(String(e));
-        }
-      })();
-    },
-    [queryClient, t],
-  );
   const clearSilenceById = useCallback(
     (id: string) => {
       removeAuditSilenceRule(id);
@@ -820,25 +833,6 @@ export function AlertsDashboard() {
     },
     [t],
   );
-  const copyConditionPreview = useCallback(
-    async (
-      rule: Pick<AlertRule, "sourceTable" | "conditionField" | "matchType" | "countThreshold">,
-      mode: "human" | "sql",
-    ) => {
-      try {
-        const text = mode === "sql" ? formatConditionPreviewSqlLike(rule) : formatConditionPreview(rule);
-        await navigator.clipboard.writeText(text);
-        Message.success(t("conditionCopied"));
-      } catch {
-        Message.error(t("conditionCopyFailed"));
-      }
-    },
-    [t],
-  );
-  const toggleHistoryExpanded = useCallback((historyId: string) => {
-    setExpandedHistoryIds((prev) => ({ ...prev, [historyId]: !prev[historyId] }));
-  }, []);
-
   const historyColumns: TableColumnProps<AlertHistoryEntry>[] = useMemo(
     () => [
       {
@@ -872,43 +866,6 @@ export function AlertsDashboard() {
         ),
       },
       {
-        title: t("historyColContext"),
-        dataIndex: "id",
-        width: 260,
-        render: (_: unknown, row: AlertHistoryEntry) => (
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-1">
-              {row.severity ? <Tag size="small" color={severityTagColor(row.severity)}>{row.severity}</Tag> : null}
-              {row.alertCode ? <Tag size="small">{row.alertCode}</Tag> : null}
-            </div>
-            {row.conditionPreview ? (
-              <Typography.Text className="block text-[11px] text-muted-foreground" ellipsis={{ showTooltip: true }}>
-                {row.conditionPreview}
-              </Typography.Text>
-            ) : null}
-            <Button type="text" size="mini" onClick={() => toggleHistoryExpanded(row.id)}>
-              {expandedHistoryIds[row.id] ? t("hideHistoryContext") : t("showHistoryContext")}
-            </Button>
-            {expandedHistoryIds[row.id] ? (
-              <div className="rounded border border-border/70 bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
-                <div className="mb-1 text-foreground">
-                  {t("historyContextSummary", {
-                    sourceTable: row.sourceTable ?? "-",
-                    conditionField: row.conditionField ?? "-",
-                    matchType: formatMatchTypeLabel(row.matchType),
-                    countThreshold: String(row.countThreshold ?? "-"),
-                  })}
-                </div>
-                <div>sourceTable: {row.sourceTable ?? "-"}</div>
-                <div>conditionField: {row.conditionField ?? "-"}</div>
-                <div>matchType: {row.matchType ?? "-"}</div>
-                <div>countThreshold: {row.countThreshold ?? "-"}</div>
-              </div>
-            ) : null}
-          </div>
-        ),
-      },
-      {
         title: t("historyColStatus"),
         dataIndex: "status",
         width: 100,
@@ -919,37 +876,25 @@ export function AlertsDashboard() {
         ),
       },
     ],
-    [expandedHistoryIds, t, toggleHistoryExpanded],
-  );
-  const templateGroups = useMemo(
-    () => ({
-      P0: TEMPLATES.filter((tpl) => tpl.severity === "P0"),
-      P1: TEMPLATES.filter((tpl) => tpl.severity === "P1"),
-      P2: TEMPLATES.filter((tpl) => tpl.severity === "P2"),
-    }),
-    [],
+    [t],
   );
   const filteredRules = useMemo(() => {
-    const kw = ruleCodeKeyword.trim().toLowerCase();
+    const kw = ruleNameKeyword.trim().toLowerCase();
     return [...rules]
-      .filter((r) => (ruleSeverityFilter === "all" ? true : r.severity === ruleSeverityFilter))
       .filter((r) => {
         if (!kw) {
           return true;
         }
-        return (r.alertCode ?? "").toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw);
+        return r.name.toLowerCase().includes(kw);
       })
       .sort((a, b) => {
-        const s = severityWeight(a.severity) - severityWeight(b.severity);
-        if (s !== 0) {
-          return s;
+        const byCreated = b.createdAt - a.createdAt;
+        if (byCreated !== 0) {
+          return byCreated;
         }
-        return b.updatedAt - a.updatedAt;
+        return b.id.localeCompare(a.id);
       });
-  }, [ruleCodeKeyword, ruleSeverityFilter, rules]);
-  const toggleRuleExpanded = useCallback((ruleId: string) => {
-    setExpandedRuleIds((prev) => ({ ...prev, [ruleId]: !prev[ruleId] }));
-  }, []);
+  }, [ruleNameKeyword, rules]);
 
   if (!mounted) {
     return (
@@ -963,236 +908,167 @@ export function AlertsDashboard() {
 
   return (
     <AppPageShell variant="overview">
-      <main className="ca-page relative z-[1] space-y-6 pb-10">
-        <header className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Typography.Title heading={3} className="ca-page-title !m-0 text-2xl font-semibold">
-                {t("title")}
-              </Typography.Title>
-              <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 max-w-2xl text-sm leading-relaxed text-gray-500">
-                {t("pageBlurb")}
+      <main className="ca-page relative z-[1] space-y-5 pb-10">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <Typography.Title heading={3} className="ca-page-title !m-0 text-2xl font-semibold tracking-tight">
+              {t("title")}
+            </Typography.Title>
+            {rulesQuery.isError ? (
+              <Typography.Paragraph className="!mb-0 !mt-1 text-sm text-red-600 dark:text-red-400">
+                {t("loadRulesError")}
               </Typography.Paragraph>
-              {rulesQuery.isError ? (
-                <Typography.Paragraph className="!mb-0 !mt-2 text-sm text-red-600 dark:text-red-400">
-                  {t("loadRulesError")}
-                </Typography.Paragraph>
-              ) : null}
-            </div>
-            <Button type="primary" size="large" className="shrink-0 rounded-full" onClick={openCreate}>
-              <IconPlus className="mr-1 inline" />
-              {t("newRule")}
-            </Button>
+            ) : null}
           </div>
-          
-          {source ? (
-            <div className="rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
-              <Typography.Paragraph type="secondary" className="!mb-0 text-sm text-blue-600 dark:text-blue-400">
-                {t("investigationContextHint", {
-                  traceId: traceIdFromUrl || "—",
-                  eventType: eventTypeFromUrl || "unknown",
-                })}
-              </Typography.Paragraph>
-            </div>
-          ) : null}
+          <Button
+            type="primary"
+            size="default"
+            className="h-9 shrink-0 rounded-lg px-4 shadow-sm"
+            onClick={openCreate}
+          >
+            <IconPlus className="mr-1 inline" />
+            {t("newRule")}
+          </Button>
         </header>
 
-        <Tabs activeTab={mainTab} onChange={(k) => setMainTab(k as "rules" | "events" | "help")} type="rounded">
-          <TabPane key="rules" title={t("tabRules")}>
-        <section aria-label={t("activeRules")} className="space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">🚨</span>
-            <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
-              {t("activeRules")}
-            </Typography.Title>
+        {source ? (
+          <div className="rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
+            <Typography.Paragraph type="secondary" className="!mb-0 text-sm text-blue-600 dark:text-blue-400">
+              {t("investigationContextHint", {
+                traceId: traceIdFromUrl || "—",
+                eventType: eventTypeFromUrl || "unknown",
+              })}
+            </Typography.Paragraph>
           </div>
+        ) : null}
 
-          {rulesQuery.isLoading && rules.length === 0 ? (
-            <div className="flex justify-center py-16">
-              <Spin />
-            </div>
-          ) : rules.length === 0 ? (
-            <Card bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: "32px" }}>
-              <div className="text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl dark:bg-gray-800">📋</div>
-                <Typography.Title heading={6} className="!m-0 text-gray-800 dark:text-gray-200">
-                  {t("noRulesTitle")}
-                </Typography.Title>
-                <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 text-sm text-gray-500">
-                  {t("noRulesHint")}
-                </Typography.Paragraph>
+        <section aria-label={t("activeRules")} className="space-y-3">
+          <div className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm dark:bg-card/60 sm:p-8">
+            {rulesQuery.isLoading && rules.length === 0 ? (
+              <div className="flex justify-center py-16">
+                <Spin />
               </div>
-            </Card>
-          ) : (
-            <>
-              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50/50 p-3 dark:bg-gray-800/30">
-                <span className="mr-2 text-sm font-medium text-gray-600 dark:text-gray-400">{t("rulesFilterLabel")}</span>
-                <Button type={ruleSeverityFilter === "all" ? "primary" : "outline"} size="small" className="rounded-full" onClick={() => setRuleSeverityFilter("all")}>
-                  {t("filterAll")}
-                </Button>
-                <Button type={ruleSeverityFilter === "P0" ? "primary" : "outline"} size="small" className="rounded-full" onClick={() => setRuleSeverityFilter("P0")}>
-                  P0
-                </Button>
-                <Button type={ruleSeverityFilter === "P1" ? "primary" : "outline"} size="small" className="rounded-full" onClick={() => setRuleSeverityFilter("P1")}>
-                  P1
-                </Button>
-                <Button type={ruleSeverityFilter === "P2" ? "primary" : "outline"} size="small" className="rounded-full" onClick={() => setRuleSeverityFilter("P2")}>
-                  P2
-                </Button>
-                <Input
-                  className="w-[220px] rounded-lg border-gray-200 dark:border-gray-700"
-                  size="small"
-                  value={ruleCodeKeyword}
-                  onChange={setRuleCodeKeyword}
-                  placeholder={t("ruleCodeSearchPlaceholder")}
-                />
-              </div>
-              <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredRules.map((rule) => (
-                  <Card key={rule.id} bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: "20px" }}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <Typography.Text bold className="block truncate text-lg text-[#1D2129] dark:text-foreground">
-                          {rule.name}
-                        </Typography.Text>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          {rule.severity ? <Tag size="small" color={severityTagColor(rule.severity)}>{rule.severity}</Tag> : null}
-                          {rule.alertCode ? <Tag size="small">{rule.alertCode}</Tag> : null}
-                        </div>
-                        <p className="mt-2 text-sm leading-snug text-foreground/80">{formatRuleSummary(rule, t)}</p>
-                        {expandedRuleIds[rule.id] ? (
-                          <div className="mt-2 space-y-1">
-                            {rule.aggregateKey ? (
-                              <p className="text-[11px] text-muted-foreground">
-                                {t("aggregateKeyLabel")}: {rule.aggregateKey}
+            ) : (
+              <div className="space-y-8">
+                {rules.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">{t("rulesFilterLabel")}</span>
+                      <Input
+                        className="w-full max-w-sm rounded-lg"
+                        size="small"
+                        value={ruleNameKeyword}
+                        onChange={setRuleNameKeyword}
+                        placeholder={t("ruleNameSearchPlaceholder")}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {filteredRules.map((rule, index) => (
+                        <Card
+                          key={rule.id ? `rule-${rule.id}` : `rule-idx-${index}`}
+                          bordered={false}
+                          className="rounded-xl border border-border/60 bg-background/80 dark:bg-background/40"
+                          bodyStyle={{ padding: "18px" }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <Typography.Text bold className="block text-base text-foreground">
+                                {rule.name}
+                              </Typography.Text>
+                              <p className="mt-2 text-sm leading-snug text-muted-foreground">
+                                {formatRuleSummary(rule, t)}
                               </p>
-                            ) : null}
-                            {rule.conditionSummary ? (
-                              <p className="text-[11px] text-muted-foreground">
-                                {t("conditionLabel")}: {rule.conditionSummary}
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {rule.delivery === "webhook"
+                                  ? `${t("deliveryWebhookShort")}: ${rule.webhookType}`
+                                  : t("deliveryWebhookShort")}
                               </p>
-                            ) : null}
-                            <p className="text-[11px] text-muted-foreground">
-                              {t("conditionPreviewLabel")} (SQL): {formatConditionPreviewSqlLike(rule)}
-                            </p>
-                            <div className="rounded border border-border/70 bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
-                              <div>sourceTable: {rule.sourceTable ?? "-"}</div>
-                              <div>conditionField: {rule.conditionField ?? "-"}</div>
-                              <div>matchType: {rule.matchType ?? "-"}</div>
-                              <div>countThreshold: {rule.countThreshold ?? "-"}</div>
                             </div>
-                            <Button type="text" size="mini" onClick={() => void copyConditionPreview(rule, "sql")}>
-                              {t("copyConditionPreview")}
+                            <Switch
+                              checked={Boolean(rule.enabled)}
+                              size="small"
+                              onChange={(v) => toggleEnabled(rule.id, v)}
+                            />
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button type="outline" size="small" onClick={() => testNotify(rule)}>
+                              {t("testNotify")}
+                            </Button>
+                            <Button type="outline" size="small" icon={<IconEdit />} onClick={() => openEdit(rule)}>
+                              {t("editRule")}
+                            </Button>
+                            <Button
+                              type="outline"
+                              size="small"
+                              status="danger"
+                              icon={<IconDelete />}
+                              onClick={() => setDeleteTarget(rule)}
+                            >
+                              {t("deleteRule")}
                             </Button>
                           </div>
-                        ) : null}
-                        <div className="mt-1">
-                          <Button type="text" size="mini" onClick={() => toggleRuleExpanded(rule.id)}>
-                            {expandedRuleIds[rule.id] ? t("hideRuleDetails") : t("showRuleDetails")}
-                          </Button>
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {rule.delivery === "webhook"
-                            ? `${t("deliveryWebhookShort")}: ${rule.webhookType}`
-                            : t("deliveryWebhookShort")}
-                        </p>
-                      </div>
-                      <Switch checked={rule.enabled} size="small" onChange={(v) => toggleEnabled(rule, v)} />
+                        </Card>
+                      ))}
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button type="outline" size="small" onClick={() => testNotify(rule)}>
-                        {t("testNotify")}
-                      </Button>
-                      <Button type="outline" size="small" onClick={() => runEvaluate(rule)}>
-                        {t("evaluateRun")}
-                      </Button>
-                      <Button type="outline" size="small" icon={<IconEdit />} onClick={() => openEdit(rule)}>
-                        {t("editRule")}
-                      </Button>
-                      <Button type="outline" size="small" status="danger" icon={<IconDelete />} onClick={() => setDeleteTarget(rule)}>
-                        {t("deleteRule")}
-                      </Button>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-2xl">
+                      📋
                     </div>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
+                    <Typography.Title heading={6} className="!m-0 text-foreground">
+                      {t("noRulesTitle")}
+                    </Typography.Title>
+                    <Typography.Paragraph className="!mb-0 !mt-2 text-sm text-muted-foreground">
+                      {t("noRulesHint")}
+                    </Typography.Paragraph>
+                  </div>
+                )}
 
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">📋</span>
-              <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
-                {t("templateLibraryTitle")}
-              </Typography.Title>
-            </div>
-            <div className="space-y-4">
-          {(["P0", "P1", "P2"] as const).map((sev) => (
-            <div key={sev} className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold",
-                  sev === "P0" ? "bg-red-100 text-red-600 dark:bg-red-900/30" :
-                  sev === "P1" ? "bg-orange-100 text-orange-600 dark:bg-orange-900/30" :
-                  "bg-blue-100 text-blue-600 dark:bg-blue-900/30"
-                )}>
-                  {sev}
-                </span>
-                <Typography.Text bold className="text-sm text-gray-700 dark:text-gray-300">
-                  {t("severityGroupTitle", { severity: sev })}
-                </Typography.Text>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {templateGroups[sev].map((tpl) => (
-                  <Card
-                    key={tpl.id}
-                    bordered={false}
-                    className={cn(
-                      "min-w-0 rounded-xl border border-gray-200 bg-white shadow-sm flex flex-col transition-all hover:shadow-md hover:border-blue-200 dark:border-gray-700 dark:bg-gray-800/50",
-                      templateCardGradientClass(tpl.id),
-                    )}
-                    bodyStyle={{ padding: "20px" }}
-                  >
-                    {/* 标题与标签分两行，避免同列 flex 下标题被压成单字宽竖排 */}
-                    <div className="w-full min-w-0">
-                      <Typography.Text
-                        bold
-                        className="!block w-full min-w-0 break-words text-sm leading-snug text-[#1D2129] dark:text-foreground"
+                <div className={cn(rules.length > 0 && "border-t border-border/80 pt-8")}>
+                  {rules.length > 0 ? (
+                    <Typography.Text className="mb-4 block text-sm font-medium text-foreground">
+                      {t("templatesSectionTitle")}
+                    </Typography.Text>
+                  ) : null}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {TEMPLATES.map((tpl) => (
+                      <Card
+                        key={tpl.id}
+                        bordered={false}
+                        className="min-w-0 rounded-xl border border-border/60 bg-background/50 transition-colors hover:border-primary/25 dark:bg-background/30"
+                        bodyStyle={{ padding: "20px" }}
                       >
-                        {templateTitle(t, tpl.id)}
-                      </Typography.Text>
-                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center justify-end gap-1">
-                        <Tag size="small" color={severityTagColor(tpl.severity)}>{tpl.severity}</Tag>
-                        <Tag size="small" className="max-w-full !text-[10px] break-all">
-                          {tpl.code}
-                        </Tag>
-                      </div>
-                    </div>
-                    <p className="mt-2 min-h-[3rem] flex-1 text-xs leading-relaxed text-muted-foreground">
-                      {templateDesc(t, tpl.id)}
-                    </p>
-                    <Button type="primary" size="small" className="mt-3 w-full" onClick={() => applyTemplate(tpl)}>
-                      {t("templateAdd")}
-                    </Button>
-                  </Card>
-                ))}
+                        <div className="flex gap-3">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-2xl">
+                            {templateEmoji(tpl.id)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <Typography.Text bold className="!block text-sm leading-snug text-foreground">
+                              {templateTitle(t, tpl.id)}
+                            </Typography.Text>
+                            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                              {templateDesc(t, tpl.id)}
+                            </p>
+                          </div>
+                        </div>
+                        <Button type="primary" className="mt-4 w-full rounded-lg" onClick={() => applyTemplate(tpl)}>
+                          {t("templateAdd")}
+                        </Button>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
-            </div>
+            )}
           </div>
         </section>
-          </TabPane>
 
-          <TabPane key="events" title={t("tabEvents")}>
-        <section aria-label={t("alertHistory")} className="space-y-4">
+        <section aria-label={t("alertHistory")} className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">📜</span>
-              <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
-                {t("alertHistory")}
-              </Typography.Title>
-            </div>
+            <Typography.Title heading={6} className="!m-0 text-base font-semibold text-foreground">
+              {t("alertHistory")}
+            </Typography.Title>
             <div className="flex flex-wrap items-center gap-2">
               <Typography.Text type="secondary" className="text-xs">
                 {t("historyLastUpdated", {
@@ -1205,6 +1081,7 @@ export function AlertsDashboard() {
               <Button
                 type="outline"
                 size="small"
+                className="rounded-lg"
                 icon={<IconRefresh className={cn(historyQuery.isFetching && "animate-spin")} />}
                 onClick={() => void queryClient.invalidateQueries({ queryKey: ["alertEvents"] })}
               >
@@ -1212,7 +1089,11 @@ export function AlertsDashboard() {
               </Button>
             </div>
           </div>
-          <Card bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: 0 }}>
+          <Card
+            bordered={false}
+            className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm dark:bg-card/60"
+            bodyStyle={{ padding: 0 }}
+          >
             {historyWithNames.length === 0 ? (
               <div className="py-14 text-center text-sm text-muted-foreground">{t("noHistory")}</div>
             ) : (
@@ -1223,104 +1104,11 @@ export function AlertsDashboard() {
                 data={historyWithNames}
                 pagination={false}
                 border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
-                className="[&_.arco-table-th]:bg-[#f7f9fc] [&_.arco-table-th.arco-table-col-sorted]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
+                className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
               />
             )}
           </Card>
         </section>
-          </TabPane>
-
-          <TabPane key="help" title={t("tabHelp")}>
-            <div className="mb-4 flex flex-wrap gap-3">
-              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-                <span className="font-medium text-gray-700 dark:text-gray-300">{t("localModeTitle")}</span>
-                <span className="ml-2">{t("localModeBody")}</span>
-              </div>
-              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-                <span className="font-medium text-gray-700 dark:text-gray-300">{t("mappingTitle")}</span>
-                <span className="ml-2">{t("mappingBody")}</span>
-              </div>
-              <div className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/30 dark:text-gray-400">
-                <span className="font-medium text-gray-700 dark:text-gray-300">{t("silenceOverviewTitle")}</span>
-                <span className="ml-2">
-                  {t("silenceOverviewBody", {
-                    activeCount: String(silenceOverview.activeCount),
-                    expiringSoonCount: String(silenceOverview.expiringSoonCount),
-                  })}
-                </span>
-              </div>
-            </div>
-            <Typography.Paragraph className="!mb-4 text-sm text-muted-foreground" type="secondary">
-              {t("helpFaqBlurb")}
-            </Typography.Paragraph>
-        <section aria-label={t("silenceSectionTitle")} className="space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">🔇</span>
-            <Typography.Title heading={6} className="!m-0 text-base font-semibold text-gray-800 dark:text-gray-200">
-              {t("silenceSectionTitle")}
-            </Typography.Title>
-          </div>
-          <Card bordered={false} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800/50" bodyStyle={{ padding: "16px" }}>
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-gray-50/50 p-3 dark:bg-gray-800/30">
-              <span className="mr-2 text-sm font-medium text-gray-600 dark:text-gray-400">{t("silenceFilterLabel")}</span>
-              <Button
-                type={silenceScopeFilter === "all" ? "primary" : "outline"}
-                size="small"
-                className="rounded-full"
-                onClick={() => setSilenceScopeFilter("all")}
-              >
-                {t("filterAll")}
-              </Button>
-              <Button
-                type={silenceScopeFilter === "trace" ? "primary" : "outline"}
-                size="small"
-                className="rounded-full"
-                onClick={() => setSilenceScopeFilter("trace")}
-              >
-                {t("silenceScopeTrace")}
-              </Button>
-              <Button
-                type={silenceScopeFilter === "event_type" ? "primary" : "outline"}
-                size="small"
-                className="rounded-full"
-                onClick={() => setSilenceScopeFilter("event_type")}
-              >
-                {t("silenceScopeEventType")}
-              </Button>
-            </div>
-            {filteredSilenceRules.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl dark:bg-gray-800">🔇</div>
-                <p className="text-sm text-gray-500">{t("silenceListEmpty")}</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredSilenceRules.slice(0, 20).map((rule) => (
-                  <div
-                    key={rule.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/30"
-                  >
-                    <div className="min-w-0 text-sm">
-                      <div className="font-medium text-gray-700 dark:text-gray-300">
-                        {rule.scope === "trace" ? t("silenceScopeTrace") : t("silenceScopeEventType")}
-                      </div>
-                      <div className="text-gray-500 dark:text-gray-400">
-                        {rule.scope === "trace" ? `trace=${rule.traceId ?? "-"}` : `event=${rule.eventType ?? "-"}`}
-                        {" · "}
-                        {t("silenceActiveUntil", { time: new Date(rule.expireAt).toLocaleString() })}
-                      </div>
-                    </div>
-                    <Button type="outline" size="small" className="rounded-full" onClick={() => clearSilenceById(rule.id)}>
-                      {t("silenceCancel")}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </section>
-          </TabPane>
-        </Tabs>
 
         <Modal
           title={editingId ? t("modalEditTitle") : t("modalCreateTitle")}
@@ -1384,54 +1172,146 @@ export function AlertsDashboard() {
               <Input value={name} onChange={setName} placeholder={t("formNamePh")} />
             </div>
             <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("alertCodeLabel")}</div>
-              <Input value={alertCode} onChange={setAlertCode} placeholder="SEC_ENFORCE_HIT" />
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("severityLabel")}</div>
-              <Select value={severity} onChange={(v) => setSeverity(v as AlertSeverity)} style={{ width: 160 }}>
-                <Select.Option value="P0">P0</Select.Option>
-                <Select.Option value="P1">P1</Select.Option>
-                <Select.Option value="P2">P2</Select.Option>
+              <div className="mb-1 text-xs text-muted-foreground">{t("formAlertItem")}</div>
+              <Select
+                value={selectedTemplateId}
+                onChange={(v) => {
+                  const id = v as string;
+                  setSelectedTemplateId(id);
+                  if (id === CUSTOM_TEMPLATE_ID) {
+                    return;
+                  }
+                  const nt = TEMPLATES.find((x) => x.id === id);
+                  if (!nt) {
+                    return;
+                  }
+                  if (!editingId) {
+                    setName(templateTitle(t, nt.id));
+                  }
+                  setAlertCode(nt.code);
+                  setSeverity(nt.severity);
+                  setAggregateKey(nt.aggregateKey);
+                  setConditionSummary(nt.conditionSummary);
+                  setSourceTable(nt.sourceTable);
+                  setConditionField(nt.conditionField);
+                  setMatchType(nt.matchType);
+                  setCountThreshold(nt.countThreshold);
+                  setMetricKey(nt.metricKey);
+                  setOperator(nt.operator);
+                  setThreshold(nt.threshold);
+                  setWindowMinutes(nt.windowMinutes);
+                }}
+                className="w-full min-w-0"
+                triggerProps={{ className: "w-full" }}
+              >
+                {TEMPLATE_GROUP_IDS.map((g) => (
+                  <Select.OptGroup key={g.labelKey} label={t(g.labelKey)}>
+                    {g.ids.map((id) => (
+                      <Select.Option key={id} value={id}>
+                        {templateTitle(t, id)}
+                      </Select.Option>
+                    ))}
+                  </Select.OptGroup>
+                ))}
+                <Select.Option value={CUSTOM_TEMPLATE_ID}>{t("formAlertItemCustom")}</Select.Option>
               </Select>
             </div>
+            {selectedTemplateId === CUSTOM_TEMPLATE_ID ? (
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">{t("formWhen")}</div>
+                <Space wrap className="w-full">
+                  <Select value={metricKey} onChange={(v) => setMetricKey(v as AlertMetricKey)} style={{ minWidth: 200 }}>
+                    {METRIC_OPTIONS.map((k) => (
+                      <Select.Option key={k} value={k}>
+                        {metricLabel(t, k)}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                  <Select value={operator} onChange={(v) => setOperator(v as AlertOperator)} style={{ width: 140 }}>
+                    <Select.Option value="gt">{t("opGt")}</Select.Option>
+                    <Select.Option value="lt">{t("opLt")}</Select.Option>
+                    <Select.Option value="eq">{t("opEq")}</Select.Option>
+                  </Select>
+                  <InputNumber value={threshold} onChange={(v) => setThreshold(Number(v ?? 0))} min={0} style={{ width: 120 }} />
+                </Space>
+              </div>
+            ) : null}
             <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formWhen")}</div>
-              <Space wrap className="w-full">
-                <Select value={metricKey} onChange={(v) => setMetricKey(v as AlertMetricKey)} style={{ minWidth: 200 }}>
-                  {METRIC_OPTIONS.map((k) => (
-                    <Select.Option key={k} value={k}>
-                      {metricLabel(t, k)}
-                    </Select.Option>
-                  ))}
-                </Select>
-                <Button
-                  size="mini"
-                  onClick={() => {
-                    const advancedPreset = inferAdvancedCondition(eventTypeFromUrl, metricKey);
-                    setSourceTable(advancedPreset.sourceTable ?? "");
-                    setConditionField(advancedPreset.conditionField ?? "");
-                    setMatchType(advancedPreset.matchType ?? "eq");
-                    setCountThreshold(advancedPreset.countThreshold ?? 1);
-                  }}
-                >
-                  {t("syncAdvancedFromMetric")}
-                </Button>
-                <Select value={operator} onChange={(v) => setOperator(v as AlertOperator)} style={{ width: 140 }}>
-                  <Select.Option value="gt">{t("opGt")}</Select.Option>
-                  <Select.Option value="lt">{t("opLt")}</Select.Option>
-                  <Select.Option value="eq">{t("opEq")}</Select.Option>
-                </Select>
-                <InputNumber value={threshold} onChange={(v) => setThreshold(Number(v ?? 0))} min={0} style={{ width: 120 }} />
-              </Space>
+              <div className="mb-1 text-xs text-muted-foreground">{t("formFrequency")}</div>
+              <Radio.Group
+                value={frequencyMode}
+                onChange={(v) => setFrequencyMode(v as AlertFrequencyMode)}
+                className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"
+              >
+                <Radio value="immediate">{t("formFrequencyImmediate")}</Radio>
+                <Radio value="windowed">{t("formFrequencyWindowed")}</Radio>
+              </Radio.Group>
+              <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 text-xs">
+                {t("formFrequencyHelp")}
+              </Typography.Paragraph>
             </div>
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formWindow")}</div>
-              <Space>
-                <InputNumber value={windowMinutes} onChange={(v) => setWindowMinutes(Number(v ?? 1))} min={1} style={{ width: 120 }} />
-                <span className="text-sm text-muted-foreground">{t("minutesLabel")}</span>
-              </Space>
-            </div>
+            {frequencyMode === "immediate" ? (
+              <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {t("formImmediateNote")}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">{t("formWindow")}</div>
+                  <Space>
+                    <InputNumber
+                      value={windowMinutes}
+                      onChange={(v) => setWindowMinutes(Number(v ?? 1))}
+                      min={1}
+                      style={{ width: 120 }}
+                    />
+                    <span className="text-sm text-muted-foreground">{t("minutesLabel")}</span>
+                  </Space>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">
+                    {selectedTemplateId === CUSTOM_TEMPLATE_ID
+                      ? t("formThreshold")
+                      : t("formEventThreshold")}
+                  </div>
+                  <InputNumber
+                    value={threshold}
+                    onChange={(v) => setThreshold(Number(v ?? 0))}
+                    min={0}
+                    style={{ width: 120 }}
+                  />
+                  {matchType === "count_gte" ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-xs text-muted-foreground">{t("formCountFieldThreshold")}</div>
+                      <InputNumber
+                        value={countThreshold}
+                        onChange={(v) => setCountThreshold(Math.max(1, Number(v ?? 1)))}
+                        min={1}
+                        style={{ width: 120 }}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="mt-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2">
+                    <div className="mb-1 text-xs font-medium text-foreground">{t("formSubWindow")}</div>
+                    <Space wrap className="items-center">
+                      <InputNumber
+                        value={subWindowMinutes}
+                        onChange={(v) => setSubWindowMinutes(Math.max(0, Number(v ?? 0)))}
+                        min={0}
+                        style={{ width: 120 }}
+                      />
+                      <span className="text-xs text-muted-foreground">{t("minutesLabel")}</span>
+                      <Select value={subWindowMode} onChange={setSubWindowMode} style={{ width: 160 }} disabled={subWindowMinutes <= 0}>
+                        <Select.Option value="any_max">{t("formSubWindowModeAnyMax")}</Select.Option>
+                      </Select>
+                    </Space>
+                    <Typography.Paragraph type="secondary" className="!mb-0 !mt-1 text-xs">
+                      {t("formSubWindowHint")}
+                    </Typography.Paragraph>
+                  </div>
+                </div>
+              </div>
+            )}
             <div>
               <div className="mb-1 text-xs text-muted-foreground">{t("formWebhookType")}</div>
               <Select value={webhookType} onChange={(v) => setWebhookType(v as AlertWebhookType)} style={{ width: 220 }}>
@@ -1445,92 +1325,6 @@ export function AlertsDashboard() {
             <div className="flex items-center gap-2">
               <Switch checked={enabled} onChange={setEnabled} />
               <span className="text-sm text-muted-foreground">{t("formEnabled")}</span>
-            </div>
-            <div className="rounded border border-border/70 bg-muted/20 p-2">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-xs font-medium text-foreground">{t("advancedConfigTitle")}</div>
-                <Button type="text" size="mini" onClick={() => setAdvancedConfigOpen((v) => !v)}>
-                  {advancedConfigOpen ? t("advancedHide") : t("advancedShow")}
-                </Button>
-              </div>
-              {advancedConfigOpen ? (
-                <div className="space-y-3">
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("aggregateKeyLabel")}</div>
-                    <Input value={aggregateKey} onChange={setAggregateKey} placeholder="workspace + trace_id + policy_id" />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("conditionLabel")}</div>
-                    <Input value={conditionSummary} onChange={setConditionSummary} placeholder="intercepted = 1" />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("sourceTableLabel")}</div>
-                    <Input value={sourceTable} onChange={setSourceTable} placeholder="agent_exec_commands" />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("conditionFieldLabel")}</div>
-                    <Input value={conditionField} onChange={setConditionField} placeholder="permission_denied" />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("matchTypeLabel")}</div>
-                    <Select value={matchType} onChange={(v) => setMatchType(v as AlertMatchType)} style={{ width: 200 }}>
-                      <Select.Option value="eq">eq</Select.Option>
-                      <Select.Option value="contains">contains</Select.Option>
-                      <Select.Option value="count_gte">count_gte</Select.Option>
-                      <Select.Option value="ratio_gt">ratio_gt</Select.Option>
-                      <Select.Option value="p95_gt">p95_gt</Select.Option>
-                    </Select>
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("countThresholdLabel")}</div>
-                    <InputNumber
-                      value={countThreshold}
-                      onChange={(v) => setCountThreshold(Number(v ?? 1))}
-                      min={1}
-                      style={{ width: 120 }}
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">{t("conditionPreviewLabel")}</div>
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <Button
-                        type={conditionPreviewMode === "human" ? "primary" : "outline"}
-                        size="mini"
-                        onClick={() => setConditionPreviewMode("human")}
-                      >
-                        {t("conditionModeHuman")}
-                      </Button>
-                      <Button
-                        type={conditionPreviewMode === "sql" ? "primary" : "outline"}
-                        size="mini"
-                        onClick={() => setConditionPreviewMode("sql")}
-                      >
-                        {t("conditionModeSql")}
-                      </Button>
-                    </div>
-                    <div className="rounded border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
-                      {conditionPreviewMode === "sql"
-                        ? formatConditionPreviewSqlLike({ sourceTable, conditionField, matchType, countThreshold })
-                        : formatConditionPreview({ sourceTable, conditionField, matchType, countThreshold })}
-                    </div>
-                    <Button
-                      className="mt-1"
-                      type="text"
-                      size="mini"
-                      onClick={() =>
-                        void copyConditionPreview({
-                          sourceTable,
-                          conditionField,
-                          matchType,
-                          countThreshold,
-                        }, conditionPreviewMode)
-                      }
-                    >
-                      {t("copyConditionPreview")}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         </Modal>

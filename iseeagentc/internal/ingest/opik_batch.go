@@ -806,7 +806,7 @@ WHERE table_schema = current_schema() AND table_name = $1`, sqltables.TableAgent
 		}
 	}
 	order := []string{
-		"id", "created_at_ms", "trace_id", "span_id", "workspace_name", "project_name",
+		"id", "created_at_ms", "timestamp_ms", "trace_id", "span_id", "workspace_name", "project_name",
 		"findings_json", "total_findings", "hit_count", "intercepted", "observe_only",
 	}
 	var picked []string
@@ -838,6 +838,8 @@ func securityAuditArgs(columns []string, now int64, traceID string, spanID inter
 		case "id":
 			args = append(args, uuid.NewString())
 		case "created_at_ms":
+			args = append(args, now)
+		case "timestamp_ms":
 			args = append(args, now)
 		case "trace_id":
 			args = append(args, traceID)
@@ -1314,9 +1316,9 @@ ON CONFLICT(span_id) DO UPDATE SET
 	}
 
 	auditColumns, auditInsertSQL := prepareSecurityAuditInsert(tx, db)
-	insertAudit := func(traceID string, spanID interface{}, scan spanSecurityScan, ws, proj string) {
+	insertAudit := func(traceID string, spanID interface{}, scan spanSecurityScan, ws, proj string) error {
 		if len(auditColumns) == 0 || auditInsertSQL == "" {
-			return
+			return nil
 		}
 		findingsJSON := "[]"
 		if b, err := json.Marshal(scan.Findings); err == nil {
@@ -1335,7 +1337,11 @@ ON CONFLICT(span_id) DO UPDATE SET
 			scan.Intercepted,
 			scan.ObserveOnly,
 		)
-		_, _ = tx.Exec(auditInsertSQL, args...)
+		_, err := tx.Exec(auditInsertSQL, args...)
+		if err != nil {
+			return err
+		}
+		return nil
 	}
 
 	traceHasSpanAudit := map[string]struct{}{}
@@ -1350,7 +1356,7 @@ ON CONFLICT(span_id) DO UPDATE SET
 				}{WS: defaultWorkspace, Proj: defaultProject}
 			}
 		}
-		insertAudit(scan.TraceID, spanID, scan, wp.WS, wp.Proj)
+		_ = insertAudit(scan.TraceID, spanID, scan, wp.WS, wp.Proj)
 		traceHasSpanAudit[scan.TraceID] = struct{}{}
 	}
 	for traceID, scan := range traceScans {
@@ -1364,7 +1370,7 @@ ON CONFLICT(span_id) DO UPDATE SET
 				Proj string
 			}{WS: defaultWorkspace, Proj: defaultProject}
 		}
-		insertAudit(traceID, nil, scan, wp.WS, wp.Proj)
+		_ = insertAudit(traceID, nil, scan, wp.WS, wp.Proj)
 	}
 
 	if err := tx.Commit(); err != nil {

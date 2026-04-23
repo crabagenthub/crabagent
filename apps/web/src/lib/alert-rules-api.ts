@@ -1,6 +1,6 @@
 import { appendWorkspaceNameParam, collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-json";
-import type { AlertHistoryEntry, AlertRule } from "@/lib/alert-rules-storage";
+import type { AlertFrequencyMode, AlertHistoryEntry, AlertRule } from "@/lib/alert-rules-storage";
 
 const RULES_KEY = "crabagent.alertRules.v1";
 const HISTORY_KEY = "crabagent.alertHistory.v1";
@@ -9,13 +9,51 @@ function base() {
   return loadCollectorUrl().replace(/\/+$/, "");
 }
 
+function parseFrequencyMode(raw: unknown): AlertFrequencyMode | undefined {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (s === "immediate" || s === "instant") {
+    return "immediate";
+  }
+  if (s === "windowed" || s === "sliding_window" || s === "window") {
+    return "windowed";
+  }
+  return undefined;
+}
+
 function mapRuleFromApi(r: Record<string, unknown>): AlertRule {
   const op = r.operator;
   const metricKey = r.metric_key;
+  const freq =
+    parseFrequencyMode(r.frequency_mode) ?? parseFrequencyMode(r.frequencyMode);
   return {
     id: String(r.id ?? ""),
     name: String(r.name ?? ""),
     alertCode: typeof r.alert_code === "string" ? r.alert_code : undefined,
+    templateId:
+      typeof r.template_id === "string" && (r.template_id as string).trim() !== ""
+        ? (r.template_id as string)
+        : typeof r.templateId === "string" && (r.templateId as string).trim() !== ""
+          ? (r.templateId as string)
+          : undefined,
+    frequencyMode: freq,
+    ruleLanguage:
+      typeof r.rule_language === "string"
+        ? r.rule_language
+        : typeof r.ruleLanguage === "string"
+          ? r.ruleLanguage
+          : undefined,
+    subWindowMinutes:
+      typeof r.sub_window_minutes === "number"
+        ? r.sub_window_minutes
+        : typeof r.subWindowMinutes === "number"
+          ? r.subWindowMinutes
+          : undefined,
+    subWindowMode:
+      typeof r.sub_window_mode === "string"
+        ? r.sub_window_mode
+        : typeof r.subWindowMode === "string"
+          ? r.subWindowMode
+          : undefined,
     severity: (r.severity as AlertRule["severity"]) ?? undefined,
     aggregateKey: typeof r.aggregate_key === "string" ? r.aggregate_key : undefined,
     conditionSummary: typeof r.condition_summary === "string" ? r.condition_summary : undefined,
@@ -59,6 +97,21 @@ function ruleToJsonBody(r: Partial<AlertRule> & { id?: string }): Record<string,
   if (r.countThreshold != null) o.count_threshold = r.countThreshold;
   if (r.createdAt != null) o.created_at = r.createdAt;
   if (r.updatedAt != null) o.updated_at = r.updatedAt;
+  if (r.templateId != null && String(r.templateId).trim() !== "") {
+    o.template_id = r.templateId;
+  }
+  if (r.frequencyMode != null) {
+    o.frequency_mode = r.frequencyMode;
+  }
+  if (r.ruleLanguage != null && String(r.ruleLanguage).trim() !== "") {
+    o.rule_language = r.ruleLanguage;
+  }
+  if (typeof r.subWindowMinutes === "number" && !Number.isNaN(r.subWindowMinutes)) {
+    o.sub_window_minutes = r.subWindowMinutes;
+  }
+  if (r.subWindowMode != null && String(r.subWindowMode).trim() !== "") {
+    o.sub_window_mode = r.subWindowMode;
+  }
   return o;
 }
 
@@ -139,19 +192,6 @@ export async function postAlertRuleTest(id: string): Promise<void> {
     },
   );
   await readCollectorFetchResult(res, "test notify");
-}
-
-export async function postAlertRuleEvaluate(id: string): Promise<void> {
-  const sp = new URLSearchParams();
-  appendWorkspaceNameParam(sp);
-  const res = await fetch(
-    `${base()}/v1/alert-rules/${encodeURIComponent(id)}/evaluate?${sp.toString()}`,
-    {
-      method: "POST",
-      headers: { Accept: "application/json", ...collectorAuthHeaders(loadApiKey()) } as Record<string, string>,
-    },
-  );
-  await readCollectorFetchResult(res, "evaluate alert");
 }
 
 /** One-time: push localStorage rules to API then clear. */

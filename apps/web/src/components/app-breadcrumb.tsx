@@ -97,6 +97,10 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupSettings") }, { label: tNav("settings") }];
     }
 
+    if (p === "/alerts" || p.startsWith("/alerts?")) {
+      return [{ label: tNav("groupSettings") }, { label: tNav("alerts") }];
+    }
+
     return [{ label: tNav("brand") }];
   }, [pathname, tNav, tHome]);
 

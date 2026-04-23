@@ -2,10 +2,10 @@ package router
 
 import (
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"iseeagentc/bootstrap"
 	"iseeagentc/controller"
 	"iseeagentc/controller/middleware"
 	"iseeagentc/internal/alerts"
@@ -42,15 +42,10 @@ func Init(r *gin.Engine) {
 	// 告警主路径在收集器 ApplyOpikBatch 入库成功后经 alerts.OnIngestWorkspaces 触发（ingest 通过回调避免与 model 循环依赖）。
 	// 周期任务为低频补偿（长窗口/无新数据时）。用 CRAB_ALERT_SCHEDULER_EVERY=0 可关闭，或 Go duration 如 30m（默认 20m）。
 	ingest.RegisterAfterOpikCommitIngest(alerts.OnIngestWorkspaces)
-	if resource.DB != nil {
+	// 独立部署 alert-scheduler 时设 CRAB_DISABLE_EMBEDDED_ALERT_SCHEDULER=1，避免与 API 内嵌定时器双跑。
+	if os.Getenv("CRAB_DISABLE_EMBEDDED_ALERT_SCHEDULER") != "1" && resource.DB != nil {
 		if db, err := resource.DB.DB(); err == nil && db != nil {
-			every := 20 * time.Minute
-			if s := os.Getenv("CRAB_ALERT_SCHEDULER_EVERY"); s != "" {
-				if d, err := time.ParseDuration(s); err == nil {
-					every = d
-				}
-			}
-			alerts.StartScheduler(db, every)
+			bootstrap.StartAlertScheduler(db)
 		}
 	}
 

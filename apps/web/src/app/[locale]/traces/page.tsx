@@ -382,9 +382,6 @@ export default function TracesPage() {
     return () => window.clearTimeout(id);
   }, [listKind, searchDraft]);
 
-  const tracesSinceUntil = useMemo(() => resolveObserveSinceUntil(tracesUi.dateRange), [tracesUi.dateRange]);
-  const threadsSinceUntil = useMemo(() => resolveObserveSinceUntil(threadsUi.dateRange), [threadsUi.dateRange]);
-  const spansSinceUntil = useMemo(() => resolveObserveSinceUntil(spansUi.dateRange), [spansUi.dateRange]);
   const listEnabled = mounted && baseUrl.trim().length > 0;
   const refetchInterval = autoPull ? 12_000 : false;
 
@@ -434,8 +431,6 @@ export default function TracesPage() {
         tracesUi.pageIndex,
         tracesUi.pageSize,
         tracesDateRangeKey,
-        tracesSinceUntil.sinceMs ?? 0,
-        tracesSinceUntil.untilMs ?? 0,
         tracesUi.filterChannel,
         tracesUi.filterAgent,
         tracesUi.filterStatuses.slice().sort().join(","),
@@ -444,8 +439,6 @@ export default function TracesPage() {
       baseUrl,
       apiKey,
       tracesDateRangeKey,
-      tracesSinceUntil.sinceMs,
-      tracesSinceUntil.untilMs,
       tracesUi.filterAgent,
       tracesUi.filterChannel,
       tracesUi.filterStatuses,
@@ -469,8 +462,6 @@ export default function TracesPage() {
         threadsUi.pageIndex,
         threadsUi.pageSize,
         threadsDateRangeKey,
-        threadsSinceUntil.sinceMs ?? 0,
-        threadsSinceUntil.untilMs ?? 0,
         threadsUi.filterChannel,
         threadsUi.filterAgent,
       ] as const,
@@ -478,8 +469,6 @@ export default function TracesPage() {
       baseUrl,
       apiKey,
       threadsDateRangeKey,
-      threadsSinceUntil.sinceMs,
-      threadsSinceUntil.untilMs,
       threadsUi.filterAgent,
       threadsUi.filterChannel,
       threadsUi.listOrder,
@@ -502,8 +491,6 @@ export default function TracesPage() {
         spansUi.pageIndex,
         spansUi.pageSize,
         spansDateRangeKey,
-        spansSinceUntil.sinceMs ?? 0,
-        spansSinceUntil.untilMs ?? 0,
         spansUi.filterChannel,
         spansUi.filterAgent,
         spansUi.filterSpanType,
@@ -513,8 +500,6 @@ export default function TracesPage() {
       baseUrl,
       apiKey,
       spansDateRangeKey,
-      spansSinceUntil.sinceMs,
-      spansSinceUntil.untilMs,
       spansUi.filterAgent,
       spansUi.filterChannel,
       spansUi.filterSpanType,
@@ -666,19 +651,21 @@ export default function TracesPage() {
 
   const tracesQ = useQuery({
     queryKey: traceQueryKey,
-    queryFn: () =>
-      loadTraceRecords(baseUrl, apiKey, {
+    queryFn: () => {
+      const sinceUntil = resolveObserveSinceUntil(tracesUi.dateRange, Date.now());
+      return loadTraceRecords(baseUrl, apiKey, {
         limit: tracesUi.pageSize,
         offset: tracesUi.pageIndex * tracesUi.pageSize,
         order: tracesUi.listOrder,
         sort: tracesUi.sortKey === "tokens" ? "tokens" : undefined,
         search: tracesUi.searchApplied.length > 0 ? tracesUi.searchApplied : undefined,
-        sinceMs: tracesSinceUntil.sinceMs,
-        untilMs: tracesSinceUntil.untilMs,
+        sinceMs: sinceUntil.sinceMs,
+        untilMs: sinceUntil.untilMs,
         channel: tracesUi.filterChannel.trim() || undefined,
         agent: tracesUi.filterAgent.trim() || undefined,
         statuses: tracesUi.filterStatuses.length > 0 ? tracesUi.filterStatuses : undefined,
-      }),
+      });
+    },
     enabled: listEnabled,
     refetchInterval,
     staleTime: 0,
@@ -686,18 +673,20 @@ export default function TracesPage() {
 
   const threadsQ = useQuery({
     queryKey: threadQueryKey,
-    queryFn: () =>
-      loadThreadRecords(baseUrl, apiKey, {
+    queryFn: () => {
+      const sinceUntil = resolveObserveSinceUntil(threadsUi.dateRange, Date.now());
+      return loadThreadRecords(baseUrl, apiKey, {
         limit: threadsUi.pageSize,
         offset: threadsUi.pageIndex * threadsUi.pageSize,
         order: threadsUi.listOrder,
         sort: threadsUi.sortKey === "tokens" ? "tokens" : undefined,
         search: threadsUi.searchApplied.length > 0 ? threadsUi.searchApplied : undefined,
-        sinceMs: threadsSinceUntil.sinceMs,
-        untilMs: threadsSinceUntil.untilMs,
+        sinceMs: sinceUntil.sinceMs,
+        untilMs: sinceUntil.untilMs,
         channel: threadsUi.filterChannel.trim() || undefined,
         agent: threadsUi.filterAgent.trim() || undefined,
-      }),
+      });
+    },
     enabled: listEnabled,
     refetchInterval,
     staleTime: 0,
@@ -705,20 +694,22 @@ export default function TracesPage() {
 
   const spansQ = useQuery({
     queryKey: spanQueryKey,
-    queryFn: () =>
-      loadSpanRecords(baseUrl, apiKey, {
+    queryFn: () => {
+      const sinceUntil = resolveObserveSinceUntil(spansUi.dateRange, Date.now());
+      return loadSpanRecords(baseUrl, apiKey, {
         limit: spansUi.pageSize,
         offset: spansUi.pageIndex * spansUi.pageSize,
         order: spansUi.listOrder,
         sort: spansUi.sortKey === "tokens" ? "tokens" : undefined,
         search: spansUi.searchApplied.length > 0 ? spansUi.searchApplied : undefined,
-        sinceMs: spansSinceUntil.sinceMs,
-        untilMs: spansSinceUntil.untilMs,
+        sinceMs: sinceUntil.sinceMs,
+        untilMs: sinceUntil.untilMs,
         channel: spansUi.filterChannel.trim() || undefined,
         agent: spansUi.filterAgent.trim() || undefined,
         spanType: spansUi.filterSpanType.trim() || undefined,
         statuses: spansUi.filterStatuses.length > 0 ? spansUi.filterStatuses : undefined,
-      }),
+      });
+    },
     enabled: listEnabled && listKind === "spans",
     refetchInterval,
     staleTime: 0,

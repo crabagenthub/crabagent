@@ -15,10 +15,23 @@ export type AlertMetricKey =
 export type AlertSeverity = "P0" | "P1" | "P2";
 export type AlertMatchType = "eq" | "contains" | "count_gte" | "ratio_gt" | "p95_gt";
 
+/** 立即：1 分钟窗口、阈值 1 尽快通知；按时间段：可配置时间窗与条数/阈值。 */
+export type AlertFrequencyMode = "immediate" | "windowed";
+
 export type AlertRule = {
   id: string;
   name: string;
   alertCode?: string;
+  /** 与告警模板 TEMPLATES id 对应，如 sec_enforce_hit */
+  templateId?: string;
+  /** 与 Collector advanced_json 同步 */
+  frequencyMode?: AlertFrequencyMode;
+  /** 规则语言，用于告警消息文案语言 */
+  ruleLanguage?: string;
+  /** 大窗口内子窗（分钟），0 表示不启用子窗 any_max 统计 */
+  subWindowMinutes?: number;
+  /** 子窗策略，默认 any_max */
+  subWindowMode?: string;
   severity?: AlertSeverity;
   aggregateKey?: string;
   conditionSummary?: string;
@@ -86,6 +99,7 @@ export function readAlertRules(): AlertRule[] {
         id: typeof r.id === "string" ? r.id : `ar_${now}_${Math.random().toString(36).slice(2, 9)}`,
         name: typeof r.name === "string" ? r.name : "Untitled",
         alertCode: typeof r.alertCode === "string" ? r.alertCode : undefined,
+        ruleLanguage: typeof r.ruleLanguage === "string" ? r.ruleLanguage : undefined,
         severity: r.severity === "P0" || r.severity === "P1" || r.severity === "P2" ? r.severity : undefined,
         aggregateKey: typeof r.aggregateKey === "string" ? r.aggregateKey : undefined,
         conditionSummary: typeof r.conditionSummary === "string" ? r.conditionSummary : undefined,
