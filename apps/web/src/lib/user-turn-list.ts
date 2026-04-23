@@ -5,7 +5,6 @@ import { formatTraceDateTimeLocal } from "@/lib/trace-datetime";
 import { usageFromTracePayload } from "@/lib/trace-payload-usage";
 
 const PREVIEW_LEN = 120;
-
 export type UserTurnListItem = {
   /** message_received event_id or synthetic id for llm_input fallback */
   listKey: string;
@@ -339,7 +338,17 @@ function payloadContentLooksAsyncFollowup(e: TraceTimelineEvent): boolean {
  * 含 collector 标记、标题/元数据启发式。
  */
 export function isAsyncFollowupMessage(e: TraceTimelineEvent): boolean {
-  return eventAsyncCommand(e) || chatTitleLooksAsync(e.chat_title) || payloadLooksAsyncFollowup(e) || payloadContentLooksAsyncFollowup(e);
+  const ttRaw = (e as { trace_type?: unknown }).trace_type;
+  const tt = typeof ttRaw === "string" ? ttRaw.trim().toLowerCase() : "";
+  const rkTopRaw = (e as { run_kind?: unknown }).run_kind;
+  const rkTop = typeof rkTopRaw === "string" ? rkTopRaw.trim().toLowerCase() : "";
+  const byTraceOrRunKind = tt === "async_command" || rkTop === "async_followup";
+  const byAsyncFlag = eventAsyncCommand(e);
+  const byTitle = chatTitleLooksAsync(e.chat_title);
+  const byPayload = payloadLooksAsyncFollowup(e);
+  const byContent = payloadContentLooksAsyncFollowup(e);
+  const matched = byTraceOrRunKind || byAsyncFlag || byTitle || byPayload || byContent;
+  return matched;
 }
 
 type MessageReceivedPrelim = {
@@ -674,7 +683,7 @@ export function isSubagentOrSystemFollowupMessage(e: TraceTimelineEvent): boolea
   }
   const ttRaw = (e as { trace_type?: unknown }).trace_type;
   const tt = typeof ttRaw === "string" ? ttRaw.trim().toLowerCase() : "";
-  if (tt === "system" || tt === "subagent" || tt === "async_command") {
+  if (tt === "system" || tt === "subagent") {
     return true;
   }
   const rk = eventRunKindLower(e);

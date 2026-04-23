@@ -64,6 +64,19 @@ function fmtPct(n: number | null | undefined, digits = 2): string {
   return `${sign}${n.toFixed(digits)}%`;
 }
 
+function formatDurationAdaptive(ms: number | null | undefined): { value: string; unit: string } {
+  if (ms == null || !Number.isFinite(ms)) {
+    return { value: "—", unit: "ms" };
+  }
+  if (ms >= 60_000) {
+    return { value: (ms / 60_000).toFixed(2), unit: "min" };
+  }
+  if (ms >= 1_000) {
+    return { value: (ms / 1_000).toFixed(2), unit: "s" };
+  }
+  return { value: ms.toFixed(0), unit: "ms" };
+}
+
 type MomTagTone = "green" | "red" | "gray";
 
 function momTagMeta(n: number | null): { text: string; color: MomTagTone } {
@@ -427,6 +440,15 @@ export function OverviewDashboard() {
     return modelQpsCountByDay.map((d) => ({ day: d.day, v: d.n / div }));
   }, [modelQpsCountByDay, modelQpsRateKind]);
 
+  const avgModelDurDisplay = useMemo(
+    () => formatDurationAdaptive(overview?.kpis.avgModelCallMs),
+    [overview?.kpis.avgModelCallMs],
+  );
+  const avgToolDurDisplay = useMemo(
+    () => formatDurationAdaptive(overview?.kpis.avgToolCallMs),
+    [overview?.kpis.avgToolCallMs],
+  );
+
   const tokenSeries = useMemo(() => {
     if (!overview?.charts.tokensByDay) {
       return [];
@@ -696,8 +718,8 @@ export function OverviewDashboard() {
               <KpiCard
                 title={t("kpiModelDur")}
                 hint={t("hintModelDur")}
-                value={overview.kpis.avgModelCallMs.toFixed(2)}
-                suffix="ms"
+                value={avgModelDurDisplay.value}
+                suffix={avgModelDurDisplay.unit}
                 mom={null}
                 momLabel={t("mom")}
                 tracesHref={kpiSpansStatsLlmOnlyHref}
@@ -736,8 +758,8 @@ export function OverviewDashboard() {
               <KpiCard
                 title={t("kpiToolDur")}
                 hint={t("hintToolDur")}
-                value={overview.kpis.avgToolCallMs.toFixed(2)}
-                suffix="ms"
+                value={avgToolDurDisplay.value}
+                suffix={avgToolDurDisplay.unit}
                 mom={null}
                 momLabel={t("mom")}
                 tracesHref={kpiSpansStatsToolOnlyHref}
