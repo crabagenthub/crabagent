@@ -6,6 +6,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 全局 arco-btn-primary 按钮颜色和圆角 */
+.arco-btn-primary {
+  background-color: #111827 !important;
+  border-color: #111827 !important;
+  color: #ffffff !important;
+  border-radius: 12px !important;
+}
+.arco-btn-primary:hover:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #374151 !important;
+  border-color: #374151 !important;
+  color: #ffffff !important;
+}
+.arco-btn-primary:active:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #374151 !important;
+  border-color: #374151 !important;
+}
+.arco-btn-primary.arco-btn-loading {
+  background-color: #111827 !important;
+  border-color: #111827 !important;
+  color: #ffffff !important;
+}
+
+/* 测试告警消息按钮自定义样式 */
+.test-notify-btn {
+  background-color: #e0f2fe !important;
+  border-color: #0ea5e9 !important;
+  color: #0369a1 !important;
+  border-radius: 12px !important;
+}
+.test-notify-btn:hover:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #bae6fd !important;
+  border-color: #0284c7 !important;
+  color: #075985 !important;
+}
+.test-notify-btn:active:not(:disabled):not(.arco-btn-disabled) {
+  background-color: #bae6fd !important;
+  border-color: #0284c7 !important;
+}
+
 :root {
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   /** 与 `SiteNav` 展开宽度一致；折叠时由 `html[data-sidebar-collapsed]` 覆盖，供主区 fixed 底栏对齐。 */
