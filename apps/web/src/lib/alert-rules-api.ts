@@ -148,6 +148,8 @@ export async function fetchAlertEvents(): Promise<AlertHistoryEntry[]> {
     matchType: undefined,
     countThreshold: undefined,
     status: (row.status as AlertHistoryEntry["status"]) || "pending",
+    errorMessage: typeof row.error_text === "string" ? row.error_text : undefined,
+    kind: typeof row.kind === "string" ? row.kind : undefined,
   }));
 }
 

@@ -65,6 +65,8 @@ export type AlertHistoryEntry = {
   matchType?: AlertMatchType;
   countThreshold?: number;
   status: "sent" | "failed" | "pending";
+  errorMessage?: string;
+  kind?: string;
 };
 
 const RULES_KEY = "crabagent.alertRules.v1";

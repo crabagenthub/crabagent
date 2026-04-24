@@ -10,6 +10,7 @@ import {
   Message,
   Modal,
   Popconfirm,
+  Popover,
   Radio,
   Select,
   Space,
@@ -20,7 +21,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import type { TableColumnProps } from "@arco-design/web-react";
-import { IconDelete, IconEdit, IconMore, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
+import { IconDelete, IconEdit, IconExclamationCircle, IconMore, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
@@ -416,6 +417,8 @@ export function AlertsDashboard() {
   const [hasAppliedInvestigationPreset, setHasAppliedInvestigationPreset] = useState(false);
   const [silenceVersion, setSilenceVersion] = useState(0);
   const [silenceScopeFilter, setSilenceScopeFilter] = useState<"all" | "trace" | "event_type">("all");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
   const source = normalizePrefillSource(sp.get("from")?.trim() ?? "");
   const traceIdFromUrl = sp.get("trace_id")?.trim() ?? "";
   const spanIdFromUrl = sp.get("span_id")?.trim() ?? "";
@@ -831,6 +834,17 @@ export function AlertsDashboard() {
   const historyColumns: TableColumnProps<AlertHistoryEntry>[] = useMemo(
     () => [
       {
+        title: t("historyColId"),
+        dataIndex: "id",
+        width: 120,
+        ellipsis: true,
+        render: (v: string) => (
+          <Typography.Text className="text-xs text-muted-foreground" ellipsis={{ showTooltip: true }}>
+            {v}
+          </Typography.Text>
+        ),
+      },
+      {
         title: t("historyColTime"),
         dataIndex: "firedAt",
         width: 168,
@@ -851,23 +865,57 @@ export function AlertsDashboard() {
         ),
       },
       {
-        title: t("historyColSummary"),
+        title: t("historyColType"),
+        dataIndex: "kind",
+        width: 140,
+        ellipsis: true,
+        render: (v: string | number) => {
+          const kindValue = String(v);
+          let kindText = "—";
+          if (kindValue === "1" || kindValue === "test") {
+            kindText = t("kindTest");
+          } else if (kindValue === "2" || kindValue === "system" || kindValue === "schedule" || kindValue === "ingest" || kindValue === "ingest_immediate" || kindValue === "manual") {
+            kindText = t("kindSystem");
+          }
+          return (
+            <Typography.Text className="text-xs text-muted-foreground" ellipsis={{ showTooltip: true }}>
+              {kindText}
+            </Typography.Text>
+          );
+        },
+      },
+      {
+        title: t("historyColStatus"),
+        dataIndex: "status",
+        width: 120,
+        render: (s: string, record: AlertHistoryEntry) => (
+          <div className="flex items-center gap-1">
+            <Tag size="small" color={s === "sent" ? "green" : s === "failed" ? "red" : "gray"}>
+              {s === "sent" ? t("status_sent") : s === "failed" ? t("status_failed") : t("status_pending")}
+            </Tag>
+            {s === "failed" && record.errorMessage && (
+              <Popover
+                content={
+                  <div className="max-w-xs break-words text-xs">
+                    <Typography.Text>{record.errorMessage}</Typography.Text>
+                  </div>
+                }
+                position="top"
+              >
+                <IconExclamationCircle className="h-4 w-4 cursor-pointer text-red-500 hover:text-red-600" />
+              </Popover>
+            )}
+          </div>
+        ),
+      },
+      {
+        title: t("historyColMessage"),
         dataIndex: "summary",
         ellipsis: true,
         render: (v: string) => (
           <Typography.Text className="text-xs text-muted-foreground" ellipsis={{ showTooltip: true }}>
             {v}
           </Typography.Text>
-        ),
-      },
-      {
-        title: t("historyColStatus"),
-        dataIndex: "status",
-        width: 100,
-        render: (s: string) => (
-          <Tag size="small" color={s === "sent" ? "green" : s === "failed" ? "red" : "gray"}>
-            {s === "sent" ? t("status_sent") : s === "failed" ? t("status_failed") : t("status_pending")}
-          </Tag>
         ),
       },
     ],
@@ -1147,7 +1195,22 @@ export function AlertsDashboard() {
                 rowKey="id"
                 columns={historyColumns}
                 data={historyWithNames}
-                pagination={false}
+                pagination={{
+                  current: historyPage,
+                  pageSize: historyPageSize,
+                  total: historyWithNames.length,
+                  showTotal: true,
+                  sizeCanChange: true,
+                  sizeOptions: [10, 20, 50, 100],
+                  onChange: (page, pageSize) => {
+                    setHistoryPage(page);
+                    setHistoryPageSize(pageSize);
+                  },
+                  onPageSizeChange: (pageSize) => {
+                    setHistoryPageSize(pageSize);
+                    setHistoryPage(1);
+                  },
+                }}
                 border={{ wrapper: false, cell: false, headerCell: false, bodyCell: false }}
                 className="[&_.arco-table-th]:bg-[#f7f9fc] dark:[&_.arco-table-th]:bg-muted/50"
               />
