@@ -4,6 +4,7 @@ import "@/lib/arco-react19-setup";
 import {
   Button,
   Card,
+  Dropdown,
   Input,
   InputNumber,
   Message,
@@ -19,7 +20,7 @@ import {
   Typography,
 } from "@arco-design/web-react";
 import type { TableColumnProps } from "@arco-design/web-react";
-import { IconDelete, IconEdit, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
+import { IconDelete, IconEdit, IconMore, IconPlus, IconRefresh } from "@arco-design/web-react/icon";
 import { useLocale, useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
@@ -957,60 +958,102 @@ export function AlertsDashboard() {
                       />
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {filteredRules.map((rule, index) => (
-                        <Card
-                          key={rule.id ? `rule-${rule.id}` : `rule-idx-${index}`}
-                          bordered={false}
-                          className="rounded-xl border border-border/60 bg-background/80 dark:bg-background/40"
-                          bodyStyle={{ padding: "18px" }}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <Typography.Text bold className="block text-base text-foreground">
-                                {rule.name}
-                              </Typography.Text>
-                              <p className="mt-2 text-sm leading-snug text-muted-foreground">
-                                {formatRuleSummary(rule, t)}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {rule.delivery === "webhook"
-                                  ? `${t("deliveryWebhookShort")}: ${rule.webhookType}`
-                                  : t("deliveryWebhookShort")}
-                              </p>
-                            </div>
-                            <Switch
-                              checked={Boolean(rule.enabled)}
-                              size="small"
-                              onChange={(v) => toggleEnabled(rule.id, v)}
-                            />
-                          </div>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <Button type="outline" size="small" onClick={() => testNotify(rule)}>
-                              {t("testNotify")}
-                            </Button>
-                            <Button type="outline" size="small" icon={<IconEdit />} onClick={() => openEdit(rule)}>
-                              {t("editRule")}
-                            </Button>
-                            <Popconfirm
-                              title={t("deleteConfirmTitle")}
-                              content={t("deleteConfirmBody", { name: rule.name })}
-                              onOk={() => confirmDelete(rule)}
-                              okText={t("confirmDelete")}
-                              cancelText={t("cancel")}
-                              okButtonProps={{ status: "danger" }}
-                            >
-                              <Button
-                                type="outline"
+                      {filteredRules.map((rule, index) => {
+                        const updatedAt = rule.updatedAt
+                          ? new Date(rule.updatedAt).toLocaleString("zh-CN", {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "";
+
+                        return (
+                          <Card
+                            key={rule.id ? `rule-${rule.id}` : `rule-idx-${index}`}
+                            bordered={false}
+                            className="group relative rounded-xl border border-border/60 bg-background/80 dark:bg-background/40 transition-shadow hover:shadow-md"
+                            bodyStyle={{ padding: "18px" }}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <Typography.Text bold className="block text-base text-foreground">
+                                  {rule.name}
+                                </Typography.Text>
+                                <p className="mt-2 text-sm leading-snug text-muted-foreground">
+                                  {formatRuleSummary(rule, t)}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {rule.delivery === "webhook"
+                                    ? `${t("deliveryWebhookShort")}: ${rule.webhookType}`
+                                    : t("deliveryWebhookShort")}
+                                </p>
+                              </div>
+                              <Switch
+                                checked={Boolean(rule.enabled)}
                                 size="small"
-                                status="danger"
-                                icon={<IconDelete />}
-                              >
-                                {t("deleteRule")}
-                              </Button>
-                            </Popconfirm>
-                          </div>
-                        </Card>
-                      ))}
+                                onChange={(v) => toggleEnabled(rule.id, v)}
+                              />
+                            </div>
+                            <div className="mt-3 flex items-center justify-between">
+                              <p className="text-xs text-muted-foreground">
+                                {t("updatedAt")}: {updatedAt}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="primary"
+                                  size="small"
+                                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                                  onClick={() => testNotify(rule)}
+                                >
+                                  {t("testNotify")}
+                                </Button>
+                                <Dropdown
+                                  trigger="click"
+                                  position="bottom"
+                                  droplist={
+                                    <div>
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<IconEdit />}
+                                        onClick={() => openEdit(rule)}
+                                      >
+                                        {t("editRule")}
+                                      </Button>
+                                      <Popconfirm
+                                        title={t("deleteConfirmTitle")}
+                                        content={t("deleteConfirmBody", { name: rule.name })}
+                                        onOk={() => confirmDelete(rule)}
+                                        okText={t("confirmDelete")}
+                                        cancelText={t("cancel")}
+                                        okButtonProps={{ status: "danger" }}
+                                      >
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<IconDelete />}
+                                          status="danger"
+                                        >
+                                          {t("deleteRule")}
+                                        </Button>
+                                      </Popconfirm>
+                                    </div>
+                                  }
+                                >
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<IconMore />}
+                                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                                  />
+                                </Dropdown>
+                              </div>
+                            </div>
+                          </Card>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

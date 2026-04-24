@@ -10,6 +10,9 @@ import {
   IconUser,
   IconCaretUp,
   IconCaretDown,
+  IconBug,
+  IconStar,
+  IconBook,
 } from "@arco-design/web-react/icon";
 import { Popover } from "@arco-design/web-react";
 import Image from "next/image";
@@ -427,7 +430,7 @@ function SidebarBottomLinks({ collapsed }: { collapsed: boolean }) {
           rel="noreferrer noopener"
           className="group flex min-w-0 items-center gap-2.5 rounded-lg py-2 pl-2 pr-2.5 text-sm text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70 transition group-hover:bg-current" />
+          <IconBug className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-current" />
           <span className="truncate">{t("bugFeedback")}</span>
         </a>
         <a
@@ -436,8 +439,17 @@ function SidebarBottomLinks({ collapsed }: { collapsed: boolean }) {
           rel="noreferrer noopener"
           className="group flex min-w-0 items-center gap-2.5 rounded-lg py-2 pl-2 pr-2.5 text-sm text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70 transition group-hover:bg-current" />
+          <IconStar className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-current" />
           <span className="truncate">{t("featureRequest")}</span>
+        </a>
+        <a
+          href="/docs"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="group flex min-w-0 items-center gap-2.5 rounded-lg py-2 pl-2 pr-2.5 text-sm text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <IconBook className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-current" />
+          <span className="truncate">{t("documentation")}</span>
         </a>
       </div>
     </div>
