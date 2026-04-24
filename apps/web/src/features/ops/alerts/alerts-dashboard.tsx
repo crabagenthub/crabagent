@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Dropdown,
+  Form,
   Input,
   InputNumber,
   Message,
@@ -1226,180 +1227,183 @@ export function AlertsDashboard() {
           okText={t("saveRule")}
           cancelText={t("cancel")}
           unmountOnExit
+          className="alert-rule-edit-modal"
+          style={{ width: 760, maxWidth: "calc(100vw - 2rem)" }}
         >
-          <div className="space-y-4 pt-2">
-            {source ? (
-              <Card bordered={false} className="border border-solid border-[#E5E6EB] bg-[#F7F8FA]" bodyStyle={{ padding: "10px 12px" }}>
-                <div className="space-y-1">
-                  <div className="text-xs font-medium text-foreground">{t("prefillSourceCardTitle")}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {t("prefillSourceCardSummary", {
-                      traceId: traceIdFromUrl || "—",
-                      spanId: spanIdFromUrl || "—",
-                      eventType: eventTypeFromUrl || "unknown",
-                    })}
+          <div className="alert-modal-scroll max-h-[min(72vh,640px)] overflow-y-auto overflow-x-hidden pr-3 [-webkit-overflow-scrolling:touch]">
+            <Form layout="vertical" className="alert-modal-form" requiredSymbol={false}>
+              {source ? (
+                <Card bordered={false} className="mb-4 border border-solid border-[#E5E6EB] bg-[#F7F8FA]" bodyStyle={{ padding: "10px 12px" }}>
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-foreground">{t("prefillSourceCardTitle")}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {t("prefillSourceCardSummary", {
+                        traceId: traceIdFromUrl || "—",
+                        spanId: spanIdFromUrl || "—",
+                        eventType: eventTypeFromUrl || "unknown",
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {recommendedPreset.usedFallback
+                        ? t("prefillRecommendedFallback", {
+                            metric: recommendedPreset.metricKey,
+                            operator: recommendedPreset.operator,
+                            threshold: String(recommendedPreset.threshold),
+                            windowMinutes: String(recommendedPreset.windowMinutes),
+                          })
+                        : t("prefillRecommended", {
+                            metric: recommendedPreset.metricKey,
+                            operator: recommendedPreset.operator,
+                            threshold: String(recommendedPreset.threshold),
+                            windowMinutes: String(recommendedPreset.windowMinutes),
+                          })}
+                    </div>
+                    <Button type="text" size="mini" className="!px-0" onClick={restoreRecommendedPreset}>
+                      {t("prefillRestoreRecommended")}
+                    </Button>
+                    {silenceMatched ? (
+                      <Tag color="green" size="small">
+                        {t("prefillSilenceActive", { time: new Date(silenceMatched.expireAt).toLocaleString() })}
+                      </Tag>
+                    ) : (
+                      <Tag color="gray" size="small">
+                        {t("prefillSilenceInactive")}
+                      </Tag>
+                    )}
+                    <LocalizedLink
+                      href={`${source === "risk" ? "/risk-center" : "/investigation-center"}?trace_id=${encodeURIComponent(traceIdFromUrl)}${spanIdFromUrl ? `&span_id=${encodeURIComponent(spanIdFromUrl)}` : ""}`}
+                      className="inline-block text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      {source === "risk" ? t("backToRiskCenter") : t("backToInvestigation")}
+                    </LocalizedLink>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {recommendedPreset.usedFallback
-                      ? t("prefillRecommendedFallback", {
-                          metric: recommendedPreset.metricKey,
-                          operator: recommendedPreset.operator,
-                          threshold: String(recommendedPreset.threshold),
-                          windowMinutes: String(recommendedPreset.windowMinutes),
-                        })
-                      : t("prefillRecommended", {
-                          metric: recommendedPreset.metricKey,
-                          operator: recommendedPreset.operator,
-                          threshold: String(recommendedPreset.threshold),
-                          windowMinutes: String(recommendedPreset.windowMinutes),
-                        })}
-                  </div>
-                  <Button type="text" size="mini" className="!px-0" onClick={restoreRecommendedPreset}>
-                    {t("prefillRestoreRecommended")}
-                  </Button>
-                  {silenceMatched ? (
-                    <Tag color="green" size="small">
-                      {t("prefillSilenceActive", { time: new Date(silenceMatched.expireAt).toLocaleString() })}
-                    </Tag>
-                  ) : (
-                    <Tag color="gray" size="small">
-                      {t("prefillSilenceInactive")}
-                    </Tag>
-                  )}
-                  <LocalizedLink
-                    href={`${source === "risk" ? "/risk-center" : "/investigation-center"}?trace_id=${encodeURIComponent(traceIdFromUrl)}${spanIdFromUrl ? `&span_id=${encodeURIComponent(spanIdFromUrl)}` : ""}`}
-                    className="inline-block text-xs font-medium text-primary underline-offset-2 hover:underline"
-                  >
-                    {source === "risk" ? t("backToRiskCenter") : t("backToInvestigation")}
-                  </LocalizedLink>
-                </div>
-              </Card>
-            ) : null}
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formName")}</div>
-              <Input value={name} onChange={setName} placeholder={t("formNamePh")} />
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formAlertItem")}</div>
-              <Select
-                value={selectedTemplateId}
-                onChange={(v) => {
-                  const id = v as string;
-                  setSelectedTemplateId(id);
-                  if (id === CUSTOM_TEMPLATE_ID) {
-                    return;
-                  }
-                  const nt = TEMPLATES.find((x) => x.id === id);
-                  if (!nt) {
-                    return;
-                  }
-                  if (!editingId) {
-                    setName(templateTitle(t, nt.id));
-                  }
-                  setAlertCode(nt.code);
-                  setSeverity(nt.severity);
-                  setAggregateKey(nt.aggregateKey);
-                  setConditionSummary(nt.conditionSummary);
-                  setSourceTable(nt.sourceTable);
-                  setConditionField(nt.conditionField);
-                  setMatchType(nt.matchType);
-                  setCountThreshold(nt.countThreshold);
-                  setMetricKey(nt.metricKey);
-                  setOperator(nt.operator);
-                  setThreshold(nt.threshold);
-                  setWindowMinutes(nt.windowMinutes);
-                }}
-                className="w-full min-w-0"
-                triggerProps={{ className: "w-full" }}
-              >
-                {TEMPLATE_GROUP_IDS.map((g) => (
-                  <Select.OptGroup key={g.labelKey} label={t(g.labelKey)}>
-                    {g.ids.map((id) => (
-                      <Select.Option key={id} value={id}>
-                        {templateTitle(t, id)}
-                      </Select.Option>
-                    ))}
-                  </Select.OptGroup>
-                ))}
-                <Select.Option value={CUSTOM_TEMPLATE_ID}>{t("formAlertItemCustom")}</Select.Option>
-              </Select>
-            </div>
-            {selectedTemplateId === CUSTOM_TEMPLATE_ID ? (
-              <div>
-                <div className="mb-1 text-xs text-muted-foreground">{t("formWhen")}</div>
-                <Space wrap className="w-full">
-                  <Select value={metricKey} onChange={(v) => setMetricKey(v as AlertMetricKey)} style={{ minWidth: 200 }}>
-                    {METRIC_OPTIONS.map((k) => (
-                      <Select.Option key={k} value={k}>
-                        {metricLabel(t, k)}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                  <Select value={operator} onChange={(v) => setOperator(v as AlertOperator)} style={{ width: 140 }}>
-                    <Select.Option value="gt">{t("opGt")}</Select.Option>
-                    <Select.Option value="lt">{t("opLt")}</Select.Option>
-                    <Select.Option value="eq">{t("opEq")}</Select.Option>
-                  </Select>
-                  <InputNumber value={threshold} onChange={(v) => setThreshold(Number(v ?? 0))} min={0} style={{ width: 120 }} />
-                </Space>
-              </div>
-            ) : null}
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formFrequency")}</div>
-              <Radio.Group
-                value={frequencyMode}
-                onChange={(v) => setFrequencyMode(v as AlertFrequencyMode)}
-                className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"
-              >
-                <Radio value="immediate">{t("formFrequencyImmediate")}</Radio>
-                <Radio value="windowed">{t("formFrequencyWindowed")}</Radio>
-              </Radio.Group>
-              <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 text-xs">
-                {t("formFrequencyHelp")}
-              </Typography.Paragraph>
-            </div>
-            {frequencyMode === "immediate" ? (
-              <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                {t("formImmediateNote")}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">{t("formWindow")}</div>
-                  <Space>
-                    <InputNumber
-                      value={windowMinutes}
-                      onChange={(v) => setWindowMinutes(Number(v ?? 1))}
-                      min={1}
-                      style={{ width: 120 }}
-                    />
-                    <span className="text-sm text-muted-foreground">{t("minutesLabel")}</span>
+                </Card>
+              ) : null}
+
+              <Form.Item label={t("formName")} className="alert-modal-field-full">
+                <Input value={name} onChange={setName} placeholder={t("formNamePh")} />
+              </Form.Item>
+
+              <Form.Item label={t("formAlertItem")} className="alert-modal-field-full">
+                <Select
+                  value={selectedTemplateId}
+                  onChange={(v) => {
+                    const id = v as string;
+                    setSelectedTemplateId(id);
+                    if (id === CUSTOM_TEMPLATE_ID) {
+                      return;
+                    }
+                    const nt = TEMPLATES.find((x) => x.id === id);
+                    if (!nt) {
+                      return;
+                    }
+                    if (!editingId) {
+                      setName(templateTitle(t, nt.id));
+                    }
+                    setAlertCode(nt.code);
+                    setSeverity(nt.severity);
+                    setAggregateKey(nt.aggregateKey);
+                    setConditionSummary(nt.conditionSummary);
+                    setSourceTable(nt.sourceTable);
+                    setConditionField(nt.conditionField);
+                    setMatchType(nt.matchType);
+                    setCountThreshold(nt.countThreshold);
+                    setMetricKey(nt.metricKey);
+                    setOperator(nt.operator);
+                    setThreshold(nt.threshold);
+                    setWindowMinutes(nt.windowMinutes);
+                  }}
+                  className="w-full min-w-0"
+                  triggerProps={{ className: "w-full" }}
+                >
+                  {TEMPLATE_GROUP_IDS.map((g) => (
+                    <Select.OptGroup key={g.labelKey} label={t(g.labelKey)}>
+                      {g.ids.map((id) => (
+                        <Select.Option key={id} value={id}>
+                          {templateTitle(t, id)}
+                        </Select.Option>
+                      ))}
+                    </Select.OptGroup>
+                  ))}
+                  <Select.Option value={CUSTOM_TEMPLATE_ID}>{t("formAlertItemCustom")}</Select.Option>
+                </Select>
+              </Form.Item>
+
+              {selectedTemplateId === CUSTOM_TEMPLATE_ID ? (
+                <Form.Item label={t("formWhen")} className="alert-modal-field-full">
+                  <Space wrap className="w-full">
+                    <Select value={metricKey} onChange={(v) => setMetricKey(v as AlertMetricKey)} style={{ minWidth: 200 }}>
+                      {METRIC_OPTIONS.map((k) => (
+                        <Select.Option key={k} value={k}>
+                          {metricLabel(t, k)}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                    <Select value={operator} onChange={(v) => setOperator(v as AlertOperator)} style={{ width: 140 }}>
+                      <Select.Option value="gt">{t("opGt")}</Select.Option>
+                      <Select.Option value="lt">{t("opLt")}</Select.Option>
+                      <Select.Option value="eq">{t("opEq")}</Select.Option>
+                    </Select>
+                    <InputNumber value={threshold} onChange={(v) => setThreshold(Number(v ?? 0))} min={0} style={{ width: 120 }} />
                   </Space>
+                </Form.Item>
+              ) : null}
+
+              <Form.Item label={t("formFrequency")} className="alert-modal-field-full">
+                <Radio.Group
+                  value={frequencyMode}
+                  onChange={(v) => setFrequencyMode(v as AlertFrequencyMode)}
+                  className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"
+                >
+                  <Radio value="immediate">{t("formFrequencyImmediate")}</Radio>
+                  <Radio value="windowed">{t("formFrequencyWindowed")}</Radio>
+                </Radio.Group>
+                <Typography.Paragraph type="secondary" className="!mb-0 !mt-2 text-xs">
+                  {t("formFrequencyHelp")}
+                </Typography.Paragraph>
+              </Form.Item>
+
+              {frequencyMode === "immediate" ? (
+                <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  {t("formImmediateNote")}
                 </div>
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">
-                    {selectedTemplateId === CUSTOM_TEMPLATE_ID
-                      ? t("formThreshold")
-                      : t("formEventThreshold")}
-                  </div>
-                  <InputNumber
-                    value={threshold}
-                    onChange={(v) => setThreshold(Number(v ?? 0))}
-                    min={0}
-                    style={{ width: 120 }}
-                  />
-                  {matchType === "count_gte" ? (
-                    <div className="mt-2">
-                      <div className="mb-1 text-xs text-muted-foreground">{t("formCountFieldThreshold")}</div>
+              ) : (
+                <div className="space-y-3">
+                  <Form.Item label={t("formWindow")} className="alert-modal-field-full !mb-0">
+                    <Space>
                       <InputNumber
-                        value={countThreshold}
-                        onChange={(v) => setCountThreshold(Math.max(1, Number(v ?? 1)))}
+                        value={windowMinutes}
+                        onChange={(v) => setWindowMinutes(Number(v ?? 1))}
                         min={1}
                         style={{ width: 120 }}
                       />
-                    </div>
-                  ) : null}
-                  <div className="mt-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2">
+                      <span className="text-sm text-muted-foreground">{t("minutesLabel")}</span>
+                    </Space>
+                  </Form.Item>
+                  <Form.Item
+                    label={selectedTemplateId === CUSTOM_TEMPLATE_ID ? t("formThreshold") : t("formEventThreshold")}
+                    className="alert-modal-field-full"
+                  >
+                    <InputNumber
+                      value={threshold}
+                      onChange={(v) => setThreshold(Number(v ?? 0))}
+                      min={0}
+                      style={{ width: 120 }}
+                    />
+                    {matchType === "count_gte" ? (
+                      <div className="mt-3">
+                        <Form.Item label={t("formCountFieldThreshold")} className="!mb-0 !mt-2">
+                          <InputNumber
+                            value={countThreshold}
+                            onChange={(v) => setCountThreshold(Math.max(1, Number(v ?? 1)))}
+                            min={1}
+                            style={{ width: 120 }}
+                          />
+                        </Form.Item>
+                      </div>
+                    ) : null}
+                  </Form.Item>
+                  <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2">
                     <div className="mb-1 text-xs font-medium text-foreground">{t("formSubWindow")}</div>
                     <Space wrap className="items-center">
                       <InputNumber
@@ -1418,22 +1422,22 @@ export function AlertsDashboard() {
                     </Typography.Paragraph>
                   </div>
                 </div>
-              </div>
-            )}
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formWebhookType")}</div>
-              <Select value={webhookType} onChange={(v) => setWebhookType(v as AlertWebhookType)} style={{ width: 220 }}>
-                <Select.Option value="generic">{t("webhookGeneric")}</Select.Option>
-              </Select>
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-muted-foreground">{t("formWebhookUrl")}</div>
-              <Input value={webhookUrl} onChange={setWebhookUrl} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={enabled} onChange={setEnabled} />
-              <span className="text-sm text-muted-foreground">{t("formEnabled")}</span>
-            </div>
+              )}
+
+              <Form.Item label={t("formWebhookType")} className="alert-modal-field-full">
+                <Select value={webhookType} onChange={(v) => setWebhookType(v as AlertWebhookType)} style={{ width: 220 }}>
+                  <Select.Option value="generic">{t("webhookGeneric")}</Select.Option>
+                </Select>
+              </Form.Item>
+
+              <Form.Item label={t("formWebhookUrl")} className="alert-modal-field-full">
+                <Input value={webhookUrl} onChange={setWebhookUrl} placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+              </Form.Item>
+
+              <Form.Item label={t("formEnabled")} className="alert-modal-field-full alert-modal-enabled-row">
+                <Switch checked={enabled} onChange={setEnabled} />
+              </Form.Item>
+            </Form>
           </div>
         </Modal>
 
