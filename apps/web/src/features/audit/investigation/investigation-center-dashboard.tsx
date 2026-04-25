@@ -952,21 +952,21 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: <ObserveTableHeaderLabel>{tRes("colTime")}</ObserveTableHeaderLabel>,
-      dataIndex: "started_at_ms",
-      key: "started_at_ms",
-      width: 160,
-      render: (ms: number) => (
-        <span className="whitespace-nowrap text-xs">{formatTraceDateTimeFromMs(ms)}</span>
-      ),
-    },
-    {
       title: <ObserveTableHeaderLabel>{tRes("colDuration")}</ObserveTableHeaderLabel>,
       dataIndex: "duration_ms",
       key: "duration_ms",
       width: 96,
+      sorter: (a: ResourceRow, b: ResourceRow) => {
+        const durA = a.duration_ms != null && Number.isFinite(a.duration_ms) ? Number(a.duration_ms) : 0;
+        const durB = b.duration_ms != null && Number.isFinite(b.duration_ms) ? Number(b.duration_ms) : 0;
+        return durA - durB;
+      },
+      sortDirections: ["descend", "ascend"],
       render: (n: number | null) => (
-        <span className="tabular-nums text-xs">{n != null ? `${Math.round(n)} ms` : "—"}</span>
+        <span className="inline-flex items-center gap-0.5 text-xs">
+          <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+          <span className="tabular-nums">{n != null ? `${Math.round(n)} ms` : "—"}</span>
+        </span>
       ),
     },
     {
