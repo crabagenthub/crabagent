@@ -93,7 +93,6 @@ func BuildShellExecCountSQLFromExec(db *sql.DB, q ShellExecBaseQuery) (string, [
 type shellExecRecord struct {
 	SpanID             string
 	TraceID            string
-	ParentSpanID       sql.NullString
 	WorkspaceName      sql.NullString
 	ProjectName        sql.NullString
 	ThreadKey          sql.NullString
@@ -117,10 +116,7 @@ type shellExecRecord struct {
 	CmdNF              int
 	Perm               int
 	IllArg             int
-	Cwd                sql.NullString
-	EnvKeysJSON        sql.NullString
 	UserID             sql.NullString
-	Host               sql.NullString
 	InputJSON          sql.NullString
 	OutputJSON         sql.NullString
 	ErrorInfoJSON      sql.NullString
@@ -133,14 +129,14 @@ func scanShellExecRecordCore(sc interface {
 }) (shellExecRecord, error) {
 	var r shellExecRecord
 	err := sc.Scan(
-		&r.SpanID, &r.TraceID, &r.ParentSpanID,
+		&r.SpanID, &r.TraceID,
 		&r.WorkspaceName, &r.ProjectName, &r.ThreadKey, &r.AgentName, &r.ChannelName,
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
 		&r.ExitCode, &r.Success,
 		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
 		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
-		&r.Cwd, &r.EnvKeysJSON, &r.UserID, &r.Host,
+		&r.UserID,
 	)
 	return r, err
 }
@@ -150,28 +146,28 @@ func scanShellExecRecordWithSpan(sc interface {
 }) (shellExecRecord, error) {
 	var r shellExecRecord
 	err := sc.Scan(
-		&r.SpanID, &r.TraceID, &r.ParentSpanID,
+		&r.SpanID, &r.TraceID,
 		&r.WorkspaceName, &r.ProjectName, &r.ThreadKey, &r.AgentName, &r.ChannelName,
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
 		&r.ExitCode, &r.Success,
 		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
 		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
-		&r.Cwd, &r.EnvKeysJSON, &r.UserID, &r.Host,
+		&r.UserID,
 		&r.InputJSON, &r.OutputJSON, &r.ErrorInfoJSON, &r.MetadataJSON, &r.ThreadMetadataJSON,
 	)
 	return r, err
 }
 
 func shellExecSelectCols() string {
-	return `e.span_id, e.trace_id, e.parent_span_id,
+	return `e.span_id, e.trace_id,
  e.workspace_name, e.project_name, e.thread_key, e.agent_name, e.channel_name,
  e.span_name, e.start_time_ms, e.end_time_ms, e.duration_ms,
  e.command, e.command_key, e.category, e.platform,
  e.exit_code, e.success,
  e.stdout_len, e.stderr_len, e.est_tokens, e.est_usd,
  e.token_risk, e.command_not_found, e.permission_denied, e.illegal_arg_hint,
- e.cwd, e.env_keys_json, e.user_id, e.host`
+ e.user_id`
 }
 
 func shellExecRecordToSpanRow(r shellExecRecord, cfg shellexec.ResourceAuditConfig) shellexec.SpanRow {
@@ -184,23 +180,21 @@ func shellExecRecordToSpanRow(r shellExecRecord, cfg shellexec.ResourceAuditConf
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,
 		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
-		r.Cwd, r.UserID, r.Host,
-		r.EnvKeysJSON,
+		r.UserID,
 		cfg,
 	)
 	return shellexec.SpanRow{
-		SpanID:       r.SpanID,
-		TraceID:      r.TraceID,
-		ParentSpanID: r.ParentSpanID,
-		Name:         nm,
-		SpanType:     st,
-		StartTimeMs:  r.StartTimeMs,
-		EndTimeMs:    r.EndTimeMs,
-		DurationMs:   r.DurationMs,
-		ThreadKey:    r.ThreadKey,
-		AgentName:    r.AgentName,
-		ChannelName:  r.ChannelName,
-		Preparsed:    &p,
+		SpanID:      r.SpanID,
+		TraceID:     r.TraceID,
+		Name:        nm,
+		SpanType:    st,
+		StartTimeMs: r.StartTimeMs,
+		EndTimeMs:   r.EndTimeMs,
+		DurationMs:  r.DurationMs,
+		ThreadKey:   r.ThreadKey,
+		AgentName:   r.AgentName,
+		ChannelName: r.ChannelName,
+		Preparsed:   &p,
 	}
 }
 
@@ -367,15 +361,13 @@ func shellExecRecordToListItem(r shellExecRecord, cfg shellexec.ResourceAuditCon
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,
 		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
-		r.Cwd, r.UserID, r.Host,
-		r.EnvKeysJSON,
+		r.UserID,
 		cfg,
 	)
 	tool := "tool"
 	return ShellExecListItem{
 		SpanID:             r.SpanID,
 		TraceID:            r.TraceID,
-		ParentSpanID:       nullStrPtrToStrPtr(r.ParentSpanID),
 		Name:               strPtrOrNil(r.SpanName),
 		SpanType:           &tool,
 		StartTimeMs:        sqlNullInt64Ptr(r.StartTimeMs),
@@ -577,8 +569,7 @@ func QueryShellExecDetailFromExec(db *sql.DB, spanID string) (*ShellExecDetailRe
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,
 		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
-		r.Cwd, r.UserID, r.Host,
-		r.EnvKeysJSON,
+		r.UserID,
 		cfg,
 	)
 	if r.InputJSON.Valid || r.OutputJSON.Valid || r.ErrorInfoJSON.Valid {
@@ -599,7 +590,6 @@ func QueryShellExecDetailFromExec(db *sql.DB, spanID string) (*ShellExecDetailRe
 	return &ShellExecDetailResult{
 		SpanID:             r.SpanID,
 		TraceID:            r.TraceID,
-		ParentSpanID:       nullStrPtrToStrPtr(r.ParentSpanID),
 		Name:               strPtrOrNil(r.SpanName),
 		SpanType:           &tool,
 		StartTimeMs:        sqlNullInt64Ptr(r.StartTimeMs),

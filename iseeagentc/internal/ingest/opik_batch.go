@@ -1094,18 +1094,18 @@ ON CONFLICT(trace_id) DO UPDATE SET
 			jsonStrPick(row, "error_info", "errorInfo"), jBool01(row, "success"), pickIntOrNull(row, "duration_ms", "durationMs"), pickIntOrNull(row, "total_cost", "totalCost"),
 			created, pickIntOrNull(row, "updated_at_ms", "updatedAtMs"), pickIntOrNull(row, "ended_at_ms", "end_time_ms", "endTimeMs"),
 			pickInt(row, 0, "is_complete", "isComplete"), cf)
-			if err != nil {
-				out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("traces[%d]", i)})
-				continue
-			}
-			if _, ok := traceScans[traceID]; !ok {
-				if scan, ok := extractSecurityScanFromMetadata(merged); ok {
-					scan.TraceID = traceID
-					traceScans[traceID] = scan
-				}
-			}
-			out.Accepted.Traces++
+		if err != nil {
+			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("traces[%d]", i)})
+			continue
 		}
+		if _, ok := traceScans[traceID]; !ok {
+			if scan, ok := extractSecurityScanFromMetadata(merged); ok {
+				scan.TraceID = traceID
+				traceScans[traceID] = scan
+			}
+		}
+		out.Accepted.Traces++
+	}
 	backfillSubagentParents(tx, touched, db)
 
 	shellCfg := shellexec.LoadResourceAuditConfig()
@@ -1217,27 +1217,22 @@ ON CONFLICT(span_id) DO UPDATE SET
 			jsonStr(merged), jsonStr(inSpan), jsonStr(row["output"]), setting, jsonStr(row["usage"]), uprev,
 			nullable(jString(row, "model")), nullable(jString(row, "provider")), jsonStrPick(row, "error_info", "errorInfo"),
 			nullable(jString(row, "status")), pickIntOrNull(row, "total_cost", "totalCost"), pickInt(row, 0, "sort_index", "sortIndex"), pickInt(row, 0, "is_complete", "isComplete"))
-			if err != nil {
-				out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("spans[%d]", i)})
-				continue
+		if err != nil {
+			out.Skipped = append(out.Skipped, map[string]string{"reason": err.Error(), "at": fmt.Sprintf("spans[%d]", i)})
+			continue
+		}
+		if _, ok := spanScans[sid]; !ok {
+			if scan, ok := extractSecurityScanFromMetadata(merged); ok {
+				scan.TraceID = tid
+				spanScans[sid] = scan
 			}
-			if _, ok := spanScans[sid]; !ok {
-				if scan, ok := extractSecurityScanFromMetadata(merged); ok {
-					scan.TraceID = tid
-					spanScans[sid] = scan
-				}
-			}
-			out.Accepted.Spans++
+		}
+		out.Accepted.Spans++
 
 		inStr := jsonStr(inSpan)
 		outStr := jsonStr(row["output"])
 		errJ := jsonStrPick(row, "error_info", "errorInfo")
 		metaStr := jsonStr(merged)
-		ps := strings.TrimSpace(jString(row, "parent_span_id", "parentSpanId"))
-		var parPtr *string
-		if ps != "" {
-			parPtr = &ps
-		}
 		var wsAug, projAug, tkAug, agAug, chAug *string
 		if te, ok := traceEnvByID[tid]; ok {
 			w := te.WS
@@ -1261,7 +1256,7 @@ ON CONFLICT(span_id) DO UPDATE SET
 				}
 			}
 		}
-		if err := SyncAgentExecCommandRow(tx, db, now, shellCfg, sid, tid, parPtr, nm, st,
+		if err := SyncAgentExecCommandRow(tx, db, now, shellCfg, sid, tid, nm, st,
 			pickInt(row, 0, "start_time_ms", "startTimeMs"), pickInt(row, 0, "end_time_ms", "endTimeMs"), pickInt(row, 0, "duration_ms", "durationMs"),
 			ws, inStr, outStr, errJ, metaStr, wsAug, projAug, tkAug, agAug, chAug, false); err != nil {
 			return nil, fmt.Errorf("agent_exec_commands span %s: %w", sid, err)

@@ -940,8 +940,7 @@ func ParsedShellSpanFromExecDB(
 	estUsd float64,
 	tokenRisk bool,
 	cnf, pden, iarg bool,
-	cwd, uid, host sql.NullString,
-	envKeysJSON sql.NullString,
+	uid sql.NullString,
 	cfg ResourceAuditConfig,
 ) ParsedShellSpan {
 	cat := CategoryOther
@@ -957,11 +956,6 @@ func ParsedShellSpanFromExecDB(
 	}
 	ast := parseCommandAst(command, pl)
 
-	var envKeys []string
-	if envKeysJSON.Valid && strings.TrimSpace(envKeysJSON.String) != "" {
-		_ = json.Unmarshal([]byte(envKeysJSON.String), &envKeys)
-	}
-
 	var exitCode *int
 	if exit.Valid {
 		v := int(exit.Int64)
@@ -973,18 +967,10 @@ func ParsedShellSpanFromExecDB(
 		success = &v
 	}
 
-	var cwdP, uidP, hostP *string
-	if cwd.Valid {
-		s := cwd.String
-		cwdP = &s
-	}
+	var uidP *string
 	if uid.Valid {
 		s := uid.String
 		uidP = &s
-	}
-	if host.Valid {
-		s := host.String
-		hostP = &s
 	}
 
 	return ParsedShellSpan{
@@ -1003,10 +989,7 @@ func ParsedShellSpanFromExecDB(
 		CommandNotFound:  cnf,
 		PermissionDenied: pden,
 		IllegalArgHint:   iarg,
-		Cwd:              cwdP,
-		EnvKeys:          envKeys,
 		UserID:           uidP,
-		Host:             hostP,
 		Platform:         pl,
 		CommandAst:       ast,
 	}

@@ -45,11 +45,6 @@ func syncShellSpanRecordsToExecCommands(tx *sql.Tx, db *sql.DB, now int64, cfg s
 		_ = tx.QueryRow(`SELECT workspace_name FROM `+CT.Spans+` WHERE span_id = ?`, r.SpanID).Scan(&wsSpan)
 		wsSpan = strings.TrimSpace(wsSpan)
 
-		var parPtr *string
-		if r.ParentSpanID.Valid && strings.TrimSpace(r.ParentSpanID.String) != "" {
-			p := strings.TrimSpace(r.ParentSpanID.String)
-			parPtr = &p
-		}
 		var wsAug, projAug, tkAug, agAug, chAug *string
 		var traceWS, proj, thid sql.NullString
 		var ag, ch sql.NullString
@@ -93,7 +88,7 @@ func syncShellSpanRecordsToExecCommands(tx *sql.Tx, db *sql.DB, now int64, cfg s
 		if r.DurationMs.Valid {
 			dtm = r.DurationMs.Int64
 		}
-		if err := ingest.SyncAgentExecCommandRow(tx, db, now, cfg, r.SpanID, r.TraceID, parPtr, nm, st,
+		if err := ingest.SyncAgentExecCommandRow(tx, db, now, cfg, r.SpanID, r.TraceID, nm, st,
 			stm, etm, dtm, tws, inStr, outStr, errJ, meta, wsAug, projAug, tkAug, agAug, chAug, true); err != nil {
 			return inserted, err
 		}

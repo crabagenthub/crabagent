@@ -135,7 +135,6 @@ func ensureAgentExecCommandsTable(db *sql.DB) error {
 CREATE TABLE %s (
   span_id TEXT PRIMARY KEY,
   trace_id TEXT NOT NULL REFERENCES %s(trace_id) ON DELETE CASCADE,
-  parent_span_id TEXT,
   workspace_name TEXT,
   project_name TEXT,
   thread_key TEXT,
@@ -159,10 +158,7 @@ CREATE TABLE %s (
   command_not_found INTEGER NOT NULL DEFAULT 0 CHECK (command_not_found IN (0, 1)),
   permission_denied INTEGER NOT NULL DEFAULT 0 CHECK (permission_denied IN (0, 1)),
   illegal_arg_hint INTEGER NOT NULL DEFAULT 0 CHECK (illegal_arg_hint IN (0, 1)),
-  cwd TEXT,
-  env_keys_json TEXT,
   user_id TEXT,
-  host TEXT,
   parser_version INTEGER NOT NULL DEFAULT 1,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER
@@ -176,7 +172,6 @@ CREATE INDEX idx_agent_exec_commands_category ON %s(category);
 CREATE TABLE %s (
   span_id TEXT PRIMARY KEY,
   trace_id TEXT NOT NULL REFERENCES %s(trace_id) ON DELETE CASCADE,
-  parent_span_id TEXT,
   workspace_name TEXT,
   project_name TEXT,
   thread_key TEXT,
@@ -200,10 +195,7 @@ CREATE TABLE %s (
   command_not_found INTEGER NOT NULL DEFAULT 0 CHECK (command_not_found IN (0, 1)),
   permission_denied INTEGER NOT NULL DEFAULT 0 CHECK (permission_denied IN (0, 1)),
   illegal_arg_hint INTEGER NOT NULL DEFAULT 0 CHECK (illegal_arg_hint IN (0, 1)),
-  cwd TEXT,
-  env_keys_json TEXT,
   user_id TEXT,
-  host TEXT,
   parser_version INTEGER NOT NULL DEFAULT 1,
   created_at_ms BIGINT NOT NULL,
   updated_at_ms BIGINT
