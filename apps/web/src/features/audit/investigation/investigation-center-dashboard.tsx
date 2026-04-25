@@ -569,34 +569,55 @@ export function InvestigationCenterDashboard() {
 
   const resourceColumns: TableColumnProps<ResourceRow>[] = [
     {
-      title: tRes("colTrace"),
-      dataIndex: "span_id",
-      key: "span_id",
+      title: (
+        <ObserveTableHeaderLabel>
+          <span className="inline-flex items-center gap-1">
+            {tRes("colTrace")}
+            <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+          </span>
+        </ObserveTableHeaderLabel>
+      ),
+      dataIndex: "started_at_ms",
+      key: "span_id_with_time",
       fixed: "left",
       width: 230,
+      sorter: (a: ResourceRow, b: ResourceRow) => {
+        const timeA = a.started_at_ms != null && Number.isFinite(a.started_at_ms) ? Number(a.started_at_ms) : 0;
+        const timeB = b.started_at_ms != null && Number.isFinite(b.started_at_ms) ? Number(b.started_at_ms) : 0;
+        return timeA - timeB;
+      },
+      sortDirections: ["descend", "ascend"],
       render: (_: unknown, row: ResourceRow) => (
-        <div className="flex min-w-0 items-center gap-1">
-          <span
-            className="cursor-pointer text-xs text-neutral-800 hover:underline"
-            onClick={() => {
-              void openMessageInspectFromAuditRow(row);
-            }}
-          >
-            {formatShortId(row.span_id)}
-          </span>
-          <TraceCopyIconButton
-            text={row.span_id || ""}
-            ariaLabel={t("copy")}
-            tooltipLabel={t("copy")}
-            successLabel={t("copySuccessToast")}
-            className="shrink-0 p-1 hover:bg-neutral-100"
-            stopPropagation
-          />
+        <div className="flex flex-col items-start gap-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <span
+              className="cursor-pointer text-xs text-neutral-800 hover:underline"
+              onClick={() => {
+                void openMessageInspectFromAuditRow(row);
+              }}
+            >
+              {formatShortId(row.span_id)}
+            </span>
+            <TraceCopyIconButton
+              text={row.span_id || ""}
+              ariaLabel={t("copy")}
+              tooltipLabel={t("copy")}
+              successLabel={t("copySuccessToast")}
+              className="shrink-0 p-1 hover:bg-neutral-100"
+              stopPropagation
+            />
+          </div>
+          {row.started_at_ms != null && Number.isFinite(row.started_at_ms) ? (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <IconClockCircle className="size-3 shrink-0" aria-hidden />
+              <span className="tabular-nums">{formatTraceDateTimeFromMs(Number(row.started_at_ms))}</span>
+            </div>
+          ) : null}
         </div>
       ),
     },
     {
-      title: tRes("colUri"),
+      title: <ObserveTableHeaderLabel>{tRes("colUri")}</ObserveTableHeaderLabel>,
       dataIndex: "resource_uri",
       key: "resource_uri",
       width: 280,
@@ -622,14 +643,14 @@ export function InvestigationCenterDashboard() {
       },
     },
     {
-      title: tRes("colClass"),
+      title: <ObserveTableHeaderLabel>{tRes("colClass")}</ObserveTableHeaderLabel>,
       dataIndex: "semantic_class",
       key: "semantic_class",
       width: 120,
       render: (c: string) => <span className="text-xs">{c}</span>,
     },
     {
-      title: tRes("colExecType"),
+      title: <ObserveTableHeaderLabel>{tRes("colExecType")}</ObserveTableHeaderLabel>,
       dataIndex: "span_name",
       key: "span_name",
       width: 120,
@@ -641,7 +662,7 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: tRes("colTime"),
+      title: <ObserveTableHeaderLabel>{tRes("colTime")}</ObserveTableHeaderLabel>,
       dataIndex: "started_at_ms",
       key: "started_at_ms",
       width: 160,
@@ -650,7 +671,7 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: tRes("colDuration"),
+      title: <ObserveTableHeaderLabel>{tRes("colDuration")}</ObserveTableHeaderLabel>,
       dataIndex: "duration_ms",
       key: "duration_ms",
       width: 96,
@@ -659,7 +680,7 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: tRes("colChars"),
+      title: <ObserveTableHeaderLabel>{tRes("colChars")}</ObserveTableHeaderLabel>,
       dataIndex: "chars",
       key: "chars",
       width: 100,
@@ -668,7 +689,7 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: tRes("colRisk"),
+      title: <ObserveTableHeaderLabel>{tRes("colRisk")}</ObserveTableHeaderLabel>,
       dataIndex: "risk_flags",
       key: "risk_flags",
       width: 120,
