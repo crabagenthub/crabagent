@@ -57,32 +57,8 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupAudit") }, { label: tNav("riskOverview") }];
     }
 
-    if (p === "/risk-center" || p.startsWith("/risk-center?")) {
-      return [{ label: tNav("groupAudit") }, { label: tNav("riskCenter") }];
-    }
-
     if (p === "/events" || p.startsWith("/events?")) {
       return [{ label: tNav("groupAudit") }, { label: tNav("investigationCenter") }];
-    }
-
-    if (p === "/resource-audit" || p.startsWith("/resource-audit?")) {
-      return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
-    }
-
-    if (p === "/command-analysis" || p.startsWith("/command-analysis?")) {
-      return [{ label: tNav("groupAudit") }, { label: tNav("commandAnalysis") }];
-    }
-
-    if (p === "/logs") {
-      return [{ label: tNav("groupObserve") }, { label: tNav("logs") }];
-    }
-
-    if (p === "/analytics") {
-      return [{ label: tNav("groupObserve") }, { label: tNav("analytics") }];
-    }
-
-    if (p === "/machines") {
-      return [{ label: tNav("groupSettings") }, { label: tNav("machines") }];
     }
 
     if (p === "/data-security") {

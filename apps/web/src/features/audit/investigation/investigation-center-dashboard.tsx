@@ -898,7 +898,7 @@ export function InvestigationCenterDashboard() {
       title: <ObserveTableHeaderLabel>{tRes("colUri")}</ObserveTableHeaderLabel>,
       dataIndex: "resource_uri",
       key: "resource_uri",
-      width: 280,
+      width: 360,
       render: (uri: string, row: ResourceRow) => {
         const displayUri = uri || "—";
         const isLong = displayUri.length > 60 || displayUri.split('\n').length > 2;
@@ -936,14 +936,14 @@ export function InvestigationCenterDashboard() {
       title: <ObserveTableHeaderLabel>{tRes("colClass")}</ObserveTableHeaderLabel>,
       dataIndex: "semantic_class",
       key: "semantic_class",
-      width: 120,
+      width: 80,
       render: (c: string) => <span className="text-xs">{c}</span>,
     },
     {
       title: <ObserveTableHeaderLabel>{tRes("colExecType")}</ObserveTableHeaderLabel>,
       dataIndex: "span_name",
       key: "span_name",
-      width: 120,
+      width: 80,
       ellipsis: true,
       render: (name: string) => (
         <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
