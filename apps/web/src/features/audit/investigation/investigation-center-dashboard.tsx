@@ -13,6 +13,8 @@ import { usePathname, useRouter } from "@/i18n/navigation";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
+import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
+import { toast } from "@/components/ui/feedback";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
 import { defaultObserveDateRange, resolveObserveSinceUntil } from "@/lib/observe-date-range";
@@ -30,6 +32,7 @@ import {
   type SecurityAuditEventRow,
 } from "@/lib/security-audit-records";
 import { getAuditEventTypeColor } from "@/lib/audit-ui-semantics";
+import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
 import { buildSearchParamsString } from "@/lib/url-search-params";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +42,7 @@ import {
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { formatShortId } from "@/lib/utils";
+import type { TraceRecordRow } from "@/lib/trace-records";
 
 type TimelineRow = {
   key: string;
@@ -138,6 +142,38 @@ export function InvestigationCenterDashboard() {
   const [apiKey, setApiKey] = useState("");
   const [timelinePage, setTimelinePage] = useState(timelinePageFromUrl);
   const [timelinePageSize, setTimelinePageSize] = useState(timelinePageSizeFromUrl);
+  const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
+  const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
+
+  const openMessageInspectFromShellRow = useCallback(async (row: CommandRow) => {
+    const traceId = String(row.trace_id ?? "").trim();
+    const spanId = String(row.span_id ?? "").trim();
+    if (!traceId) {
+      return;
+    }
+    const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, traceId);
+    if (!resolved) {
+      toast.error(t("openMessageInspectFailed"));
+      return;
+    }
+    setMessageInspectInitialSpanId(spanId);
+    setMessageInspectTrace(resolved);
+  }, [baseUrl, apiKey, t]);
+
+  const openMessageInspectFromAuditRow = useCallback(async (row: ResourceRow) => {
+    const traceId = String(row.trace_id ?? "").trim();
+    const spanId = String(row.span_id ?? "").trim();
+    if (!traceId) {
+      return;
+    }
+    const resolved = await resolveTraceRowForInspect(baseUrl, apiKey, traceId);
+    if (!resolved) {
+      toast.error(t("openMessageInspectFailed"));
+      return;
+    }
+    setMessageInspectInitialSpanId(spanId);
+    setMessageInspectTrace(resolved);
+  }, [baseUrl, apiKey, t]);
   const lastIssuedQsRef = useRef<string>("");
   const observeNowAnchorRef = useRef<number>(Date.now());
   const dateRange = useMemo(
@@ -376,15 +412,37 @@ export function InvestigationCenterDashboard() {
   const commandColumns: TableColumnProps<CommandRow>[] = [
     {
       title: tCmd("colStepId"),
-      width: 230,
+      width: 200,
       fixed: "left" as const,
       render: (_: unknown, row: CommandRow) => (
-        <div className="flex min-w-0 items-center gap-1">
-          <span className="block min-w-0 truncate whitespace-nowrap text-xs text-neutral-700 dark:text-neutral-200" title={row.span_id}>
-            {formatShortId(row.span_id)}
-          </span>
+        <Button
+          type="text"
+          size="mini"
+          className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
+          onClick={() => {
+            void openMessageInspectFromShellRow(row);
+          }}
+        >
+          {formatShortId(row.span_id)}
+        </Button>
+      ),
+    },
+    {
+      title: tCmd("colCommand"),
+      render: (_: unknown, row: CommandRow) => (
+        <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {row.parsed?.command || "—"}
         </div>
       ),
+    },
+    {
+      title: tCmd("colCategory"),
+      width: 100,
+      render: (_: unknown, row: CommandRow) => {
+        const raw = row.parsed?.category;
+        const s = raw != null && String(raw).trim() !== "" ? String(raw) : "";
+        return s ? <Tag size="small">{s}</Tag> : "—";
+      },
     },
     {
       title: tCmd("colTime"),
@@ -393,14 +451,6 @@ export function InvestigationCenterDashboard() {
         <span className="whitespace-nowrap text-xs text-muted-foreground">
           {row.start_time_ms != null && Number.isFinite(row.start_time_ms) ? formatTraceDateTimeFromMs(Number(row.start_time_ms)) : "—"}
         </span>
-      ),
-    },
-    {
-      title: tCmd("colCommand"),
-      render: (_: unknown, row: CommandRow) => (
-        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-          {row.parsed?.command || "—"}
-        </Typography.Text>
       ),
     },
     {
@@ -432,15 +482,6 @@ export function InvestigationCenterDashboard() {
       },
     },
     {
-      title: tCmd("colCategory"),
-      width: 100,
-      render: (_: unknown, row: CommandRow) => {
-        const raw = row.parsed?.category;
-        const s = raw != null && String(raw).trim() !== "" ? String(raw) : "";
-        return s ? <Tag size="small">{s}</Tag> : "—";
-      },
-    },
-    {
       title: tCmd("colRisk"),
       width: 88,
       render: (_: unknown, row: CommandRow) => (row.parsed?.tokenRisk ? <Tag color="orangered">{tCmd("riskTag")}</Tag> : "—"),
@@ -453,14 +494,14 @@ export function InvestigationCenterDashboard() {
       dataIndex: "span_id",
       key: "span_id",
       fixed: "left",
-      width: 120,
+      width: 200,
       render: (_: unknown, row: ResourceRow) => (
         <Button
           type="text"
           size="mini"
           className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
           onClick={() => {
-            // TODO: Implement message inspect
+            void openMessageInspectFromAuditRow(row);
           }}
         >
           {formatShortId(row.span_id)}
@@ -486,24 +527,9 @@ export function InvestigationCenterDashboard() {
     {
       title: tRes("colClass"),
       dataIndex: "semantic_class",
+      key: "semantic_class",
       width: 120,
       render: (c: string) => <span className="text-xs">{c}</span>,
-    },
-    {
-      title: tRes("colTime"),
-      dataIndex: "started_at_ms",
-      width: 160,
-      render: (ms: number) => (
-        <span className="whitespace-nowrap text-xs">{formatTraceDateTimeFromMs(ms)}</span>
-      ),
-    },
-    {
-      title: tRes("colDuration"),
-      dataIndex: "duration_ms",
-      width: 96,
-      render: (n: number | null) => (
-        <span className="tabular-nums text-xs">{n != null ? `${Math.round(n)} ms` : "—"}</span>
-      ),
     },
     {
       title: tRes("colExecType"),
@@ -518,31 +544,45 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: tRes("colAgent"),
-      dataIndex: "agent_name",
-      width: 120,
-      render: (name: string | null) => (
-        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-          {name?.trim() || "—"}
-        </Typography.Text>
+      title: tRes("colTime"),
+      dataIndex: "started_at_ms",
+      key: "started_at_ms",
+      width: 160,
+      render: (ms: number) => (
+        <span className="whitespace-nowrap text-xs">{formatTraceDateTimeFromMs(ms)}</span>
       ),
     },
     {
-      title: tRes("colChannel"),
-      dataIndex: "channel_name",
-      width: 120,
-      render: (name: string | null) => (
-        <Typography.Text className="text-xs" ellipsis={{ showTooltip: true }}>
-          {name?.trim() || "—"}
-        </Typography.Text>
+      title: tRes("colDuration"),
+      dataIndex: "duration_ms",
+      key: "duration_ms",
+      width: 96,
+      render: (n: number | null) => (
+        <span className="tabular-nums text-xs">{n != null ? `${Math.round(n)} ms` : "—"}</span>
       ),
     },
     {
       title: tRes("colChars"),
       dataIndex: "chars",
+      key: "chars",
       width: 100,
       render: (n: number | null) => (
         <span className="tabular-nums text-xs">{n != null ? n.toLocaleString() : "—"}</span>
+      ),
+    },
+    {
+      title: tRes("colRisk"),
+      dataIndex: "risk_flags",
+      key: "risk_flags",
+      width: 120,
+      render: (flags: string[]) => (
+        <Space size={4} wrap>
+          {(flags ?? []).map((f) => (
+            <Tag key={f} size="small" color="orangered">
+              {f}
+            </Tag>
+          ))}
+        </Space>
       ),
     },
   ];
@@ -558,7 +598,16 @@ export function InvestigationCenterDashboard() {
       ),
     },
     {
-      title: t("colTime"),
+      title: t("policySpanId"),
+      dataIndex: "span_id",
+      key: "span_id",
+      width: 120,
+      render: (_: unknown, row: SecurityRow) => (
+        <span className="text-xs">{row.span_id ? formatShortId(row.span_id) : "—"}</span>
+      ),
+    },
+    {
+      title: t("policyHitTime"),
       dataIndex: "created_at_ms",
       key: "created_at_ms",
       width: 160,
@@ -591,34 +640,12 @@ export function InvestigationCenterDashboard() {
       },
     },
     {
-      title: t("policyPulledAt"),
-      dataIndex: "created_at_ms",
-      key: "pulled_at",
-      width: 160,
+      title: t("policyScope"),
+      dataIndex: "workspace_name",
+      key: "workspace_name",
+      width: 150,
       render: (_: unknown, row: SecurityRow) => (
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
-          {formatTraceDateTimeFromMs(row.created_at_ms)}
-        </span>
-      ),
-    },
-    {
-      title: t("policyTargets"),
-      dataIndex: "trace_id",
-      key: "trace_id",
-      width: 120,
-      render: (_: unknown, row: SecurityRow) => (
-        <LocalizedLink className="text-xs text-primary hover:text-primary/80 transition-colors" href={`/risk-center?trace_id=${encodeURIComponent(row.trace_id)}`}>
-          {formatShortId(row.trace_id)}
-        </LocalizedLink>
-      ),
-    },
-    {
-      title: t("policyEvents"),
-      dataIndex: "hit_count",
-      key: "hit_count",
-      width: 100,
-      render: (n: number) => (
-        <span className="tabular-nums text-xs">{n}</span>
+        <span className="text-xs">{row.workspace_name || "—"}</span>
       ),
     },
   ];
@@ -817,6 +844,7 @@ export function InvestigationCenterDashboard() {
                   columns={columns as any}
                   data={rows as any}
                   pagination={false}
+                  style={{ marginBottom: 40 }}
                   rowClassName={(record) =>
                     (record as any).key === selectedKey
                       ? "!bg-blue-50 dark:!bg-blue-900/20"
@@ -885,6 +913,25 @@ export function InvestigationCenterDashboard() {
           </>
         )}
       </main>
+
+      <TraceRecordInspectDialog
+        open={messageInspectTrace != null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setMessageInspectTrace(null);
+            setMessageInspectInitialSpanId(null);
+          }
+        }}
+        row={messageInspectTrace}
+        initialSpanId={messageInspectInitialSpanId}
+        rows={messageInspectTrace ? [messageInspectTrace] : []}
+        onNavigate={(r) => {
+          setMessageInspectTrace(r);
+          setMessageInspectInitialSpanId(null);
+        }}
+        baseUrl={baseUrl}
+        apiKey={apiKey}
+      />
     </AppPageShell>
   );
 }
