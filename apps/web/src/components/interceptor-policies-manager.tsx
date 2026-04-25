@@ -9,7 +9,6 @@ import {
   Table,
   Button,
   Checkbox,
-  Pagination,
   Modal,
   Form,
   Input,
@@ -25,6 +24,7 @@ import {
   Dropdown,
   Menu,
 } from "@arco-design/web-react";
+import ArcoPagination from "@arco-design/web-react/es/Pagination";
 import { IconEdit, IconDelete, IconQuestionCircleFill, IconFilter } from "@arco-design/web-react/icon";
 import { appendWorkspaceNameParam, loadApiKey, loadCollectorUrl, collectorAuthHeaders } from "@/lib/collector";
 import { readCollectorFetchResult } from "@/lib/collector-json";
@@ -900,42 +900,56 @@ export function InterceptorPoliciesManager({
               hover
               loading={isLoading}
               onChange={onTableChange}
-              noDataElement={<div className="flex justify-center px-4 py-10 text-xs text-neutral-500">{t("noPolicies")}</div>}
+              noDataElement={
+                <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50/50 px-6 py-16 text-center dark:border-gray-700 dark:bg-gray-800/30">
+                  <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-3xl dark:bg-gray-800">📋</div>
+                  <p className="text-base font-medium text-gray-800 dark:text-gray-200 mb-2">
+                    {t("noPolicies")}
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    {t("noPoliciesHint")}
+                  </p>
+                </div>
+              }
             />
             {sortedPolicies.length > 0 ? (
-              <div className="flex flex-col items-center gap-2 border-t-0 pt-4 sm:flex-row sm:justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {t("showingOfTotal", {
-                    from: String((page - 1) * pageSize + 1),
-                    to: String(Math.min(page * pageSize, sortedPolicies.length)),
-                    total: String(sortedPolicies.length),
-                  })}
-                </span>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                    {t("paginationTotalPages", {
-                      count: String(Math.max(1, Math.ceil(sortedPolicies.length / pageSize))),
+              <div
+                className="fixed bottom-0 right-0 z-30 border-t border-border/80 bg-background/90 py-3 shadow-[0_-8px_28px_-12px_rgba(15,23,42,0.12)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 dark:border-border/55 dark:shadow-black/25"
+                style={{ left: "var(--ca-content-offset-left)" }}
+              >
+                <div className="mx-auto flex w-full max-w-[min(100%,1600px)] flex-col gap-3 px-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 lg:px-6">
+                  <p className="text-sm text-muted-foreground">
+                    {t("showingOfTotal", {
+                      from: String((page - 1) * pageSize + 1),
+                      to: String(Math.min(page * pageSize, sortedPolicies.length)),
+                      total: String(sortedPolicies.length),
                     })}
-                  </span>
-                  <Pagination
-                    className="resource-audit-audit-log-pagination mx-0"
-                    size="small"
-                    current={page}
-                    pageSize={pageSize}
-                    total={sortedPolicies.length}
-                    showTotal
-                    onChange={(nextPage, nextPageSize) => {
-                      if (nextPageSize && nextPageSize !== pageSize) {
-                        setPageSize(nextPageSize);
-                      }
-                      setPage(nextPage);
-                    }}
-                    bufferSize={1}
-                    sizeCanChange
-                    sizeOptions={[...PAGE_SIZE_OPTIONS]}
-                    showJumper
-                    disabled={isLoading}
-                  />
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                      {t("paginationTotalPages", {
+                        count: String(Math.max(1, Math.ceil(sortedPolicies.length / pageSize))),
+                      })}
+                    </span>
+                    <ArcoPagination
+                      className={cn("observe-traces-list-pagination", "mx-0")}
+                      size="small"
+                      current={page}
+                      pageSize={pageSize}
+                      total={sortedPolicies.length}
+                      disabled={isLoading}
+                      bufferSize={1}
+                      sizeCanChange
+                      sizeOptions={[...PAGE_SIZE_OPTIONS]}
+                      showJumper
+                      onChange={(nextPage, ps) => {
+                        setPage(nextPage);
+                        if (ps && ps !== pageSize) {
+                          setPageSize(ps);
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -1231,7 +1245,7 @@ export function InterceptorPoliciesManager({
                   ),
                 })}
               </span>
-              <Pagination
+              <ArcoPagination
                 className="resource-audit-audit-log-pagination mx-0"
                 size="small"
                 current={policyEventsPage}

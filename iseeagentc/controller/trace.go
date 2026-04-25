@@ -169,8 +169,42 @@ type SecurityAuditPolicyCountsRequest struct {
 	WorkspaceName string `form:"workspace_name"`
 }
 
+type InvestigationTimelineRequest struct {
+	Limit         int    `form:"limit"`
+	Offset        int    `form:"offset"`
+	Order         string `form:"order"`
+	SinceMs       string `form:"since_ms"`
+	UntilMs       string `form:"until_ms"`
+	TraceID       string `form:"trace_id"`
+	WorkspaceName string `form:"workspace_name"`
+	EventType     string `form:"event_type"`
+	SourcePage    string `form:"source_page"`
+	Keyword       string `form:"keyword"`
+}
+
+type RiskOverviewDailyTrendsRequest struct {
+	SinceMs       string `form:"since_ms"`
+	UntilMs       string `form:"until_ms"`
+	WorkspaceName string `form:"workspace_name"`
+}
+
 type PolicyPullReportRequest struct {
 	PulledAtMs *float64 `json:"pulled_at_ms"`
+}
+
+type InvestigationTimelineItem struct {
+	Key        string  `json:"key"`
+	EventType  string  `json:"event_type"`
+	TimeMs     int64   `json:"time_ms"`
+	TraceID    string  `json:"trace_id"`
+	SpanID     *string `json:"span_id"`
+	Subject    string  `json:"subject"`
+	Evidence   string  `json:"evidence"`
+	Actor      string  `json:"actor"`
+	Target     string  `json:"target"`
+	Result     string  `json:"result"`
+	WhyFlagged string  `json:"why_flagged"`
+	SourcePage string  `json:"source_page"`
 }
 
 func PoliciesList(c *gin.Context, req *struct{}) {
@@ -1077,6 +1111,126 @@ func SecurityAuditPolicyCounts(c *gin.Context, req *SecurityAuditPolicyCountsReq
 		return
 	}
 	AbortWithResultAndStatus(c, http.StatusOK, body)
+}
+
+func RiskOverviewDailyTrends(c *gin.Context, req *RiskOverviewDailyTrendsRequest) {
+	if req == nil {
+		AbortWithWriteErrorResponse(c, errors.FormatError("Common/ParamsError"))
+		return
+	}
+	if resource.DB == nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError("database unavailable"))
+		return
+	}
+	db, err := resource.DB.DB()
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+	traceAuditService := service.NewTraceAuditService(db)
+	body, err := traceAuditService.RiskOverviewDailyTrends(service.RiskOverviewDailyTrendsQuery{
+		SinceMs:       req.SinceMs,
+		UntilMs:       req.UntilMs,
+		WorkspaceName: req.WorkspaceName,
+	})
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+	AbortWithResultAndStatus(c, http.StatusOK, body)
+}
+
+func InvestigationTimeline(c *gin.Context, req *InvestigationTimelineRequest) {
+	if req == nil {
+		AbortWithWriteErrorResponse(c, errors.FormatError("Common/ParamsError"))
+		return
+	}
+	if resource.DB == nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError("database unavailable"))
+		return
+	}
+	db, err := resource.DB.DB()
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+
+	order := strings.ToLower(strings.TrimSpace(req.Order))
+	if order == "" {
+		order = "desc"
+	}
+	if order != "asc" && order != "desc" {
+		AbortWithWriteErrorResponse(c, errors.ParamFieldError("order", "must be asc|desc"))
+		return
+	}
+	limit := clampIntDefault(req.Limit, 120, 1, 500)
+	offset := clampIntDefault(req.Offset, 0, 0, 1<<30)
+	eventType := strings.ToLower(strings.TrimSpace(req.EventType))
+	sourcePage := strings.TrimSpace(req.SourcePage)
+	keyword := strings.TrimSpace(req.Keyword)
+	if len(keyword) > 200 {
+		keyword = keyword[:200]
+	}
+
+	if eventType != "" && eventType != "all" && eventType != "command" && eventType != "resource" && eventType != "policy_hit" {
+		AbortWithWriteErrorResponse(c, errors.ParamFieldError("event_type", "must be all|command|resource|policy_hit"))
+		return
+	}
+	if sourcePage != "" &&
+		sourcePage != "all" &&
+		sourcePage != "/command-analysis" &&
+		sourcePage != "/resource-audit" &&
+		sourcePage != "/data-security-audit" {
+		AbortWithWriteErrorResponse(c, errors.ParamFieldError("source_page", "must be all|/command-analysis|/resource-audit|/data-security-audit"))
+		return
+	}
+	sinceMs := parseEpochMs(req.SinceMs)
+	untilMs := parseEpochMs(req.UntilMs)
+	rows, total, err := model.QueryInvestigationTimeline(db, model.InvestigationTimelineQuery{
+		Limit:      limit,
+		Offset:     offset,
+		Order:      order,
+		SinceMs:    sinceMs,
+		UntilMs:    untilMs,
+		TraceID:    req.TraceID,
+		Workspace:  req.WorkspaceName,
+		EventType:  eventType,
+		SourcePage: sourcePage,
+		Keyword:    keyword,
+	})
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+	items := make([]InvestigationTimelineItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, InvestigationTimelineItem{
+			Key:        r.Key,
+			EventType:  r.EventType,
+			TimeMs:     r.TimeMs,
+			TraceID:    r.TraceID,
+			SpanID:     nullableStr(r.SpanID.String),
+			Subject:    r.Subject,
+			Evidence:   r.Evidence,
+			Actor:      r.Actor,
+			Target:     r.Target,
+			Result:     r.Result,
+			WhyFlagged: r.WhyFlagged,
+			SourcePage: r.SourcePage,
+		})
+	}
+	AbortWithResultAndStatus(c, http.StatusOK, map[string]interface{}{
+		"items": items,
+		"total": total,
+	})
+}
+
+func nullableStr(v string) *string {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func parseEpochMs(v string) *int64 {

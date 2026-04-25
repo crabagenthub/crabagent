@@ -506,19 +506,23 @@ export function SiteNav() {
 
   const observeItems: NavDef[] = useMemo(
     () => [
-      { href: "/traces", label: t("traces"), Icon: NavIconTraces },
       { href: "/observe/overview", label: t("metrics"), Icon: NavIconMetrics },
+      { href: "/traces", label: t("traces"), Icon: NavIconTraces },
     ],
     [t],
   );
 
   const auditItems: NavDef[] = useMemo(
     () => [
-      { href: "/risk-center", label: t("riskCenter"), Icon: NavIconResourceAudit },
-      { href: "/investigation-center", label: t("investigationCenter"), Icon: NavIconCommandExec },
+      { href: "/risk-overview", label: t("riskOverview"), Icon: NavIconResourceAudit },
+      { href: "/investigation-center", label: t("investigationCenter"), Icon: NavIconResourceAudit },
+      { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
+      { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
     ],
     [t],
   );
+
+  const auditEventItems: NavDef[] = useMemo(() => [], [t]);
 
   const securityItems: NavDef[] = useMemo(
     () => [
@@ -531,19 +535,7 @@ export function SiteNav() {
     () => [{ href: "/settings", label: t("settings"), Icon: NavIconOverview }],
     [t],
   );
-  const auditAdvancedItems: NavDef[] = useMemo(
-    () => [
-      { href: "/resource-audit", label: t("resourceAuditLegacy"), Icon: NavIconResourceAudit },
-      { href: "/command-analysis", label: t("commandAnalysisLegacy"), Icon: NavIconCommandExec },
-    ],
-    [t],
-  );
-  const [auditAdvancedOpen, setAuditAdvancedOpen] = useState(true);
-  useEffect(() => {
-    if (pathname.startsWith("/resource-audit") || pathname.startsWith("/command-analysis")) {
-      setAuditAdvancedOpen(true);
-    }
-  }, [pathname]);
+
 
   const navLinkRow = (it: NavDef, nested?: boolean) => {
     const active = isActive(it.href);
@@ -665,28 +657,6 @@ export function SiteNav() {
           <Fragment key={g.title}>
             {!collapsed ? <NavSectionLabel first={idx === 0}>{g.title}</NavSectionLabel> : null}
             {g.items.map((it) => navLinkRow(it))}
-            {g.key === "audit" ? (
-              collapsed ? (
-                auditAdvancedItems.map((it) => navLinkRow(it))
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="group flex w-full min-w-0 items-center justify-between rounded-lg py-1.5 pl-2.5 pr-3 text-left text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    aria-expanded={auditAdvancedOpen}
-                    onClick={() => setAuditAdvancedOpen((v) => !v)}
-                  >
-                    <span className="truncate">{t("advancedTools")}</span>
-                    {auditAdvancedOpen ? (
-                      <IconCaretUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <IconCaretDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
-                  {auditAdvancedOpen ? auditAdvancedItems.map((it) => navLinkRow(it, true)) : null}
-                </>
-              )
-            ) : null}
           </Fragment>
         ))}
       </nav>

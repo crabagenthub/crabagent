@@ -100,7 +100,10 @@ func RunAgentTableMigrations(db *sql.DB) error {
 		if err := ensureAgentAlertEventsTable(db); err != nil {
 			return err
 		}
-		return ensureAgentAlertEventsWsFiredIndex(db)
+		if err := ensureAgentAlertEventsWsFiredIndex(db); err != nil {
+			return err
+		}
+		return ensureInvestigationTimelineIndexes(db)
 	}
 	if sqlutil.IsSQLite(db) {
 		return execSQLiteAgentSchema(db)
@@ -561,6 +564,27 @@ func ensureAgentAlertEventsWsFiredIndex(db *sql.DB) error {
 	q := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_alert_events_ws_fired ON %s (workspace_name, fired_at_ms DESC)`, ae)
 	if _, err := db.Exec(q); err != nil {
 		return fmt.Errorf("migrate: idx_agent_alert_events_ws_fired: %w", err)
+	}
+	return nil
+}
+
+// ensureInvestigationTimelineIndexes adds composite indexes for the unified timeline query path.
+func ensureInvestigationTimelineIndexes(db *sql.DB) error {
+	ec := quoteIdent(db, sqltables.TableAgentExecCommands)
+	ra := quoteIdent(db, sqltables.TableAgentResourceAccess)
+	sa := quoteIdent(db, sqltables.TableAgentSecurityAuditLogs)
+	stmts := []string{
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_exec_commands_ws_start ON %s (workspace_name, start_time_ms DESC)`, ec),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_exec_commands_trace_start ON %s (trace_id, start_time_ms DESC)`, ec),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_resource_access_ws_start ON %s (workspace_name, start_time_ms DESC)`, ra),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_resource_access_trace_start ON %s (trace_id, start_time_ms DESC)`, ra),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_security_audit_ws_created ON %s (workspace_name, created_at_ms DESC)`, sa),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_security_audit_trace_created ON %s (trace_id, created_at_ms DESC)`, sa),
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate: timeline index: %w", err)
+		}
 	}
 	return nil
 }

@@ -587,24 +587,7 @@ export function CommandAnalysisDashboard() {
           if (!traceId) {
             return "—";
           }
-          return (
-            <AuditLinkActions
-              actions={[
-                {
-                  label: t("openSecurityAudit"),
-                  href: buildAuditLink("/data-security-audit", {
-                    source: "command",
-                    trace_id: traceId,
-                    span_id: spanId || undefined,
-                    since_ms: sinceMs,
-                    until_ms: untilMs,
-                    channel: channel || undefined,
-                    agent: agent || undefined,
-                  }),
-                },
-              ]}
-            />
-          );
+          return "—";
         },
       },
     ],

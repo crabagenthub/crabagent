@@ -53,6 +53,10 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupObserve") }, { label: tNav("traces") }];
     }
 
+    if (p === "/risk-overview" || p.startsWith("/risk-overview?")) {
+      return [{ label: tNav("groupAudit") }, { label: tNav("riskOverview") }];
+    }
+
     if (p === "/risk-center" || p.startsWith("/risk-center?")) {
       return [{ label: tNav("groupAudit") }, { label: tNav("riskCenter") }];
     }
@@ -62,19 +66,11 @@ export function AppBreadcrumb() {
     }
 
     if (p === "/resource-audit" || p.startsWith("/resource-audit?")) {
-      return [
-        { label: tNav("groupAudit") },
-        { label: tNav("advancedTools") },
-        { label: tNav("resourceAuditLegacy") },
-      ];
+      return [{ label: tNav("groupAudit") }, { label: tNav("resourceAudit") }];
     }
 
     if (p === "/command-analysis" || p.startsWith("/command-analysis?")) {
-      return [
-        { label: tNav("groupAudit") },
-        { label: tNav("advancedTools") },
-        { label: tNav("commandAnalysisLegacy") },
-      ];
+      return [{ label: tNav("groupAudit") }, { label: tNav("commandAnalysis") }];
     }
 
     if (p === "/logs") {
@@ -89,7 +85,7 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupSettings") }, { label: tNav("machines") }];
     }
 
-    if (p === "/data-security" || p === "/data-security-audit" || p.startsWith("/data-security-audit?")) {
+    if (p === "/data-security") {
       return [{ label: tNav("groupSecurity") }, { label: tNav("dataSecurity") }];
     }
 

@@ -496,16 +496,6 @@ export function RiskCenterDashboard() {
         cta: t("suggestionUrgentCta"),
       });
     }
-    if ((sourceBreakdown.policy_hit ?? 0) > 0) {
-      items.push({
-        key: "policy",
-        tone: "amber",
-        title: t("suggestionPolicyTitle"),
-        body: t("suggestionPolicyBody", { count: String(sourceBreakdown.policy_hit) }),
-        href: "/data-security-audit",
-        cta: t("suggestionPolicyCta"),
-      });
-    }
     if (silenceOverview.expiringSoonCount > 0) {
       items.push({
         key: "silence",

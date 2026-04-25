@@ -545,23 +545,6 @@ export function ResourceAuditDashboard() {
             >
               {t("filterSameTrace")}
             </Button>
-            <AuditLinkActions
-              vertical
-              actions={[
-                {
-                  label: t("openSecurityAudit"),
-                  href: buildAuditLink("/data-security-audit", {
-                    source: "resource",
-                    trace_id: row.trace_id,
-                    span_id: row.span_id,
-                    since_ms: sinceMs,
-                    until_ms: untilMs,
-                    channel: channelFromUrl || undefined,
-                    agent: agentFromUrl || undefined,
-                  }),
-                },
-              ]}
-            />
           </Space>
         ),
       },
