@@ -2,7 +2,7 @@
 
 import "@/lib/arco-react19-setup";
 import { Button, Card, Popover, Space, Spin, Table, Tag, Typography } from "@arco-design/web-react";
-import { IconQuestionCircle, IconRefresh, IconSearch } from "@arco-design/web-react/icon";
+import { IconQuestionCircle, IconRefresh, IconSearch, IconClockCircle } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import ArcoPagination from "@arco-design/web-react/es/Pagination";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +14,8 @@ import { AppPageShell } from "@/shared/components/app-page-shell";
 import { LocalizedLink } from "@/shared/components/localized-link";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { TraceRecordInspectDialog } from "@/features/observe/traces/components/trace-record-inspect-dialog";
+import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
+import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { toast } from "@/components/ui/feedback";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
@@ -411,59 +413,138 @@ export function InvestigationCenterDashboard() {
 
   const commandColumns: TableColumnProps<CommandRow>[] = [
     {
-      title: tCmd("colStepId"),
-      width: 200,
-      fixed: "left" as const,
-      render: (_: unknown, row: CommandRow) => (
-        <Button
-          type="text"
-          size="mini"
-          className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-          onClick={() => {
-            void openMessageInspectFromShellRow(row);
-          }}
-        >
-          {formatShortId(row.span_id)}
-        </Button>
+      title: (
+        <ObserveTableHeaderLabel>
+          <span className="inline-flex items-center gap-1">
+            {tCmd("colStepId")}
+            <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+          </span>
+        </ObserveTableHeaderLabel>
       ),
-    },
-    {
-      title: tCmd("colCommand"),
+      width: 230,
+      fixed: "left" as const,
+      dataIndex: "start_time_ms",
+      key: "start_time_ms",
+      sorter: (a: CommandRow, b: CommandRow) => {
+        const timeA = a.start_time_ms != null && Number.isFinite(a.start_time_ms) ? Number(a.start_time_ms) : 0;
+        const timeB = b.start_time_ms != null && Number.isFinite(b.start_time_ms) ? Number(b.start_time_ms) : 0;
+        return timeA - timeB;
+      },
+      sortDirections: ["descend", "ascend"],
       render: (_: unknown, row: CommandRow) => (
-        <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {row.parsed?.command || "—"}
+        <div className="flex flex-col items-start gap-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <span
+              className="cursor-pointer text-xs text-neutral-800 hover:underline"
+              onClick={() => {
+                void openMessageInspectFromShellRow(row);
+              }}
+            >
+              {formatShortId(row.span_id)}
+            </span>
+            <TraceCopyIconButton
+              text={row.span_id || ""}
+              ariaLabel={t("copy")}
+              tooltipLabel={t("copy")}
+              successLabel={t("copySuccessToast")}
+              className="shrink-0 p-1 hover:bg-neutral-100"
+              stopPropagation
+            />
+          </div>
+          {row.start_time_ms != null && Number.isFinite(row.start_time_ms) ? (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <IconClockCircle className="size-3 shrink-0" aria-hidden />
+              <span className="tabular-nums">{formatTraceDateTimeFromMs(Number(row.start_time_ms))}</span>
+            </div>
+          ) : null}
         </div>
       ),
     },
     {
-      title: tCmd("colCategory"),
+      title: <ObserveTableHeaderLabel>{tCmd("colCommand")}</ObserveTableHeaderLabel>,
+      render: (_: unknown, row: CommandRow) => {
+        const command = row.parsed?.command || "—";
+        const isLong = command.length > 100 || command.split('\n').length > 2;
+        const content = (
+          <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {command}
+          </div>
+        );
+        return isLong ? (
+          <Popover content={<div className="max-w-md break-all text-xs">{command}</div>}>
+            {content}
+          </Popover>
+        ) : content;
+      },
+    },
+    {
+      title: <ObserveTableHeaderLabel>{tCmd("colCategory")}</ObserveTableHeaderLabel>,
       width: 100,
       render: (_: unknown, row: CommandRow) => {
         const raw = row.parsed?.category;
         const s = raw != null && String(raw).trim() !== "" ? String(raw) : "";
-        return s ? <Tag size="small">{s}</Tag> : "—";
+        return s || "—";
       },
     },
     {
-      title: tCmd("colTime"),
-      width: 168,
-      render: (_: unknown, row: CommandRow) => (
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
-          {row.start_time_ms != null && Number.isFinite(row.start_time_ms) ? formatTraceDateTimeFromMs(Number(row.start_time_ms)) : "—"}
-        </span>
-      ),
-    },
-    {
-      title: tCmd("colDur"),
+      title: <ObserveTableHeaderLabel>{tCmd("colDur")}</ObserveTableHeaderLabel>,
       width: 88,
-      render: (_: unknown, row: CommandRow) => (
-        <span className="text-xs tabular-nums">
-          {row.duration_ms != null && Number.isFinite(row.duration_ms) ? `${row.duration_ms} ms` : "—"}
-        </span>
-      ),
+      dataIndex: "duration_ms",
+      key: "duration_ms",
+      sorter: (a: CommandRow, b: CommandRow) => {
+        const durA = a.duration_ms != null && Number.isFinite(a.duration_ms) ? Number(a.duration_ms) : 0;
+        const durB = b.duration_ms != null && Number.isFinite(b.duration_ms) ? Number(b.duration_ms) : 0;
+        return durA - durB;
+      },
+      sortDirections: ["descend", "ascend"],
+      render: (_: unknown, row: CommandRow) => {
+        const dur = row.duration_ms != null && Number.isFinite(row.duration_ms) ? Number(row.duration_ms) : null;
+        const startTimeMs = row.start_time_ms != null && Number.isFinite(row.start_time_ms) ? Number(row.start_time_ms) : null;
+        const endTimeMs = startTimeMs != null && dur != null ? startTimeMs + dur : null;
+        
+        // Format duration with adaptive units
+        const formatDuration = (ms: number | null): string => {
+          if (ms == null) return "—";
+          if (ms >= 60000) {
+            return `${(ms / 60000).toFixed(2)} min`;
+          }
+          if (ms >= 1000) {
+            return `${(ms / 1000).toFixed(2)} s`;
+          }
+          return `${ms} ms`;
+        };
+        
+        const durationTooltipContent = (
+          <div className="max-w-[22rem] space-y-2 px-3 py-2 text-left text-xs text-foreground">
+            <div className="font-medium">{tCmd("colDur")}</div>
+            {startTimeMs != null && endTimeMs != null ? (
+              <div className="space-y-1 text-[10px] leading-snug tabular-nums">
+                <p className="m-0">
+                  {tCmd("colDurStart")}: {formatTraceDateTimeFromMs(startTimeMs)}
+                </p>
+                <p className="m-0">
+                  {tCmd("colDurEnd")}: {formatTraceDateTimeFromMs(endTimeMs)}
+                </p>
+              </div>
+            ) : (
+              <p className="m-0 text-[10px] leading-snug opacity-90">—</p>
+            )}
+          </div>
+        );
+        return (
+          <Popover trigger="hover" position="rt" content={durationTooltipContent}>
+            <span className="inline-flex max-w-full cursor-default items-center gap-0.5 rounded-sm text-left text-neutral-600 hover:text-neutral-900 whitespace-nowrap">
+              <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
+              <span className="text-xs tabular-nums">
+                {formatDuration(dur)}
+              </span>
+            </span>
+          </Popover>
+        );
+      },
     },
     {
-      title: tCmd("colStatus"),
+      title: <ObserveTableHeaderLabel>{tCmd("colStatus")}</ObserveTableHeaderLabel>,
       width: 108,
       render: (_: unknown, row: CommandRow) => {
         const ok = row.parsed?.success;
@@ -471,18 +552,16 @@ export function InvestigationCenterDashboard() {
         if (ok === true) return <Tag color="green">{tCmd("okYes")}</Tag>;
         if (ok === false) {
           return (
-            <span className="inline-flex flex-wrap items-center gap-1">
-              <Tag color="red">{tCmd("okNo")}</Tag>
-              {ec != null ? <span className="font-mono text-[11px] text-muted-foreground">({ec})</span> : null}
-            </span>
+            <Tag color="red">
+              {ec != null && Number.isFinite(ec) ? `exit ${ec}` : tCmd("okNo")}
+            </Tag>
           );
         }
-        if (ec != null) return <span className="font-mono text-xs tabular-nums">{String(ec)}</span>;
         return "—";
       },
     },
     {
-      title: tCmd("colRisk"),
+      title: <ObserveTableHeaderLabel>{tCmd("colRisk")}</ObserveTableHeaderLabel>,
       width: 88,
       render: (_: unknown, row: CommandRow) => (row.parsed?.tokenRisk ? <Tag color="orangered">{tCmd("riskTag")}</Tag> : "—"),
     },
@@ -494,18 +573,26 @@ export function InvestigationCenterDashboard() {
       dataIndex: "span_id",
       key: "span_id",
       fixed: "left",
-      width: 200,
+      width: 230,
       render: (_: unknown, row: ResourceRow) => (
-        <Button
-          type="text"
-          size="mini"
-          className="!h-auto justify-start !px-0 !py-0 text-xs text-primary"
-          onClick={() => {
-            void openMessageInspectFromAuditRow(row);
-          }}
-        >
-          {formatShortId(row.span_id)}
-        </Button>
+        <div className="flex min-w-0 items-center gap-1">
+          <span
+            className="cursor-pointer text-xs text-neutral-800 hover:underline"
+            onClick={() => {
+              void openMessageInspectFromAuditRow(row);
+            }}
+          >
+            {formatShortId(row.span_id)}
+          </span>
+          <TraceCopyIconButton
+            text={row.span_id || ""}
+            ariaLabel={t("copy")}
+            tooltipLabel={t("copy")}
+            successLabel={t("copySuccessToast")}
+            className="shrink-0 p-1 hover:bg-neutral-100"
+            stopPropagation
+          />
+        </div>
       ),
     },
     {
@@ -514,12 +601,22 @@ export function InvestigationCenterDashboard() {
       key: "resource_uri",
       width: 280,
       render: (uri: string) => {
-        const displayUri = uri.length > 30 ? `...${uri.slice(-30)}` : uri;
+        const displayUri = uri || "—";
+        const isLong = displayUri.length > 60 || displayUri.split('\n').length > 2;
+        const content = (
+          <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {displayUri}
+          </div>
+        );
         return (
           <div className="flex items-center gap-1">
-            <Popover content={<div className="max-w-md break-all text-xs">{displayUri || "—"}</div>}>
-              <span className="text-xs">{displayUri}</span>
-            </Popover>
+            {isLong ? (
+              <Popover content={<div className="max-w-md break-all text-xs">{displayUri}</div>}>
+                {content}
+              </Popover>
+            ) : (
+              content
+            )}
           </div>
         );
       },
