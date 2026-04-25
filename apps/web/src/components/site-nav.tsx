@@ -500,8 +500,14 @@ export function SiteNav() {
     }
   }, []);
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" || pathname === "" : pathname === href || pathname.startsWith(`${href}/`);
+  const isActive = (href: string) => {
+    // 移除查询参数，只比较 pathname 部分
+    const hrefPath = href.split("?")[0]!;
+    if (hrefPath === "/") {
+      return pathname === "/" || pathname === "";
+    }
+    return pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
+  };
 
   const observeItems: NavDef[] = useMemo(
     () => [
