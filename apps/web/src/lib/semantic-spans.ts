@@ -62,21 +62,29 @@ export async function loadSemanticSpans(
 }
 
 function normalizeSemanticSpan(r: Partial<SemanticSpanRow>): SemanticSpanRow {
+  const rawInput = r.input && typeof r.input === "object" && !Array.isArray(r.input) ? (r.input as Record<string, unknown>) : {};
+  const rawOutput =
+    r.output && typeof r.output === "object" && !Array.isArray(r.output) ? (r.output as Record<string, unknown>) : {};
+  const rawMetadata =
+    r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata) ? (r.metadata as Record<string, unknown>) : {};
+  const rawName = String(r.name ?? "");
+  const rawType = String(r.type ?? "");
+  const rawSpanId = String(r.span_id ?? "");
   const ub =
     r.usage_breakdown && typeof r.usage_breakdown === "object" && !Array.isArray(r.usage_breakdown)
       ? (r.usage_breakdown as Record<string, number>)
       : {};
   return {
-    span_id: String(r.span_id ?? ""),
+    span_id: rawSpanId,
     trace_id: String(r.trace_id ?? ""),
     parent_id:
       r.parent_id == null || String(r.parent_id).trim() === "" ? null : String(r.parent_id),
     module: String(r.module ?? ""),
-    type: String(r.type ?? ""),
-    name: String(r.name ?? ""),
-    input: r.input && typeof r.input === "object" && !Array.isArray(r.input) ? r.input : {},
-    output: r.output && typeof r.output === "object" && !Array.isArray(r.output) ? r.output : {},
-    metadata: r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata) ? r.metadata : {},
+    type: rawType,
+    name: rawName,
+    input: rawInput,
+    output: rawOutput,
+    metadata: rawMetadata,
     start_time: Number(r.start_time) || 0,
     end_time: r.end_time != null && Number.isFinite(Number(r.end_time)) ? Number(r.end_time) : null,
     error: r.error != null ? String(r.error) : null,

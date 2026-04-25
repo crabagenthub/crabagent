@@ -259,7 +259,22 @@ function TreeNodeRow({
                   {titleLine}
                 </span>
                 {node.error ? (
-                  <IconExclamationCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-label={t("semanticErrorBadge")} />
+                  <Popover
+                    trigger="hover"
+                    position="top"
+                    content={
+                      <div className="max-w-[22rem] space-y-1.5 p-2 text-xs">
+                        <div className="font-medium text-foreground">{t("semanticErrorBadge")}</div>
+                        <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-muted-foreground">
+                          {String(node.error)}
+                        </div>
+                      </div>
+                    }
+                  >
+                    <span className="inline-flex">
+                      <IconExclamationCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-label={t("semanticErrorBadge")} />
+                    </span>
+                  </Popover>
                 ) : null}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] tabular-nums text-neutral-600">

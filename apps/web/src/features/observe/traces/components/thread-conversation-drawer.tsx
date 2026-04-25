@@ -17,6 +17,7 @@ import {
   inferTurnE2ETimeline,
   mergeTurnLlmOutputEventsForTurnTokenRollup,
   inferTurnListStatus,
+  inferTurnErrorMessage,
   inferTurnWindowMetrics,
   resolveLinkedRunIdForTurn,
   type TurnE2ETimeline,
@@ -50,28 +51,56 @@ function turnStatusLabelKey(st: TurnListStatus): string {
 /** 时间轴节点：无编号空心圆环（ref 供主轴测量圆心） */
 const TurnRailMarker = forwardRef<
   HTMLDivElement,
-  { status: TurnListStatus; active: boolean; t: (key: string) => string }
->(function TurnRailMarker({ status, active, t }, ref) {
+  { status: TurnListStatus; active: boolean; t: (key: string) => string; errorMessage?: string | null }
+>(function TurnRailMarker({ status, active, t, errorMessage }, ref) {
   const title = t(turnStatusLabelKey(status));
+  const showErrorIcon = (status === "error" || status === "timeout") && errorMessage;
+
+  const markerContent = (
+    <span
+      className={cn(
+        /* 完全不透明填充，避免主轴在圆心处透出（半透明 /alpha 会透出灰线） */
+        "relative z-10 box-border size-[11px] shrink-0 rounded-full border-[2.5px] border-neutral-300 bg-background dark:border-neutral-500 dark:bg-neutral-900",
+        "transition-[border-color,transform,box-shadow] duration-200",
+        active &&
+          "z-10 size-[13px] border-[3px] border-primary bg-background ring-4 ring-primary/20 dark:bg-background dark:ring-primary/25",
+        status === "running" && !active && "motion-safe:animate-pulse border-sky-500/90 dark:border-sky-400",
+        status === "error" && !active && "border-red-500 dark:border-red-400",
+        status === "timeout" && !active && "border-amber-500 dark:border-amber-400",
+      )}
+    />
+  );
+
   return (
     <div
       ref={ref}
-        className="relative z-[3] isolate flex shrink-0 items-center justify-center"
+      className="relative z-[3] isolate flex shrink-0 items-center justify-center"
       title={title}
       aria-hidden
     >
-      <span
-        className={cn(
-          /* 完全不透明填充，避免主轴在圆心处透出（半透明 /alpha 会透出灰线） */
-          "relative z-10 box-border size-[11px] shrink-0 rounded-full border-[2.5px] border-neutral-300 bg-background dark:border-neutral-500 dark:bg-neutral-900",
-          "transition-[border-color,transform,box-shadow] duration-200",
-          active &&
-            "z-10 size-[13px] border-[3px] border-primary bg-background ring-4 ring-primary/20 dark:bg-background dark:ring-primary/25",
-          status === "running" && !active && "motion-safe:animate-pulse border-sky-500/90 dark:border-sky-400",
-          status === "error" && !active && "border-red-500 dark:border-red-400",
-          status === "timeout" && !active && "border-amber-500 dark:border-amber-400",
-        )}
-      />
+      {showErrorIcon ? (
+        <Popover
+          trigger="hover"
+          position="top"
+          content={
+            <div className="max-w-[20rem] p-2 text-xs">
+              <div className="mb-1 font-medium text-foreground">{title}</div>
+              <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-muted-foreground">
+                {errorMessage}
+              </div>
+            </div>
+          }
+        >
+          <span className="relative flex items-center justify-center">
+            {markerContent}
+            <span className="absolute -right-1 -top-1 flex size-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+              !
+            </span>
+          </span>
+        </Popover>
+      ) : (
+        markerContent
+      )}
     </div>
   );
 });
@@ -296,9 +325,19 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
 
   const threadShort = formatShortId(threadKey);
 
+  const turnErrorMessageByKey = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const u of userTurns) {
+      const detailEvents = buildDetailEventList(merged, u);
+      m.set(u.listKey, inferTurnErrorMessage(detailEvents));
+    }
+    return m;
+  }, [merged, userTurns]);
+
   const turnRail = userTurns.map((u, turnIdx) => {
     const active = u.listKey === selectedListKey;
     const st = turnStatusByKey.get(u.listKey) ?? "unknown";
+    const errorMessage = turnErrorMessageByKey.get(u.listKey);
     const metrics = turnMetricsByKey.get(u.listKey);
     const e2eTimeline = metrics?.e2eTimeline;
     const e2ePopoverChrono = (() => {
@@ -348,9 +387,12 @@ export function ThreadConversationDrawer({ open, onOpenChange, row, baseUrl, api
       >
         <div className="relative z-[2] h-full min-h-0 w-9 shrink-0 overflow-visible sm:w-10">
           <div className="relative mx-auto mt-[calc(1rem-5.5px)] flex justify-center">
-            <TurnRailMarker ref={getDotRefForListKey(u.listKey)} status={st}
+            <TurnRailMarker
+              ref={getDotRefForListKey(u.listKey)}
+              status={st}
               active={active}
               t={t}
+              errorMessage={errorMessage}
             />
           </div>
         </div>

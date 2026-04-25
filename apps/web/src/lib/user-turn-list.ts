@@ -1869,3 +1869,52 @@ export function inferTurnListStatus(events: TraceTimelineEvent[]): TurnListStatu
   }
   return "unknown";
 }
+
+/**
+ * 提取回合的错误信息（用于错误状态提示）。
+ */
+export function inferTurnErrorMessage(events: TraceTimelineEvent[]): string | null {
+  if (events.length === 0) {
+    return null;
+  }
+  const sorted = [...events].sort((a, b) => rowNumericId(a) - rowNumericId(b));
+  const messages: string[] = [];
+
+  for (const e of sorted) {
+    const ty = typeof e.type === "string" ? e.type : "";
+    const payload =
+      e.payload && typeof e.payload === "object" && !Array.isArray(e.payload)
+        ? (e.payload as Record<string, unknown>)
+        : {};
+
+    const err = payload.error;
+    if (err != null) {
+      const errText = typeof err === "string" ? err : JSON.stringify(err);
+      if (errText.trim()) {
+        messages.push(errText);
+      }
+    }
+
+    const msg = payload.message;
+    if (typeof msg === "string" && msg.trim()) {
+      messages.push(msg);
+    }
+
+    if (ty === "error" || ty.endsWith("_error")) {
+      try {
+        const payloadText = JSON.stringify(payload);
+        if (payloadText !== "{}" && payloadText.trim()) {
+          messages.push(payloadText);
+        }
+      } catch {
+        const raw = String(e.payload);
+        if (raw !== "[object Object]" && raw.trim()) {
+          messages.push(raw);
+        }
+      }
+    }
+  }
+
+  const combined = messages.join("; ").trim();
+  return combined.length > 0 ? combined : null;
+}

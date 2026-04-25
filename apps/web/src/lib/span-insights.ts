@@ -19,14 +19,14 @@ export function resolveLargeToolResultCharsFromCollector(value: number | null | 
 }
 
 export function ioPathFromInput(input: Record<string, unknown>): string | null {
-  const p = input.path ?? input.filePath ?? input.file_path ?? input.uri;
+  const p = input.path ?? input.filePath ?? input.file_path ?? input.uri ?? input.url;
   if (typeof p === "string" && p.trim()) {
     return p.trim();
   }
   const pr = input.params;
   if (pr && typeof pr === "object" && !Array.isArray(pr)) {
     const o = pr as Record<string, unknown>;
-    const pp = o.path ?? o.file_path ?? o.target_file ?? o.filePath ?? o.targetFile ?? o.uri;
+    const pp = o.path ?? o.file_path ?? o.target_file ?? o.filePath ?? o.targetFile ?? o.uri ?? o.url;
     if (typeof pp === "string" && pp.trim()) {
       return pp.trim();
     }
