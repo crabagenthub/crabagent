@@ -7,16 +7,16 @@ import (
 
 // ShellCommandInfo represents parsed shell command information
 type ShellCommandInfo struct {
-	Command            string
-	CommandKey         string // Normalized command without arguments
-	Category           string // file, network, system, process, package, other
-	ExitCode           int
-	StdoutLen          int64
-	StderrLen          int64
-	TokenRisk          bool
-	CommandNotFound    bool
-	PermissionDenied   bool
-	FileOperations     []FileOperation
+	Command          string
+	CommandKey       string // Normalized command without arguments
+	Category         string // file, network, system, process, package, other
+	ExitCode         int
+	StdoutLen        int64
+	StderrLen        int64
+	TokenRisk        bool
+	CommandNotFound  bool
+	PermissionDenied bool
+	FileOperations   []FileOperation
 }
 
 // FileOperation represents a file operation parsed from shell command
@@ -27,13 +27,14 @@ type FileOperation struct {
 
 // ShellCommandConfig defines shell command parsing rules
 type ShellCommandConfig struct {
-	ReadLikeCommands []string `toml:"readLikeCommands"`
-	Categories       struct {
-		File     []string `toml:"file"`
-		Network  []string `toml:"network"`
-		System   []string `toml:"system"`
-		Process  []string `toml:"process"`
-		Package  []string `toml:"package"`
+	ReadLikeCommands   []string `toml:"readLikeCommands"`
+	TokenRiskThreshold int64    `toml:"tokenRiskThreshold"`
+	Categories         struct {
+		File    []string `toml:"file"`
+		Network []string `toml:"network"`
+		System  []string `toml:"system"`
+		Process []string `toml:"process"`
+		Package []string `toml:"package"`
 	} `toml:"categories"`
 }
 
@@ -44,12 +45,13 @@ func DefaultShellCommandConfig() *ShellCommandConfig {
 			"cat", "head", "tail", "less", "grep", "rg", "find", "type", "findstr",
 			"get-content", "select-string",
 		},
+		TokenRiskThreshold: 24000,
 		Categories: struct {
-			File     []string `toml:"file"`
-			Network  []string `toml:"network"`
-			System   []string `toml:"system"`
-			Process  []string `toml:"process"`
-			Package  []string `toml:"package"`
+			File    []string `toml:"file"`
+			Network []string `toml:"network"`
+			System  []string `toml:"system"`
+			Process []string `toml:"process"`
+			Package []string `toml:"package"`
 		}{
 			File: []string{
 				"ls", "cat", "head", "tail", "less", "more", "find", "grep", "rg", "fd",
@@ -167,7 +169,7 @@ func classifyCommand(command string, config *ShellCommandConfig) string {
 
 	// Check each category
 	categories := []struct {
-		name   string
+		name     string
 		commands []string
 	}{
 		{"file", config.Categories.File},
@@ -244,7 +246,10 @@ func checkTokenRisk(outputJSON *string, config *ShellCommandConfig) bool {
 	}
 
 	stdoutLen := extractOutputLength(outputJSON, "stdout")
-	threshold := int64(24000) // Default threshold from config
+	threshold := config.TokenRiskThreshold
+	if threshold <= 0 {
+		threshold = 24000 // Default threshold
+	}
 
 	return stdoutLen > threshold
 }
