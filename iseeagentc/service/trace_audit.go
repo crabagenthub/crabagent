@@ -57,6 +57,12 @@ type RiskOverviewDailyTrendsQuery struct {
 	WorkspaceName string
 }
 
+type RiskOverviewTrendQuery struct {
+	SinceMs       string
+	UntilMs       string
+	WorkspaceName string
+}
+
 type TraceAuditService struct {
 	db *sql.DB
 }
@@ -158,6 +164,14 @@ func (s *TraceAuditService) SecurityAuditPolicyCounts(workspaceName string) (map
 
 func (s *TraceAuditService) RiskOverviewDailyTrends(req RiskOverviewDailyTrendsQuery) (model.RiskOverviewDailyTrends, error) {
 	return model.QueryRiskOverviewDailyTrends(s.db, model.RiskOverviewDailyTrendsQuery{
+		SinceMs:       parseEpochMs(req.SinceMs),
+		UntilMs:       parseEpochMs(req.UntilMs),
+		WorkspaceName: strPtr(req.WorkspaceName),
+	})
+}
+
+func (s *TraceAuditService) RiskOverviewTrend(req RiskOverviewTrendQuery) ([]model.RiskOverviewTrend, error) {
+	return model.QueryRiskOverviewTrend(s.db, model.RiskOverviewTrendQuery{
 		SinceMs:       parseEpochMs(req.SinceMs),
 		UntilMs:       parseEpochMs(req.UntilMs),
 		WorkspaceName: strPtr(req.WorkspaceName),

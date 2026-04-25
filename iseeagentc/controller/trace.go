@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -102,6 +103,7 @@ type ShellExecListRequest struct {
 	SinceMs         string `form:"since_ms"`
 	UntilMs         string `form:"until_ms"`
 	TraceID         string `form:"trace_id"`
+	SpanID          string `form:"span_id"`
 	Channel         string `form:"channel"`
 	Agent           string `form:"agent"`
 	CommandContains string `form:"command_contains"`
@@ -183,6 +185,12 @@ type InvestigationTimelineRequest struct {
 }
 
 type RiskOverviewDailyTrendsRequest struct {
+	SinceMs       string `form:"since_ms"`
+	UntilMs       string `form:"until_ms"`
+	WorkspaceName string `form:"workspace_name"`
+}
+
+type RiskOverviewTrendsRequest struct {
 	SinceMs       string `form:"since_ms"`
 	UntilMs       string `form:"until_ms"`
 	WorkspaceName string `form:"workspace_name"`
@@ -906,11 +914,27 @@ func ShellList(c *gin.Context, req *ShellExecListRequest) {
 		AbortWithWriteErrorResponse(c, errors.ParamFieldError("order", "must be asc|desc"))
 		return
 	}
+
+	// Smart detection: if command_contains looks like a trace_id or span_id, redirect to appropriate field
+	normalizedCommandContains := strings.ReplaceAll(req.CommandContains, "-", "")
+	if strings.TrimSpace(req.CommandContains) != "" {
+		// Check if it looks like a span_id (8-16 hex chars)
+		if match, _ := regexp.MatchString(`^[a-f0-9]{8,16}$`, normalizedCommandContains); match {
+			req.SpanID = normalizedCommandContains
+			req.CommandContains = ""
+		} else if match, _ := regexp.MatchString(`^[a-f0-9]{32,}$`, normalizedCommandContains); match {
+			// Check if it looks like a trace_id (32+ hex chars)
+			req.TraceID = normalizedCommandContains
+			req.CommandContains = ""
+		}
+	}
+
 	traceShellService := service.NewTraceShellService(db)
 	body, err := traceShellService.List(service.ShellListQuery{
 		SinceMs:         req.SinceMs,
 		UntilMs:         req.UntilMs,
 		TraceID:         req.TraceID,
+		SpanID:          req.SpanID,
 		Channel:         req.Channel,
 		Agent:           req.Agent,
 		CommandContains: req.CommandContains,
@@ -1129,6 +1153,33 @@ func RiskOverviewDailyTrends(c *gin.Context, req *RiskOverviewDailyTrendsRequest
 	}
 	traceAuditService := service.NewTraceAuditService(db)
 	body, err := traceAuditService.RiskOverviewDailyTrends(service.RiskOverviewDailyTrendsQuery{
+		SinceMs:       req.SinceMs,
+		UntilMs:       req.UntilMs,
+		WorkspaceName: req.WorkspaceName,
+	})
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+	AbortWithResultAndStatus(c, http.StatusOK, body)
+}
+
+func RiskOverviewTrends(c *gin.Context, req *RiskOverviewTrendsRequest) {
+	if req == nil {
+		AbortWithWriteErrorResponse(c, errors.FormatError("Common/ParamsError"))
+		return
+	}
+	if resource.DB == nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError("database unavailable"))
+		return
+	}
+	db, err := resource.DB.DB()
+	if err != nil {
+		AbortWithWriteErrorResponse(c, errors.InternalError(err.Error()))
+		return
+	}
+	traceAuditService := service.NewTraceAuditService(db)
+	body, err := traceAuditService.RiskOverviewTrend(service.RiskOverviewTrendQuery{
 		SinceMs:       req.SinceMs,
 		UntilMs:       req.UntilMs,
 		WorkspaceName: req.WorkspaceName,

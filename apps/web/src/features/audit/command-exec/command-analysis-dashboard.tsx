@@ -45,6 +45,7 @@ import { loadObserveFacets } from "@/lib/observe-facets";
 import {
   defaultCommandAnalysisDateRange,
   readCommandAnalysisDateRange,
+  resolveCommandAnalysisShellTimeQueryForDateRange,
 } from "@/lib/command-analysis-date-range";
 import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
 import { parseObserveDateRangeFromListUrl } from "@/lib/observe-list-deep-link";
@@ -52,12 +53,7 @@ import { OBSERVE_TABLE_FRAME_CLASSNAME, OBSERVE_TABLE_SCROLL_X } from "@/lib/obs
 import { resolveTraceRowForInspect } from "@/lib/observe-inspect-url";
 import { buildAuditLink } from "@/lib/audit-linkage";
 import type { TraceRecordRow } from "@/lib/trace-records";
-import {
-  loadShellExecList,
-  loadShellExecSummary,
-  type ShellExecListRow,
-  type ShellExecSummary,
-} from "@/lib/shell-exec-api";
+import { loadShellExecList, loadShellExecSummary, type ShellExecListRow, type ShellExecSummary } from "@/lib/shell-exec-api";
 import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/lib/table-pagination";
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { cn, formatShortId } from "@/lib/utils";
@@ -326,7 +322,7 @@ export function CommandAnalysisDashboard() {
   const [pageSize, setPageSize] = useState(50);
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
-  const isInvestigationCenterRoute = pathname === "/investigation-center";
+  const isInvestigationCenterRoute = pathname === "/events";
   const pageTitle = isInvestigationCenterRoute ? tNav("investigationCenter") : tNav("commandAnalysisLegacy");
   const sourceLabel = useMemo(() => {
     switch (sourceFromUrl) {
@@ -399,11 +395,11 @@ export function CommandAnalysisDashboard() {
   }, []);
 
   const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange, Date.now()), [dateRange]);
+  const dateRangeKey = useMemo(() => JSON.stringify(dateRange), [dateRange]);
 
-  const shellQuery = useMemo(
+  /** 非时间面筛；时间由 {@link resolveCommandAnalysisShellTimeQueryForDateRange} 在每次 queryFn 用当前页 dateRange+now 解析。 */
+  const shellListFilters = useMemo(
     () => ({
-      sinceMs,
-      untilMs,
       traceId: traceFilter.trim() || undefined,
       channel,
       agent,
@@ -411,7 +407,7 @@ export function CommandAnalysisDashboard() {
       minDurationMs: minDur.trim() ? Number(minDur) : undefined,
       maxDurationMs: maxDur.trim() ? Number(maxDur) : undefined,
     }),
-    [sinceMs, untilMs, traceFilter, channel, agent, commandContains, minDur, maxDur],
+    [traceFilter, channel, agent, commandContains, minDur, maxDur],
   );
 
   const facetsQuery = useQuery({
@@ -421,49 +417,42 @@ export function CommandAnalysisDashboard() {
   });
 
   const summaryQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, shellQuery],
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, dateRangeKey, shellListFilters],
     enabled: mounted && Boolean(baseUrl.trim()),
-    queryFn: () => loadShellExecSummary(baseUrl, apiKey, shellQuery),
+    staleTime: 0,
+    queryFn: () =>
+      loadShellExecSummary(baseUrl, apiKey, {
+        ...resolveCommandAnalysisShellTimeQueryForDateRange(dateRange),
+        ...shellListFilters,
+      }),
   });
 
-  const prevWindow = useMemo(() => {
-    if (sinceMs == null || untilMs == null || untilMs <= sinceMs) {
-      return null;
-    }
-    const width = untilMs - sinceMs;
-    return { sinceMs: Math.max(0, sinceMs - width), untilMs: sinceMs };
-  }, [sinceMs, untilMs]);
-
-  const prevShellQuery = useMemo(() => {
-    if (!prevWindow) {
-      return null;
-    }
-    return {
-      ...shellQuery,
-      sinceMs: prevWindow.sinceMs,
-      untilMs: prevWindow.untilMs,
-    };
-  }, [prevWindow, shellQuery]);
-
   const prevSummaryQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, "prev", prevShellQuery],
-    enabled: mounted && Boolean(baseUrl.trim()) && prevShellQuery != null,
-    queryFn: () => loadShellExecSummary(baseUrl, apiKey, prevShellQuery!),
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecSummary, baseUrl, apiKey, "prev", dateRangeKey, shellListFilters],
+    enabled: mounted && Boolean(baseUrl.trim()),
+    staleTime: 0,
+    queryFn: () => {
+      const t = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
+      if (t.sinceMs == null || t.untilMs == null || t.untilMs <= t.sinceMs) {
+        return loadShellExecSummary(baseUrl, apiKey, { ...shellListFilters });
+      }
+      const width = t.untilMs - t.sinceMs;
+      return loadShellExecSummary(baseUrl, apiKey, {
+        ...shellListFilters,
+        sinceMs: Math.max(0, t.sinceMs - width),
+        untilMs: t.sinceMs,
+      });
+    },
   });
 
   const listQuery = useQuery({
-    queryKey: [
-      COLLECTOR_QUERY_SCOPE.shellExecList,
-      baseUrl,
-      apiKey,
-      shellQuery,
-      page,
-      pageSize,
-    ],
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecList, baseUrl, apiKey, dateRangeKey, shellListFilters, page, pageSize],
     enabled: mounted && Boolean(baseUrl.trim()),
+    staleTime: 0,
     queryFn: () =>
       loadShellExecList(baseUrl, apiKey, {
-        ...shellQuery,
+        ...resolveCommandAnalysisShellTimeQueryForDateRange(dateRange),
+        ...shellListFilters,
         limit: pageSize,
         offset: (page - 1) * pageSize,
         order: "desc",
@@ -591,7 +580,7 @@ export function CommandAnalysisDashboard() {
         },
       },
     ],
-    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl, sinceMs, untilMs, channel, agent],
+    [t, tTr, openMessageInspectFromShellRow, mounted, baseUrl, dateRange, channel, agent],
   );
   const s: ShellExecSummary | undefined = summaryQuery.data;
   const buildInvestigationTraceLink = useCallback(
@@ -676,7 +665,7 @@ export function CommandAnalysisDashboard() {
                 </LocalizedLink>
               ) : (
                 <LocalizedLink
-                  href="/investigation-center"
+                  href="/events"
                   className="text-xs font-medium text-primary underline-offset-2 hover:underline"
                 >
                   {tNav("investigationCenter")}

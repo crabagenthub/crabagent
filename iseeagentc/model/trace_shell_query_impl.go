@@ -119,6 +119,7 @@ type ShellExecBaseQuery struct {
 	SinceMs         *int64
 	UntilMs         *int64
 	TraceID         string
+	SpanID          string
 	Channel         string
 	Agent           string
 	CommandContains string
@@ -166,19 +167,23 @@ func buildShellWhere(q ShellExecBaseQuery) shellWhere {
 		parts = append(parts, `s.trace_id = ?`)
 		params = append(params, tid)
 	}
+	if sid := strings.TrimSpace(q.SpanID); sid != "" {
+		parts = append(parts, `s.span_id = ?`)
+		params = append(params, sid)
+	}
 	if wn := strings.TrimSpace(q.WorkspaceName); wn != "" {
-		parts = append(parts, `EXISTS (SELECT 1 FROM ` + CT.Traces + ` t WHERE t.trace_id = s.trace_id AND lower(t.workspace_name) = lower(?))`)
+		parts = append(parts, `EXISTS (SELECT 1 FROM `+CT.Traces+` t WHERE t.trace_id = s.trace_id AND lower(t.workspace_name) = lower(?))`)
 		params = append(params, wn)
 	}
 	if ch := clampFacetFilter(q.Channel); ch != "" {
-		parts = append(parts, fmt.Sprintf(`EXISTS (SELECT 1 FROM ` + CT.Traces + ` t
-        INNER JOIN ` + CT.Threads + ` th ON %s
+		parts = append(parts, fmt.Sprintf(`EXISTS (SELECT 1 FROM `+CT.Traces+` t
+        INNER JOIN `+CT.Threads+` th ON %s
         WHERE t.trace_id = s.trace_id AND th.channel_name = ?)`, shellThreadThJoinOn))
 		params = append(params, ch)
 	}
 	if ag := clampFacetFilter(q.Agent); ag != "" {
-		parts = append(parts, fmt.Sprintf(`EXISTS (SELECT 1 FROM ` + CT.Traces + ` t
-        INNER JOIN ` + CT.Threads + ` th ON %s
+		parts = append(parts, fmt.Sprintf(`EXISTS (SELECT 1 FROM `+CT.Traces+` t
+        INNER JOIN `+CT.Threads+` th ON %s
         WHERE t.trace_id = s.trace_id AND th.agent_name = ?)`, shellThreadThJoinOn))
 		params = append(params, ag)
 	}
@@ -204,7 +209,7 @@ func buildShellWhere(q ShellExecBaseQuery) shellWhere {
 // BuildShellExecCountSQL 已弃用：请使用 BuildShellExecCountSQLFromExec（数据源 agent_exec_commands）。
 func BuildShellExecCountSQL(q ShellExecBaseQuery) (string, []any) {
 	w := buildShellWhere(q)
-	return fmt.Sprintf(`SELECT COUNT(*) AS c FROM ` + CT.Spans + ` s WHERE %s`, w.SQL), w.Params
+	return fmt.Sprintf(`SELECT COUNT(*) AS c FROM `+CT.Spans+` s WHERE %s`, w.SQL), w.Params
 }
 
 // --- Row scanning ---
@@ -259,11 +264,11 @@ func sqlNullInt64Ptr(ni sql.NullInt64) *int64 {
 
 // ShellExecDbSnapshot mirrors TS ShellExecDbSnapshot.
 type ShellExecDbSnapshot struct {
-	ToolSpans         int         `json:"tool_spans"`
-	ShellLikeSpans    int         `json:"shell_like_spans"`
-	ExecCommandRows   int         `json:"exec_command_rows"`
-	TopToolNames      []NameCount `json:"top_tool_names"`
-	DBBasename        string      `json:"db_basename"`
+	ToolSpans       int         `json:"tool_spans"`
+	ShellLikeSpans  int         `json:"shell_like_spans"`
+	ExecCommandRows int         `json:"exec_command_rows"`
+	TopToolNames    []NameCount `json:"top_tool_names"`
+	DBBasename      string      `json:"db_basename"`
 }
 
 type NameCount struct {
@@ -282,7 +287,7 @@ func QueryShellExecDbSnapshot(db *sql.DB, dbBasename string) (ShellExecDbSnapsho
 	if err := db.QueryRow(`SELECT COUNT(*) AS c FROM ` + CT.Spans + ` WHERE span_type = 'tool'`).Scan(&snap.ToolSpans); err != nil {
 		return snap, err
 	}
-	if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) AS c FROM ` + CT.Spans + ` s WHERE %s`, ShellToolWhereSQL)).Scan(&snap.ShellLikeSpans); err != nil {
+	if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) AS c FROM `+CT.Spans+` s WHERE %s`, ShellToolWhereSQL)).Scan(&snap.ShellLikeSpans); err != nil {
 		return snap, err
 	}
 	if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) AS c FROM %s`, CT.ExecCommands)).Scan(&snap.ExecCommandRows); err != nil {
@@ -344,14 +349,14 @@ func normalizeShellIDRows(rows []struct {
 
 func fetchShellSpanIDRowsForSummary(db *sql.DB, whereSQL string, wp []any, cap int) ([]shellIDRow, error) {
 	var cnt int
-	if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) AS c FROM ` + CT.Spans + ` s WHERE %s`, whereSQL), wp...).Scan(&cnt); err != nil {
+	if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) AS c FROM `+CT.Spans+` s WHERE %s`, whereSQL), wp...).Scan(&cnt); err != nil {
 		return nil, err
 	}
 	if cnt == 0 {
 		return nil, nil
 	}
 	if cnt <= cap {
-		rows, err := db.Query(fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM ` + CT.Spans + ` s WHERE %s`, whereSQL), wp...)
+		rows, err := db.Query(fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM `+CT.Spans+` s WHERE %s`, whereSQL), wp...)
 		if err != nil {
 			return nil, err
 		}
@@ -376,7 +381,7 @@ func fetchShellSpanIDRowsForSummary(db *sql.DB, whereSQL string, wp []any, cap i
 		}
 		return normalizeShellIDRows(raw), nil
 	}
-	q := fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM ` + CT.Spans + ` s WHERE %s ORDER BY s.start_time_ms DESC, s.span_id DESC LIMIT ?`, whereSQL)
+	q := fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM `+CT.Spans+` s WHERE %s ORDER BY s.start_time_ms DESC, s.span_id DESC LIMIT ?`, whereSQL)
 	args := append(append([]any{}, wp...), cap)
 	rows, err := db.Query(q, args...)
 	if err != nil {
@@ -402,7 +407,7 @@ func fetchShellSpanIDRowsForSummary(db *sql.DB, whereSQL string, wp []any, cap i
 		return nil, err
 	}
 	if len(raw) == 0 {
-		q2 := fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM ` + CT.Spans + ` s WHERE %s LIMIT ?`, whereSQL)
+		q2 := fmt.Sprintf(`SELECT s.span_id, s.start_time_ms FROM `+CT.Spans+` s WHERE %s LIMIT ?`, whereSQL)
 		args2 := append(append([]any{}, wp...), cap)
 		rows2, err := db.Query(q2, args2...)
 		if err != nil {
@@ -499,8 +504,6 @@ func fetchShellRowsBySpanIDs(db *sql.DB, ids []string) ([]shellSpanRecord, error
 	}
 	return out, nil
 }
-
-
 
 // Re-export shell parsing / summary types from internal/shellexec for API stability.
 type (
@@ -611,7 +614,6 @@ func EnrichShellSummaryChainPreview(db *sql.DB, summary *ShellSummaryJSON) {
 	}
 	summary.ChainPreview.Steps = steps
 }
-
 
 // ShellExecListItem is one list row: span columns + parsed (lite).
 type ShellExecListItem struct {

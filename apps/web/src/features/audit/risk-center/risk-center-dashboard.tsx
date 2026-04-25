@@ -440,7 +440,7 @@ export function RiskCenterDashboard() {
           severity: leadRisk.severity,
           summary: leadRisk.summary,
         }),
-        href: `/investigation-center?trace_id=${encodeURIComponent(leadRisk.traceId)}&event_type=${encodeURIComponent(leadRisk.eventType)}&from=risk`,
+        href: `/events?trace_id=${encodeURIComponent(leadRisk.traceId)}&event_type=${encodeURIComponent(leadRisk.eventType)}&from=risk`,
         cta: t("focusLeadRiskCta"),
       });
     }
@@ -454,7 +454,7 @@ export function RiskCenterDashboard() {
           count: String(hottestTrace.count),
           severity: hottestTrace.highestSeverity,
         }),
-        href: `/investigation-center?trace_id=${encodeURIComponent(hottestTrace.traceId)}&from=risk`,
+        href: `/events?trace_id=${encodeURIComponent(hottestTrace.traceId)}&from=risk`,
         cta: t("focusHotTraceCta"),
       });
     }
@@ -479,7 +479,7 @@ export function RiskCenterDashboard() {
         activeCount: String(silenceOverview.activeCount),
         expiringSoonCount: String(silenceOverview.expiringSoonCount),
       }),
-      href: "/investigation-center",
+      href: "/events",
       cta: t("focusSilenceHealthCta"),
     });
     return cards;
@@ -502,7 +502,7 @@ export function RiskCenterDashboard() {
         tone: "blue",
         title: t("suggestionSilenceTitle"),
         body: t("suggestionSilenceBody", { count: String(silenceOverview.expiringSoonCount) }),
-        href: "/investigation-center",
+        href: "/events",
         cta: t("suggestionSilenceCta"),
       });
     }
@@ -583,7 +583,7 @@ export function RiskCenterDashboard() {
         <Space size={4}>
           <LocalizedLink
             className="text-primary hover:underline"
-            href={`/investigation-center?trace_id=${encodeURIComponent(row.traceId)}&event_type=${encodeURIComponent(row.eventType)}&from=risk`}
+            href={`/events?trace_id=${encodeURIComponent(row.traceId)}&event_type=${encodeURIComponent(row.eventType)}&from=risk`}
             title={row.silenced ? t("openInvestigationManageSilence") : t("openInvestigation")}
           >
             🔍

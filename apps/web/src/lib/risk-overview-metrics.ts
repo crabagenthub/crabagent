@@ -1,24 +1,62 @@
-import { collectorAuthHeaders, loadApiKey, loadCollectorUrl } from "@/lib/collector";
+import { collectorAuthHeaders, loadApiKey, loadCollectorUrl, loadWorkspaceName } from "@/lib/collector";
 import { readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 import {
   loadResourceAuditEvents,
   loadResourceAuditStats,
+  type ResourceAuditEventRow,
 } from "@/lib/resource-audit-records";
-import {
-  loadShellExecSummary,
-  type ShellExecSummary,
-} from "@/lib/shell-exec-api";
+import { resolveCommandAnalysisShellTimeQueryForDateRange } from "@/lib/command-analysis-date-range";
+import type { ObserveDateRange } from "@/lib/observe-date-range";
+import { loadShellExecSummary, type ShellExecSummary } from "@/lib/shell-exec-api";
 import {
   loadSecurityAuditEvents,
   type SecurityAuditEventRow,
 } from "@/lib/security-audit-records";
 
+/**
+ * 与「命令执行」页共用同一次 `loadShellExecSummary` 结果。
+ * 展示数字取 max( totals 全量字段, loop_alerts 条数 )：旧 Collector 可能缺字段或误为 0，同响应里列表仍与页面区块一致。
+ */
+function loopAlertKpiCount(s: ShellExecSummary | undefined): number {
+  if (!s) {
+    return 0;
+  }
+  const n = s.totals as { loop_alert_total?: number } | undefined;
+  const fromTotal = n?.loop_alert_total;
+  const totalN =
+    fromTotal != null && Number.isFinite(Number(fromTotal)) ? Math.max(0, Math.floor(Number(fromTotal))) : 0;
+  const raw = s as unknown as { loop_alerts?: unknown; loopAlerts?: unknown };
+  const fromList = Math.max(
+    Array.isArray(s.loop_alerts) ? s.loop_alerts.length : 0,
+    Array.isArray(raw.loopAlerts) ? raw.loopAlerts.length : 0,
+  );
+  return Math.max(totalN, fromList);
+}
+
+function redundantReadHintKpiCount(s: ShellExecSummary | undefined): number {
+  if (!s) {
+    return 0;
+  }
+  const n = s.totals as { redundant_read_hint_total?: number } | undefined;
+  const fromTotal = n?.redundant_read_hint_total;
+  const totalN =
+    fromTotal != null && Number.isFinite(Number(fromTotal)) ? Math.max(0, Math.floor(Number(fromTotal))) : 0;
+  const raw = s as unknown as { redundant_read_hints?: unknown; redundantReadHints?: unknown };
+  const fromList = Math.max(
+    Array.isArray(s.redundant_read_hints) ? s.redundant_read_hints.length : 0,
+    Array.isArray(raw.redundantReadHints) ? raw.redundantReadHints.length : 0,
+  );
+  return Math.max(totalN, fromList);
+}
+
 export type RiskOverviewKPI = {
   totalEvents: number;
   highRiskEvents: number;
-  commandExecutions: number;
-  resourceAccesses: number;
+  /** 命令摘要中的死循环告警条数（同 trace 同命令重复 ≥ 阈值）。 */
+  commandLoopAlerts: number;
+  /** 命令摘要中的重复读类命令提示条数（同 trace 读类命令 ≥3 次）。 */
+  commandRedundantReads: number;
   policyHits: number;
   sensitiveCommands: number;
   sensitivePathAccesses: number;
@@ -104,8 +142,8 @@ export type RiskOverviewRankings = {
 const EMPTY_KPI: RiskOverviewKPI = {
   totalEvents: 0,
   highRiskEvents: 0,
-  commandExecutions: 0,
-  resourceAccesses: 0,
+  commandLoopAlerts: 0,
+  commandRedundantReads: 0,
   policyHits: 0,
   sensitiveCommands: 0,
   sensitivePathAccesses: 0,
@@ -167,37 +205,50 @@ function calculateCommandSeverity(parsed: any): "P0" | "P1" | "P2" | "P3" {
   return "P3";
 }
 
-export async function loadRiskOverviewKPI(
-  sinceMs: number | null,
-  untilMs: number | null,
-): Promise<RiskOverviewKPI> {
+export async function loadRiskOverviewKPI(dateRange: ObserveDateRange): Promise<RiskOverviewKPI> {
+  console.log("[DEBUG] loadRiskOverviewKPI called with dateRange:", dateRange);
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    console.log("[DEBUG] loadRiskOverviewKPI baseUrl:", baseUrl, "apiKey:", apiKey ? "exists" : "missing");
+    // 仅检查 baseUrl，apiKey 可选
+    if (!baseUrl) {
+      console.warn("[DEBUG] loadRiskOverviewKPI: missing baseUrl");
       return { ...EMPTY_KPI };
     }
 
+    const time = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
+    console.log("[DEBUG] loadRiskOverviewKPI time:", time);
     const params: Record<string, string | number> = {};
-    if (sinceMs != null && sinceMs > 0) {
-      params.since_ms = Math.floor(sinceMs);
+    if (time.sinceMs != null) {
+      params.since_ms = time.sinceMs;
     }
-    if (untilMs != null && untilMs > 0) {
-      params.until_ms = Math.floor(untilMs);
+    if (time.untilMs != null) {
+      params.until_ms = time.untilMs;
     }
 
     // Load resource audit stats
+    console.log("[DEBUG] loadRiskOverviewKPI loading resourceStats...");
     const resourceStats = await loadResourceAuditStats(baseUrl, apiKey, params);
-    
-    // Load shell exec summary
-    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, params);
+    console.log("[DEBUG] loadRiskOverviewKPI resourceStats:", resourceStats);
 
-    // Load security audit events for policy hits
-    const securityEventsResult = await loadSecurityAuditEvents(baseUrl, apiKey, { ...params, limit: 500 });
-    const policyHits = securityEventsResult?.items?.length ?? 0;
+    // 与执行指令页 {@link toShellTimeQuery} + appendShellParams 完全同一套时间参数
+    console.log("[DEBUG] loadRiskOverviewKPI loading shellSummary...");
+    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, time);
+    console.log("[DEBUG] loadRiskOverviewKPI shellSummary:", shellSummary);
+
+    let policyHits = 0;
+    try {
+      const securityEventsResult = await loadSecurityAuditEvents(baseUrl, apiKey, { ...params, limit: 500 });
+      policyHits = securityEventsResult?.items?.length ?? 0;
+    } catch (e) {
+      console.error("Failed to load security audit events for risk KPI (policy count):", e);
+    }
 
     const commandExecutions = shellSummary?.totals?.commands ?? 0;
     const resourceAccesses = resourceStats?.summary?.total_events ?? 0;
+    const commandLoopAlerts = loopAlertKpiCount(shellSummary);
+    const commandRedundantReads = redundantReadHintKpiCount(shellSummary);
 
     const highRiskEvents = 
       (resourceStats?.summary?.risk_sensitive_path ?? 0) +
@@ -220,8 +271,8 @@ export async function loadRiskOverviewKPI(
     return {
       totalEvents,
       highRiskEvents,
-      commandExecutions,
-      resourceAccesses,
+      commandLoopAlerts,
+      commandRedundantReads,
       policyHits,
       sensitiveCommands,
       sensitivePathAccesses,
@@ -236,20 +287,44 @@ export async function loadRiskOverviewKPI(
   }
 }
 
-export async function loadRiskOverviewTrend(
-  sinceMs: number | null,
-  untilMs: number | null,
-): Promise<RiskOverviewTrendData[]> {
+export async function loadRiskOverviewTrend(dateRange?: ObserveDateRange): Promise<RiskOverviewTrendData[]> {
+  console.log("[DEBUG] loadRiskOverviewTrend called with dateRange:", dateRange);
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    console.log("[DEBUG] loadRiskOverviewTrend baseUrl:", baseUrl, "apiKey:", apiKey ? "exists" : "missing");
+    if (!baseUrl) {
       return [];
     }
 
-    // For now, return empty array
-    // TODO: Implement trend data aggregation from collector
-    return [];
+    const b = baseUrl.replace(/\/+$/, "");
+    const sp = new URLSearchParams();
+    
+    if (dateRange) {
+      const time = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
+      if (time.sinceMs != null) {
+        sp.set("since_ms", String(time.sinceMs));
+      }
+      if (time.untilMs != null) {
+        sp.set("until_ms", String(time.untilMs));
+      }
+    }
+    sp.set("workspace_name", loadWorkspaceName());
+    const qs = sp.toString();
+    const url = `${b}${COLLECTOR_API.riskOverviewTrend}${qs ? `?${qs}` : ''}`;
+    console.log("[DEBUG] loadRiskOverviewTrend fetching:", url);
+    
+    const res = await fetch(url, {
+      headers: collectorAuthHeaders(apiKey),
+      cache: "no-store",
+    });
+    console.log("[DEBUG] loadRiskOverviewTrend response status:", res.status);
+    const data = await readCollectorFetchResult<RiskOverviewTrendData[]>(
+      res,
+      `risk overview trend HTTP ${res.status}`,
+    );
+    console.log("[DEBUG] loadRiskOverviewTrend data:", data);
+    return data ?? [];
   } catch (error) {
     console.error("Failed to load risk overview trend:", error);
     return [];
@@ -257,8 +332,7 @@ export async function loadRiskOverviewTrend(
 }
 
 export async function loadRiskOverviewDailyRiskTrends(
-  sinceMs: number | null,
-  untilMs: number | null,
+  dateRange: ObserveDateRange,
 ): Promise<RiskOverviewDailyRiskTrends> {
   const empty: RiskOverviewDailyRiskTrends = {
     resource: {
@@ -277,25 +351,32 @@ export async function loadRiskOverviewDailyRiskTrends(
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    if (!baseUrl) {
       return empty;
     }
     const b = baseUrl.replace(/\/+$/, "");
     const sp = new URLSearchParams();
-    if (sinceMs != null && sinceMs > 0) {
-      sp.set("since_ms", String(Math.floor(sinceMs)));
+    const t = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
+    if (t.sinceMs != null) {
+      sp.set("since_ms", String(t.sinceMs));
     }
-    if (untilMs != null && untilMs > 0) {
-      sp.set("until_ms", String(Math.floor(untilMs)));
+    if (t.untilMs != null) {
+      sp.set("until_ms", String(t.untilMs));
     }
-    const res = await fetch(`${b}${COLLECTOR_API.riskOverviewDailyRiskTrends}?${sp.toString()}`, {
+    sp.set("workspace_name", loadWorkspaceName());
+    const url = `${b}${COLLECTOR_API.riskOverviewDailyRiskTrends}?${sp.toString()}`;
+    console.log("[DEBUG] loadRiskOverviewDailyRiskTrends fetching:", url);
+    const res = await fetch(url, {
       headers: collectorAuthHeaders(apiKey),
       cache: "no-store",
     });
-    return await readCollectorFetchResult<RiskOverviewDailyRiskTrends>(
+    console.log("[DEBUG] loadRiskOverviewDailyRiskTrends response status:", res.status);
+    const data = await readCollectorFetchResult<RiskOverviewDailyRiskTrends>(
       res,
       `risk overview daily trends HTTP ${res.status}`,
     );
+    console.log("[DEBUG] loadRiskOverviewDailyRiskTrends data:", data);
+    return data;
   } catch (error) {
     console.error("Failed to load risk overview daily risk trends:", error);
     return empty;
@@ -303,26 +384,26 @@ export async function loadRiskOverviewDailyRiskTrends(
 }
 
 export async function loadRiskOverviewDistribution(
-  sinceMs: number | null,
-  untilMs: number | null,
+  dateRange: ObserveDateRange,
 ): Promise<RiskOverviewDistribution> {
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    if (!baseUrl) {
       return { ...EMPTY_DISTRIBUTION };
     }
 
+    const time = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
     const params: Record<string, string | number> = {};
-    if (sinceMs != null && sinceMs > 0) {
-      params.since_ms = Math.floor(sinceMs);
+    if (time.sinceMs != null) {
+      params.since_ms = time.sinceMs;
     }
-    if (untilMs != null && untilMs > 0) {
-      params.until_ms = Math.floor(untilMs);
+    if (time.untilMs != null) {
+      params.until_ms = time.untilMs;
     }
 
     const resourceStats = await loadResourceAuditStats(baseUrl, apiKey, params);
-    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, params);
+    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, time);
 
     // Calculate severity distribution from resource stats
     const severity: RiskOverviewDistribution["severity"] = {
@@ -382,26 +463,26 @@ export async function loadRiskOverviewDistribution(
 }
 
 export async function loadRiskOverviewTopList(
-  sinceMs: number | null,
-  untilMs: number | null,
+  dateRange: ObserveDateRange,
 ): Promise<RiskOverviewTopList> {
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    if (!baseUrl) {
       return { ...EMPTY_TOP_LIST };
     }
 
+    const time = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
     const params: Record<string, string | number> = {};
-    if (sinceMs != null && sinceMs > 0) {
-      params.since_ms = Math.floor(sinceMs);
+    if (time.sinceMs != null) {
+      params.since_ms = time.sinceMs;
     }
-    if (untilMs != null && untilMs > 0) {
-      params.until_ms = Math.floor(untilMs);
+    if (time.untilMs != null) {
+      params.until_ms = time.untilMs;
     }
 
     const resourceStats = await loadResourceAuditStats(baseUrl, apiKey, params);
-    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, params);
+    const shellSummary = await loadShellExecSummary(baseUrl, apiKey, time);
 
     // High risk events from top resources
     const highRiskEvents = (resourceStats?.top_resources ?? []).slice(0, 10).map((r) => ({
@@ -455,22 +536,22 @@ export async function loadRiskOverviewTopList(
 }
 
 export async function loadRiskOverviewRankings(
-  sinceMs: number | null,
-  untilMs: number | null,
+  dateRange: ObserveDateRange,
 ): Promise<RiskOverviewRankings> {
   try {
     const baseUrl = loadCollectorUrl();
     const apiKey = loadApiKey();
-    if (!baseUrl || !apiKey) {
+    if (!baseUrl) {
       return { ...EMPTY_RANKINGS };
     }
 
+    const time = resolveCommandAnalysisShellTimeQueryForDateRange(dateRange);
     const params: Record<string, string | number> = {};
-    if (sinceMs != null && sinceMs > 0) {
-      params.since_ms = Math.floor(sinceMs);
+    if (time.sinceMs != null) {
+      params.since_ms = time.sinceMs;
     }
-    if (untilMs != null && untilMs > 0) {
-      params.until_ms = Math.floor(untilMs);
+    if (time.untilMs != null) {
+      params.until_ms = time.untilMs;
     }
 
     const [resourceStats, resourceEvents, shellSummary] = await Promise.all([
@@ -479,13 +560,10 @@ export async function loadRiskOverviewRankings(
         limit: 200,
         offset: 0,
         order: "desc",
-        sinceMs: sinceMs ?? undefined,
-        untilMs: untilMs ?? undefined,
+        sinceMs: time.sinceMs,
+        untilMs: time.untilMs,
       }),
-      loadShellExecSummary(baseUrl, apiKey, {
-        sinceMs: sinceMs ?? undefined,
-        untilMs: untilMs ?? undefined,
-      }),
+      loadShellExecSummary(baseUrl, apiKey, time),
     ]);
 
     const resourceTopResources = (resourceStats?.top_resources ?? []).slice(0, 10).map((x) => ({

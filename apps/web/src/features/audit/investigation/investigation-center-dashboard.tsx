@@ -2,7 +2,7 @@
 
 import "@/lib/arco-react19-setup";
 import { Button, Card, Popover, Space, Spin, Table, Tag, Typography } from "@arco-design/web-react";
-import { IconQuestionCircle, IconRefresh, IconSearch, IconClockCircle } from "@arco-design/web-react/icon";
+import { IconQuestionCircle, IconRefresh, IconSearch, IconClockCircle, IconExclamationCircle } from "@arco-design/web-react/icon";
 import type { TableColumnProps } from "@arco-design/web-react";
 import ArcoPagination from "@arco-design/web-react/es/Pagination";
 import { useQuery } from "@tanstack/react-query";
@@ -17,9 +17,10 @@ import { TraceRecordInspectDialog } from "@/features/observe/traces/components/t
 import { TraceCopyIconButton } from "@/shared/components/trace-copy-icon-button";
 import { ObserveTableHeaderLabel } from "@/components/observe-table-header-label";
 import { toast } from "@/components/ui/feedback";
+import { statusBandPillClass } from "@/lib/trace-records";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
 import { COLLECTOR_QUERY_SCOPE } from "@/lib/collector-api-paths";
-import { defaultObserveDateRange, resolveObserveSinceUntil } from "@/lib/observe-date-range";
+import { defaultObserveDateRange, readStoredObserveDateRange, resolveObserveSinceUntil, writeStoredObserveDateRange } from "@/lib/observe-date-range";
 import { parseObserveDateRangeFromListUrl } from "@/lib/observe-list-deep-link";
 import {
   loadShellExecList,
@@ -45,6 +46,7 @@ import { PAGE_SIZE_OPTIONS, readStoredPageSize, writeStoredPageSize } from "@/li
 import { formatTraceDateTimeFromMs } from "@/lib/trace-datetime";
 import { formatShortId } from "@/lib/utils";
 import type { TraceRecordRow } from "@/lib/trace-records";
+import type { ShellParsedLite } from "@/lib/shell-exec-api";
 
 type TimelineRow = {
   key: string;
@@ -88,6 +90,29 @@ function applyRangeToQuery(sp: URLSearchParams, range: ReturnType<typeof default
   }
 }
 
+function shellRiskTagsForCommandRow(
+  p: ShellParsedLite | null | undefined,
+  t: (k: string) => string,
+): { key: string; color: string; label: string }[] {
+  if (!p) {
+    return [];
+  }
+  const out: { key: string; color: string; label: string }[] = [];
+  if (p.tokenRisk) {
+    out.push({ key: "token", color: "orangered", label: t("riskTag") });
+  }
+  if (p.commandNotFound) {
+    out.push({ key: "cnf", color: "red", label: t("riskChipNotFound") });
+  }
+  if (p.permissionDenied) {
+    out.push({ key: "pd", color: "orangered", label: t("riskChipPerm") });
+  }
+  if (p.illegalArgHint) {
+    out.push({ key: "arg", color: "gold", label: t("riskChipArg") });
+  }
+  return out;
+}
+
 function sourcePageLabel(t: ReturnType<typeof useTranslations>, sourcePage: TimelineRow["sourcePage"]): string {
   if (sourcePage === "/command-analysis") {
     return t("sourcePageCommand");
@@ -111,6 +136,40 @@ function replaceUrlIfChanged(
   router.replace(nextQs ? `${pathname}?${nextQs}` : pathname);
 }
 
+function resFlagLabel(
+  t: ReturnType<typeof useTranslations<"ResourceAudit">>,
+  f: string,
+): string {
+  switch (f) {
+    case "sensitive_path":
+      return t("flagSensitivePath");
+    case "pii_hint":
+      return t("flagPiiHint");
+    case "large_read":
+      return t("flagLargeRead");
+    case "redundant_read":
+      return t("flagRedundantRead");
+    default:
+      return f;
+  }
+}
+
+function resFlagColor(f: string): string {
+  if (f === "sensitive_path") {
+    return "red";
+  }
+  if (f === "pii_hint") {
+    return "orangered";
+  }
+  if (f === "large_read") {
+    return "orange";
+  }
+  if (f === "redundant_read") {
+    return "arcoblue";
+  }
+  return "gray";
+}
+
 export function InvestigationCenterDashboard() {
   const tNav = useTranslations("Nav");
   const t = useTranslations("InvestigationCenter");
@@ -121,7 +180,10 @@ export function InvestigationCenterDashboard() {
   const router = useRouter();
   const traceId = searchParams.get("trace_id")?.trim() ?? "";
   const eventTypeFromUrl = searchParams.get("event_type")?.trim() ?? "";
-  const keywordFromUrl = searchParams.get("keyword")?.trim() ?? "";
+  const legacyKeywordFromUrl = searchParams.get("keyword")?.trim() ?? "";
+  const commandKeywordFromUrl = searchParams.get("keyword_command")?.trim() ?? "";
+  const resourceKeywordFromUrl = searchParams.get("keyword_resource")?.trim() ?? "";
+  const policyKeywordFromUrl = searchParams.get("keyword_policy_hit")?.trim() ?? "";
   const timelinePageFromUrlRaw = Number.parseInt(searchParams.get("page")?.trim() ?? "1", 10);
   const timelinePageSizeFromUrlRaw = Number.parseInt(searchParams.get("page_size")?.trim() ?? "20", 10);
   const timelinePageFromUrl = Number.isFinite(timelinePageFromUrlRaw) && timelinePageFromUrlRaw > 0 ? timelinePageFromUrlRaw : 1;
@@ -137,9 +199,27 @@ export function InvestigationCenterDashboard() {
         : "command",
     [eventTypeFromUrl],
   );
+  const activeKeywordFromUrl = useMemo(() => {
+    if (eventTypeFilterFromQuery === "command") {
+      return commandKeywordFromUrl || legacyKeywordFromUrl;
+    }
+    if (eventTypeFilterFromQuery === "resource") {
+      return resourceKeywordFromUrl || legacyKeywordFromUrl;
+    }
+    return policyKeywordFromUrl || legacyKeywordFromUrl;
+  }, [
+    commandKeywordFromUrl,
+    eventTypeFilterFromQuery,
+    legacyKeywordFromUrl,
+    policyKeywordFromUrl,
+    resourceKeywordFromUrl,
+  ]);
   const [mounted, setMounted] = useState(false);
   const [eventTypeFilter, setEventTypeFilter] = useState<TimelineRow["eventType"]>(eventTypeFilterFromQuery);
-  const [keyword, setKeyword] = useState(keywordFromUrl);
+  const [keyword, setKeyword] = useState(activeKeywordFromUrl);
+  const [commandDateRange, setCommandDateRange] = useState(defaultObserveDateRange);
+  const [resourceDateRange, setResourceDateRange] = useState(defaultObserveDateRange);
+  const [policyDateRange, setPolicyDateRange] = useState(defaultObserveDateRange);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [timelinePage, setTimelinePage] = useState(timelinePageFromUrl);
@@ -178,34 +258,39 @@ export function InvestigationCenterDashboard() {
   }, [baseUrl, apiKey, t]);
   const lastIssuedQsRef = useRef<string>("");
   const observeNowAnchorRef = useRef<number>(Date.now());
-  const dateRange = useMemo(
-    () => parseObserveDateRangeFromListUrl(new URLSearchParams(searchParams.toString())) ?? defaultObserveDateRange(),
-    [searchParams],
-  );
+  const dateRange = useMemo(() => {
+    if (eventTypeFilterFromQuery === "resource") {
+      return resourceDateRange;
+    }
+    if (eventTypeFilterFromQuery === "policy_hit") {
+      return policyDateRange;
+    }
+    return commandDateRange;
+  }, [commandDateRange, eventTypeFilterFromQuery, policyDateRange, resourceDateRange]);
   const { sinceMs, untilMs } = useMemo(
     () => resolveObserveSinceUntil(dateRange, observeNowAnchorRef.current),
     [dateRange],
   );
-  const observeWindowFromUrl = searchParams.get("observe_window")?.trim() ?? "";
-  const sinceMsFromUrlRaw = searchParams.get("since_ms")?.trim() ?? "";
-  const untilMsFromUrlRaw = searchParams.get("until_ms")?.trim() ?? "";
   const filterResetSignature = useMemo(
     () =>
       [
         traceId,
         eventTypeFilterFromQuery,
-        keywordFromUrl,
-        observeWindowFromUrl,
-        sinceMsFromUrlRaw,
-        untilMsFromUrlRaw,
+        activeKeywordFromUrl,
+        commandKeywordFromUrl,
+        resourceKeywordFromUrl,
+        policyKeywordFromUrl,
+        dateRange.kind,
+        dateRange.kind === "preset" ? dateRange.preset : `${dateRange.startMs}-${dateRange.endMs}`,
       ].join("|"),
     [
+      activeKeywordFromUrl,
       eventTypeFilterFromQuery,
-      keywordFromUrl,
-      observeWindowFromUrl,
-      sinceMsFromUrlRaw,
+      commandKeywordFromUrl,
+      resourceKeywordFromUrl,
+      policyKeywordFromUrl,
+      dateRange,
       traceId,
-      untilMsFromUrlRaw,
     ],
   );
   const lastFilterResetSignatureRef = useRef<string>("");
@@ -214,19 +299,32 @@ export function InvestigationCenterDashboard() {
     setMounted(true);
     setBaseUrl(loadCollectorUrl());
     setApiKey(loadApiKey());
+    const stored = readStoredObserveDateRange();
+    if (stored) {
+      setCommandDateRange(stored);
+      setResourceDateRange(stored);
+      setPolicyDateRange(stored);
+    }
   }, []);
   useEffect(() => {
     setEventTypeFilter(eventTypeFilterFromQuery);
   }, [eventTypeFilterFromQuery]);
   useEffect(() => {
-    setKeyword(keywordFromUrl);
-  }, [keywordFromUrl]);
+    setKeyword(activeKeywordFromUrl);
+  }, [activeKeywordFromUrl]);
   const latestSearchParams = useCallback(() => {
     if (typeof window !== "undefined") {
       return new URLSearchParams(window.location.search);
     }
     return new URLSearchParams(searchParams.toString());
   }, [searchParams]);
+  const getMutableBaseSearchParams = useCallback(() => {
+    const pending = lastIssuedQsRef.current.trim();
+    if (pending) {
+      return new URLSearchParams(pending);
+    }
+    return latestSearchParams();
+  }, [latestSearchParams]);
   useEffect(() => {
     const currentQs = searchParams.toString();
     if (lastIssuedQsRef.current === currentQs) {
@@ -236,7 +334,8 @@ export function InvestigationCenterDashboard() {
   const replaceUrlIfChangedDedupe = useCallback(
     (current: URLSearchParams, nextQs: string) => {
       const currentQs = current.toString();
-      if (currentQs !== nextQs && lastIssuedQsRef.current === nextQs) {
+      const lastIssued = lastIssuedQsRef.current;
+      if (currentQs !== nextQs && lastIssued !== "" && lastIssued === nextQs) {
         return;
       }
       if (currentQs !== nextQs) {
@@ -263,89 +362,216 @@ export function InvestigationCenterDashboard() {
         return;
       }
       setEventTypeFilter(nextType);
-      const currentSp = latestSearchParams();
+      const currentSp = getMutableBaseSearchParams();
       const qs = buildSearchParamsString(currentSp, {
         event_type: nextType,
         page: null,
       });
       replaceUrlIfChangedDedupe(currentSp, qs);
     },
-    [eventTypeFilterFromQuery, latestSearchParams, replaceUrlIfChangedDedupe],
+    [commandDateRange.kind, eventTypeFilterFromQuery, getMutableBaseSearchParams, policyDateRange.kind, replaceUrlIfChangedDedupe, resourceDateRange.kind],
   );
   const setKeywordInUrl = useCallback(
     (nextKeyword: string) => {
       setKeyword(nextKeyword);
-      const currentSp = latestSearchParams();
+      const currentSp = getMutableBaseSearchParams();
+      const nextEventType = eventTypeFilterFromQuery;
       const qs = buildSearchParamsString(currentSp, {
-        keyword: nextKeyword,
+        keyword: null,
+        keyword_command: nextEventType === "command" ? nextKeyword : undefined,
+        keyword_resource: nextEventType === "resource" ? nextKeyword : undefined,
+        keyword_policy_hit: nextEventType === "policy_hit" ? nextKeyword : undefined,
         page: null,
       });
       replaceUrlIfChangedDedupe(currentSp, qs);
     },
-    [latestSearchParams, replaceUrlIfChangedDedupe],
+    [eventTypeFilterFromQuery, getMutableBaseSearchParams, replaceUrlIfChangedDedupe],
   );
-  const setDateRangeInUrl = useCallback(
+  const setDateRangePersist = useCallback(
     (nextRange: ReturnType<typeof defaultObserveDateRange>) => {
+      if (eventTypeFilterFromQuery === "resource") {
+        setResourceDateRange(nextRange);
+      } else if (eventTypeFilterFromQuery === "policy_hit") {
+        setPolicyDateRange(nextRange);
+      } else {
+        setCommandDateRange(nextRange);
+      }
+      writeStoredObserveDateRange(nextRange);
       const sp = new URLSearchParams(searchParams.toString());
-      applyRangeToQuery(sp, nextRange);
+      for (const key of [
+        "observe_window",
+        "since_ms",
+        "until_ms",
+        "observe_window_command",
+        "since_ms_command",
+        "until_ms_command",
+        "observe_window_resource",
+        "since_ms_resource",
+        "until_ms_resource",
+        "observe_window_policy_hit",
+        "since_ms_policy_hit",
+        "until_ms_policy_hit",
+      ]) {
+        sp.delete(key);
+      }
       const qs = sp.toString();
       replaceUrlIfChangedDedupe(searchParams, qs);
     },
-    [replaceUrlIfChangedDedupe, searchParams],
+    [eventTypeFilterFromQuery, replaceUrlIfChangedDedupe, searchParams],
   );
   const setTimelinePaginationInUrl = useCallback(
     (nextPage: number, nextPageSize: number) => {
       const safePage = Math.max(1, Math.floor(nextPage) || 1);
       const safePageSize = [20, 50, 100].includes(nextPageSize) ? nextPageSize : 20;
-      const currentSp = latestSearchParams();
+      const currentSp = getMutableBaseSearchParams();
       const qs = buildSearchParamsString(currentSp, {
         page: safePage === 1 ? null : String(safePage),
         page_size: safePageSize === 20 ? null : String(safePageSize),
       });
       replaceUrlIfChangedDedupe(currentSp, qs);
     },
-    [latestSearchParams, replaceUrlIfChangedDedupe, timelinePage, timelinePageSize],
+    [getMutableBaseSearchParams, replaceUrlIfChangedDedupe, timelinePage, timelinePageSize],
   );
 
   const enabled = mounted && Boolean(baseUrl.trim());
   const timelineOffset = useMemo(() => Math.max(0, (timelinePage - 1) * timelinePageSize), [timelinePage, timelinePageSize]);
   
+  // Smart search detection: determine if keyword is step_id(span_id), message_id(trace_id), or generic keyword.
+  const searchDetection = useMemo(() => {
+    const raw = activeKeywordFromUrl.trim();
+    if (!raw) {
+      return { type: "none" as const, value: undefined };
+    }
+    const prefixedMatch = raw.match(/^(message|msg|trace|step|span|execution_step)\s*[:=]\s*(.+)$/i);
+    if (prefixedMatch) {
+      const prefix = prefixedMatch[1]!.toLowerCase();
+      const value = prefixedMatch[2]!.trim();
+      if (!value) {
+        return { type: "none" as const, value: undefined };
+      }
+      if (prefix === "message" || prefix === "msg" || prefix === "trace") {
+        return { type: "trace_id" as const, value };
+      }
+      return { type: "span_id" as const, value };
+    }
+
+    const looksLikeUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
+    if (looksLikeUuid) {
+      return { type: "uuid_ambiguous" as const, value: raw.toLowerCase() };
+    }
+
+    const normalized = raw.replace(/-/g, "");
+    if (/^[a-f0-9]{8,16}$/i.test(normalized)) {
+      return { type: "span_id" as const, value: normalized };
+    }
+    if (/^[a-f0-9]{32,}$/i.test(normalized)) {
+      return { type: "trace_id" as const, value: normalized };
+    }
+
+    return { type: "keyword" as const, value: raw };
+  }, [activeKeywordFromUrl]);
+  const commandTraceIdParam = traceId || (searchDetection.type === "trace_id" ? searchDetection.value : undefined) || undefined;
+  const commandSpanIdParam = searchDetection.type === "span_id" ? searchDetection.value : undefined;
+  const commandContainsParam = searchDetection.type === "keyword" ? searchDetection.value : undefined;
+  const commandUuidAmbiguousParam = searchDetection.type === "uuid_ambiguous" ? searchDetection.value : undefined;
+
+  const resourceTraceIdParam =
+    traceId || (searchDetection.type === "trace_id" ? searchDetection.value : undefined) || undefined;
+  const resourceSpanIdParam = searchDetection.type === "span_id" ? searchDetection.value : undefined;
+  const resourceSearchParam = searchDetection.type === "keyword" ? searchDetection.value : undefined;
+  const resourceUuidAmbiguousParam = searchDetection.type === "uuid_ambiguous" ? searchDetection.value : undefined;
+
   const commandQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecList, baseUrl, apiKey, { sinceMs, untilMs, traceId: traceId || undefined, commandContains: keywordFromUrl || undefined, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const }],
-    queryFn: () => loadShellExecList(baseUrl, apiKey, {
-      sinceMs: sinceMs ?? undefined,
-      untilMs: untilMs ?? undefined,
-      traceId: traceId || undefined,
-      commandContains: keywordFromUrl || undefined,
-      limit: timelinePageSize,
-      offset: timelineOffset,
-      order: "desc",
-    }),
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecList, baseUrl, apiKey, { sinceMs, untilMs, traceId: commandTraceIdParam, spanId: commandSpanIdParam, commandContains: commandContainsParam, uuidAmbiguous: commandUuidAmbiguousParam, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const }],
+    queryFn: async () => {
+      const common = {
+        sinceMs: sinceMs ?? undefined,
+        untilMs: untilMs ?? undefined,
+        limit: timelinePageSize,
+        offset: timelineOffset,
+        order: "desc" as const,
+      };
+      if (commandUuidAmbiguousParam) {
+        const traceFirst = await loadShellExecList(baseUrl, apiKey, {
+          ...common,
+          traceId: commandUuidAmbiguousParam,
+        });
+        if (traceFirst.total > 0) {
+          return traceFirst;
+        }
+        const spanFallback = await loadShellExecList(baseUrl, apiKey, {
+          ...common,
+          spanId: commandUuidAmbiguousParam,
+        });
+        return spanFallback;
+      }
+      return loadShellExecList(baseUrl, apiKey, {
+        ...common,
+        traceId: commandTraceIdParam,
+        spanId: commandSpanIdParam,
+        commandContains: commandContainsParam,
+      });
+    },
     enabled: enabled && eventTypeFilterFromQuery === "command",
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
-
   const resourceQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.resourceAuditEvents, baseUrl, apiKey, { sinceMs, untilMs, trace_id: traceId || undefined, search: keywordFromUrl || undefined, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const, semantic_class: "all" as const, uri_prefix: undefined }],
-    queryFn: () => loadResourceAuditEvents(baseUrl, apiKey, {
-      sinceMs: sinceMs ?? undefined,
-      untilMs: untilMs ?? undefined,
-      trace_id: traceId || undefined,
-      search: keywordFromUrl || undefined,
-      limit: timelinePageSize,
-      offset: timelineOffset,
-      order: "desc",
-      semantic_class: "all",
-      uri_prefix: undefined,
-    }),
+    queryKey: [
+      COLLECTOR_QUERY_SCOPE.resourceAuditEvents,
+      baseUrl,
+      apiKey,
+      {
+        sinceMs,
+        untilMs,
+        trace_id: resourceTraceIdParam,
+        span_id: resourceSpanIdParam,
+        search: resourceSearchParam,
+        uuidAmbiguous: resourceUuidAmbiguousParam,
+        limit: timelinePageSize,
+        offset: timelineOffset,
+        order: "desc" as const,
+        semantic_class: "all" as const,
+        uri_prefix: undefined,
+      },
+    ],
+    queryFn: async () => {
+      const common = {
+        sinceMs: sinceMs ?? undefined,
+        untilMs: untilMs ?? undefined,
+        limit: timelinePageSize,
+        offset: timelineOffset,
+        order: "desc" as const,
+        semantic_class: "all" as const,
+        uri_prefix: undefined,
+      };
+      if (resourceUuidAmbiguousParam) {
+        const traceFirst = await loadResourceAuditEvents(baseUrl, apiKey, {
+          ...common,
+          trace_id: resourceUuidAmbiguousParam,
+        });
+        if (traceFirst.total > 0) {
+          return traceFirst;
+        }
+        return loadResourceAuditEvents(baseUrl, apiKey, {
+          ...common,
+          span_id: resourceUuidAmbiguousParam,
+        });
+      }
+      return loadResourceAuditEvents(baseUrl, apiKey, {
+        ...common,
+        trace_id: resourceTraceIdParam,
+        span_id: resourceSpanIdParam,
+        search: resourceSearchParam,
+      });
+    },
     enabled: enabled && eventTypeFilterFromQuery === "resource",
     placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
-
   const securityQuery = useQuery({
     queryKey: [COLLECTOR_QUERY_SCOPE.securityAuditEvents, baseUrl, apiKey, { sinceMs, untilMs, traceId: traceId || undefined, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const }],
     queryFn: () => loadSecurityAuditEvents(baseUrl, apiKey, {
@@ -370,7 +596,7 @@ export function InvestigationCenterDashboard() {
       return;
     }
     setTimelinePaginationInUrl(1, timelinePageSize);
-  }, [filterResetSignature, timelinePageFromUrl, timelinePageSize, traceId, sinceMs, untilMs, eventTypeFilterFromQuery, keywordFromUrl, setTimelinePaginationInUrl]);
+  }, [filterResetSignature, timelinePageFromUrl, timelinePageSize, traceId, sinceMs, untilMs, eventTypeFilterFromQuery, activeKeywordFromUrl, setTimelinePaginationInUrl]);
 
   const activeQuery = useMemo(() => {
     if (eventTypeFilterFromQuery === "command") return commandQuery;
@@ -464,17 +690,40 @@ export function InvestigationCenterDashboard() {
       title: <ObserveTableHeaderLabel>{tCmd("colCommand")}</ObserveTableHeaderLabel>,
       render: (_: unknown, row: CommandRow) => {
         const command = row.parsed?.command || "—";
-        const isLong = command.length > 100 || command.split('\n').length > 2;
+        const isLong = command.length > 100 || command.split("\n").length > 2;
         const content = (
-          <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div
+            className="text-xs"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
             {command}
           </div>
         );
-        return isLong ? (
-          <Popover content={<div className="max-w-md break-all text-xs">{command}</div>}>
-            {content}
-          </Popover>
-        ) : content;
+        const riskTags = shellRiskTagsForCommandRow(row.parsed, tCmd);
+        return (
+          <div className="flex min-w-0 flex-col items-start gap-1.5">
+            {isLong ? (
+              <Popover content={<div className="max-w-md break-all text-xs">{command}</div>}>{content}</Popover>
+            ) : (
+              content
+            )}
+            {riskTags.length > 0 ? (
+              <div className="flex max-w-full flex-wrap gap-1">
+                {riskTags.map((rt) => (
+                  <Tag key={rt.key} color={rt.color} className="!m-0 !rounded-md px-1.5 py-0.5 text-[10px] leading-tight">
+                    {rt.label}
+                  </Tag>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
       },
     },
     {
@@ -549,21 +798,50 @@ export function InvestigationCenterDashboard() {
       render: (_: unknown, row: CommandRow) => {
         const ok = row.parsed?.success;
         const ec = row.parsed?.exitCode;
-        if (ok === true) return <Tag color="green">{tCmd("okYes")}</Tag>;
-        if (ok === false) {
+        const commandNotFound = row.parsed?.commandNotFound;
+        const permissionDenied = row.parsed?.permissionDenied;
+        
+        if (ok === true) {
           return (
-            <Tag color="red">
-              {ec != null && Number.isFinite(ec) ? `exit ${ec}` : tCmd("okNo")}
-            </Tag>
+            <span className="inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-900 ring-1 ring-emerald-500/25">
+              {tCmd("statusSuccess")}
+            </span>
+          );
+        }
+        if (ok === false) {
+          const errorDetails = [];
+          if (ec != null && Number.isFinite(ec)) errorDetails.push(`Exit code: ${ec}`);
+          if (commandNotFound) errorDetails.push("Command not found");
+          if (permissionDenied) errorDetails.push("Permission denied");
+          
+          const errorTooltipContent = (
+            <div className="max-w-[22rem] space-y-2 px-3 py-2 text-left text-xs text-foreground">
+              <div className="font-medium">{tCmd("statusFailure")}</div>
+              {errorDetails.length > 0 ? (
+                <div className="space-y-1 text-[10px] leading-snug">
+                  {errorDetails.map((detail, idx) => (
+                    <p key={idx} className="m-0">{detail}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="m-0 text-[10px] leading-snug opacity-90">—</p>
+              )}
+            </div>
+          );
+          
+          return (
+            <Popover trigger="hover" position="rt" content={errorTooltipContent}>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium bg-red-500/15 text-red-800 ring-1 ring-red-500/25">
+                  {tCmd("statusFailure")}
+                </span>
+                <IconExclamationCircle className="size-3 shrink-0 text-red-500" aria-hidden />
+              </span>
+            </Popover>
           );
         }
         return "—";
       },
-    },
-    {
-      title: <ObserveTableHeaderLabel>{tCmd("colRisk")}</ObserveTableHeaderLabel>,
-      width: 88,
-      render: (_: unknown, row: CommandRow) => (row.parsed?.tokenRisk ? <Tag color="orangered">{tCmd("riskTag")}</Tag> : "—"),
     },
   ];
 
@@ -621,22 +899,34 @@ export function InvestigationCenterDashboard() {
       dataIndex: "resource_uri",
       key: "resource_uri",
       width: 280,
-      render: (uri: string) => {
+      render: (uri: string, row: ResourceRow) => {
         const displayUri = uri || "—";
         const isLong = displayUri.length > 60 || displayUri.split('\n').length > 2;
+        const flags = row.risk_flags ?? [];
         const content = (
           <div className="text-xs" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {displayUri}
           </div>
         );
         return (
-          <div className="flex items-center gap-1">
-            {isLong ? (
-              <Popover content={<div className="max-w-md break-all text-xs">{displayUri}</div>}>
-                {content}
-              </Popover>
-            ) : (
-              content
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1">
+              {isLong ? (
+                <Popover content={<div className="max-w-md break-all text-xs">{displayUri}</div>}>
+                  {content}
+                </Popover>
+              ) : (
+                content
+              )}
+            </div>
+            {flags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {flags.map((f) => (
+                  <Tag key={f} size="small" color={resFlagColor(f)} className="rounded-full px-2 py-0.5 text-[10px]">
+                    {resFlagLabel(tRes, f)}
+                  </Tag>
+                ))}
+              </div>
             )}
           </div>
         );
@@ -686,21 +976,6 @@ export function InvestigationCenterDashboard() {
       width: 100,
       render: (n: number | null) => (
         <span className="tabular-nums text-xs">{n != null ? n.toLocaleString() : "—"}</span>
-      ),
-    },
-    {
-      title: <ObserveTableHeaderLabel>{tRes("colRisk")}</ObserveTableHeaderLabel>,
-      dataIndex: "risk_flags",
-      key: "risk_flags",
-      width: 120,
-      render: (flags: string[]) => (
-        <Space size={4} wrap>
-          {(flags ?? []).map((f) => (
-            <Tag key={f} size="small" color="orangered">
-              {f}
-            </Tag>
-          ))}
-        </Space>
       ),
     },
   ];
@@ -925,7 +1200,7 @@ export function InvestigationCenterDashboard() {
                     </div>
                   </div>
                   <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 xl:flex-nowrap">
-                    <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangeInUrl} />
+                    <ObserveDateRangeTrigger value={dateRange} onChange={setDateRangePersist} />
                     <Button
                       type="outline"
                       size="small"

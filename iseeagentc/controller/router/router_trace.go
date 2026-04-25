@@ -51,6 +51,7 @@ func RegisterTrace(r *gin.Engine) {
 		traceV1.GET("/security-audit/events", GetTypedHandler(controller.SecurityAuditEvents))
 		traceV1.GET("/security-audit/policy-event-counts", GetTypedHandler(controller.SecurityAuditPolicyCounts))
 		traceV1.GET("/risk-overview/daily-risk-trends", GetTypedHandler(controller.RiskOverviewDailyTrends))
+		traceV1.GET("/risk-overview/trend", GetTypedHandler(controller.RiskOverviewTrends))
 		traceV1.GET("/investigation/timeline", GetTypedHandler(controller.InvestigationTimeline))
 		traceV1.GET("/observe-facets", GetTypedHandler(controller.ObserveFacets))
 

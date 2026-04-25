@@ -24,6 +24,7 @@ type ShellListQuery struct {
 	SinceMs         string
 	UntilMs         string
 	TraceID         string
+	SpanID          string
 	Channel         string
 	Agent           string
 	CommandContains string
@@ -98,6 +99,7 @@ func (s *TraceShellService) List(req ShellListQuery) (model.ShellExecListResult,
 			SinceMs:         parseEpochMs(req.SinceMs),
 			UntilMs:         parseEpochMs(req.UntilMs),
 			TraceID:         strings.TrimSpace(req.TraceID),
+			SpanID:          strings.TrimSpace(req.SpanID),
 			Channel:         strings.TrimSpace(req.Channel),
 			Agent:           strings.TrimSpace(req.Agent),
 			CommandContains: strings.TrimSpace(req.CommandContains),

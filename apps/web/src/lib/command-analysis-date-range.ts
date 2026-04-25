@@ -1,4 +1,5 @@
-import type { ObserveDateRange } from "@/lib/observe-date-range";
+import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
+import { toShellTimeQuery, type ShellExecQueryParams } from "@/lib/shell-exec-api";
 
 const STORAGE_KEY = "crabagent-command-analysis-date-range";
 
@@ -45,4 +46,29 @@ export function writeCommandAnalysisDateRange(next: ObserveDateRange): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * 以「与当前页一致」的 `ObserveDateRange` + `nowMs` 解析 since/until（不读 localStorage）。
+ * 风险概览 / 命令分析应优先用 React state 里的 `dateRange`，避免请求瞬间 `readCommandAnalysisDateRange()` 与 state 已写出但未对齐等边界差异。
+ */
+export function resolveCommandAnalysisShellTimeQueryForDateRange(
+  range: ObserveDateRange,
+  nowMs: number = Date.now(),
+): Pick<ShellExecQueryParams, "sinceMs" | "untilMs"> {
+  const { sinceMs, untilMs } = resolveObserveSinceUntil(range, nowMs);
+  return toShellTimeQuery(sinceMs ?? null, untilMs ?? null);
+}
+
+/**
+ * 每次发请求时调用：以 localStorage 中的指令分析时间预设 + `nowMs` 解析 since/until，再编码为 `appendShellParams` 用字段。
+ * 与「在命令分析页 F5 后」的窗口一致，避免 `useMemo([dateRange], () => resolve(..., Date.now()))` 把「滑动预设」的 until 冻在数小时前的旧 `Date.now` 上，导致与新开的风险概览 7d 窗不一致（死循环/重复读 对不齐）。
+ */
+export function resolveCommandAnalysisShellTimeQuery(
+  nowMs: number = Date.now(),
+): Pick<ShellExecQueryParams, "sinceMs" | "untilMs"> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  return resolveCommandAnalysisShellTimeQueryForDateRange(readCommandAnalysisDateRange(), nowMs);
 }

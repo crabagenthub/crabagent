@@ -448,23 +448,35 @@ export function ResourceAuditDashboard() {
         dataIndex: "resource_uri",
         key: "resource_uri",
         width: 280,
-        render: (uri: string) => {
+        render: (uri: string, row: ResourceAuditEventRow) => {
           const displayUri = formatMemorySearchUriForDisplay(uri);
+          const flags = row.risk_flags ?? [];
           return (
-          <div className="flex items-center gap-1">
-            <Popover content={<div className="max-w-md break-all text-xs">{displayUri || "—"}</div>}>
-              <span className="text-xs">{maskUri(displayUri)}</span>
-            </Popover>
-            {uri && (
-              <TraceCopyIconButton
-                text={uri}
-                ariaLabel={t("copy")}
-                tooltipLabel={t("copy")}
-                successLabel={t("copySuccessToast")}
-                stopPropagation={true}
-              />
-            )}
-          </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-1">
+                <Popover content={<div className="max-w-md break-all text-xs">{displayUri || "—"}</div>}>
+                  <span className="text-xs">{maskUri(displayUri)}</span>
+                </Popover>
+                {uri && (
+                  <TraceCopyIconButton
+                    text={uri}
+                    ariaLabel={t("copy")}
+                    tooltipLabel={t("copy")}
+                    successLabel={t("copySuccessToast")}
+                    stopPropagation={true}
+                  />
+                )}
+              </div>
+              {flags.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {flags.map((f) => (
+                    <Tag key={f} size="small" color={flagColor(f)} className="rounded-full px-2 py-0.5 text-[10px]">
+                      {flagLabel(t, f)}
+                    </Tag>
+                  ))}
+                </div>
+              )}
+            </div>
           );
         },
       },

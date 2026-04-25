@@ -42,6 +42,10 @@ func buildExecCommandsWhere(db *sql.DB, q ShellExecBaseQuery) shellWhere {
 		parts = append(parts, `e.trace_id = ?`)
 		params = append(params, tid)
 	}
+	if sid := strings.TrimSpace(q.SpanID); sid != "" {
+		parts = append(parts, `e.span_id = ?`)
+		params = append(params, sid)
+	}
 	if wn := strings.TrimSpace(q.WorkspaceName); wn != "" {
 		parts = append(parts, `LOWER(TRIM(COALESCE(e.workspace_name, t.workspace_name, ''))) = LOWER(TRIM(?))`)
 		params = append(params, wn)

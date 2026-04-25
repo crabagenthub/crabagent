@@ -836,6 +836,10 @@ type ShellSummaryTotals struct {
 	Failed         int `json:"failed"`
 	Unknown        int `json:"unknown"`
 	TokenRiskTotal int `json:"token_risk_total"`
+	// LoopAlertTotal: 时间窗内「同 trace 同命令重复 ≥ MinRepeat」的去重条目数（未截断 TopN）。
+	LoopAlertTotal int `json:"loop_alert_total"`
+	// RedundantReadHintTotal: 时间窗内「读类命令同 trace 重复 ≥3」的去重条目数（未截断 TopN）。
+	RedundantReadHintTotal int `json:"redundant_read_hint_total"`
 }
 
 type TrendDay struct {
@@ -1210,8 +1214,8 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 				for _, x := range parsed {
 					if x.row.TraceID == tid {
 						if x.row.ThreadKey.Valid {
-							s := x.row.ThreadKey.String
-							threadKey = &s
+							threadKey = new(string)
+							*threadKey = x.row.ThreadKey.String
 						}
 						break
 					}
@@ -1225,9 +1229,7 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 	sort.Slice(loopAlerts, func(i, j int) bool {
 		return loopAlerts[i].RepeatCount > loopAlerts[j].RepeatCount
 	})
-	if len(loopAlerts) > opts.LoopAlertMaxItems {
-		loopAlerts = loopAlerts[:opts.LoopAlertMaxItems]
-	}
+	loopAlertTotal := len(loopAlerts)
 
 	var tokenRisks []TokenRiskEntry
 	for _, x := range parsed {
@@ -1291,9 +1293,7 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 	sort.Slice(redundant, func(i, j int) bool {
 		return redundant[i].Repeats > redundant[j].Repeats
 	})
-	if len(redundant) > 12 {
-		redundant = redundant[:12]
-	}
+	redundantReadHintTotal := len(redundant)
 
 	loopBuckets := map[string]int{"3-4": 0, "5-9": 0, "10+": 0}
 	for _, la := range loopAlerts {
@@ -1369,6 +1369,13 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 		}
 	}
 
+	if len(loopAlerts) > opts.LoopAlertMaxItems {
+		loopAlerts = loopAlerts[:opts.LoopAlertMaxItems]
+	}
+	if len(redundant) > 12 {
+		redundant = redundant[:12]
+	}
+
 	dailyLoopAlerts := make([]DateCount, 0, len(days))
 	dailyRedundantReadHints := make([]DateCount, 0, len(days))
 	dailyTokenRiskAlerts := make([]DateCount, 0, len(days))
@@ -1392,7 +1399,9 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 		Totals: ShellSummaryTotals{
 			Commands: len(parsed), DistinctTraces: len(traceIDs),
 			Success: success, Failed: failed, Unknown: unknown,
-			TokenRiskTotal: tokenRiskTotal,
+			TokenRiskTotal:         tokenRiskTotal,
+			LoopAlertTotal:         loopAlertTotal,
+			RedundantReadHintTotal: redundantReadHintTotal,
 		},
 		CategoryBreakdown:       catBreak,
 		SuccessTrend:            successTrend,

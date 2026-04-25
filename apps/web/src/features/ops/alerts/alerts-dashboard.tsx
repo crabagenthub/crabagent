@@ -1269,7 +1269,7 @@ export function AlertsDashboard() {
                     </Tag>
                   )}
                   <LocalizedLink
-                    href={`${source === "risk" ? "/risk-center" : "/investigation-center"}?trace_id=${encodeURIComponent(traceIdFromUrl)}${spanIdFromUrl ? `&span_id=${encodeURIComponent(spanIdFromUrl)}` : ""}`}
+                    href={`${source === "risk" ? "/risk-center" : "/events"}?trace_id=${encodeURIComponent(traceIdFromUrl)}${spanIdFromUrl ? `&span_id=${encodeURIComponent(spanIdFromUrl)}` : ""}`}
                     className="inline-block text-xs font-medium text-primary underline-offset-2 hover:underline"
                   >
                     {source === "risk" ? t("backToRiskCenter") : t("backToInvestigation")}

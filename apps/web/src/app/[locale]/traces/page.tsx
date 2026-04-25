@@ -154,7 +154,7 @@ export default function TracesPage() {
         router.replace(pathname);
       }
     },
-    [pathname, router, searchParams],
+    [listKind, pathname, router, searchParams],
   );
 
   const [baseUrl, setBaseUrl] = useState("");
@@ -333,7 +333,7 @@ export default function TracesPage() {
         router.replace(qs ? `${pathname}?${qs}` : pathname);
       }
     },
-    [updateCurrentUi, searchParams, pathname, router],
+    [listKind, updateCurrentUi, searchParams, pathname, router],
   );
 
   const setFilterChannel = useCallback((next: string) => {

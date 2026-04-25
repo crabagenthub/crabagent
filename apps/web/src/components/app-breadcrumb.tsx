@@ -61,7 +61,7 @@ export function AppBreadcrumb() {
       return [{ label: tNav("groupAudit") }, { label: tNav("riskCenter") }];
     }
 
-    if (p === "/investigation-center" || p.startsWith("/investigation-center?")) {
+    if (p === "/events" || p.startsWith("/events?")) {
       return [{ label: tNav("groupAudit") }, { label: tNav("investigationCenter") }];
     }
 

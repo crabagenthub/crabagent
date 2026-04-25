@@ -268,6 +268,7 @@ export async function loadResourceAuditStats(
   apiKey: string,
   params: Omit<LoadResourceAuditEventsParams, "limit" | "offset" | "order">,
 ): Promise<ResourceAuditStats> {
+  console.log("[DEBUG] loadResourceAuditStats called");
   const b = baseUrl.replace(/\/+$/, "");
   const sp = new URLSearchParams();
   if (params.search?.trim()) {
@@ -295,10 +296,14 @@ export async function loadResourceAuditStats(
     sp.set("policy_id", params.policy_id.trim());
   }
   appendWorkspaceNameParam(sp);
-  const res = await fetch(`${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`, {
+  const url = `${b}${COLLECTOR_API.resourceAuditStats}?${sp.toString()}`;
+  console.log("[DEBUG] loadResourceAuditStats fetching:", url);
+  const res = await fetch(url, {
     headers: collectorAuthHeaders(apiKey),
   });
+  console.log("[DEBUG] loadResourceAuditStats response status:", res.status);
   const json = await readCollectorFetchResult<unknown>(res, `resource audit stats HTTP ${res.status}`);
+  console.log("[DEBUG] loadResourceAuditStats response json:", json);
   return normalizeStatsPayload(json);
 }
 

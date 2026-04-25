@@ -16,6 +16,8 @@ export type ShellParsedLite = {
   tokenRisk: boolean;
   commandNotFound: boolean;
   permissionDenied: boolean;
+  /** stderr / usage-pattern heuristic (see collector shellexec). */
+  illegalArgHint?: boolean;
   cwd: string | null;
   userId: string | null;
   host: string | null;
@@ -43,6 +45,10 @@ export type ShellExecSummary = {
     unknown: number;
     /** 当前摘要扫描范围内命中 Token 风险启发式的条数（与 token_risks 列表 TopN 无关）。 */
     token_risk_total?: number;
+    /** 同 trace 内同命令重复 ≥ 阈值的告警条数（全量，未截断 TopN）。 */
+    loop_alert_total?: number;
+    /** 读类命令在同一 trace 内重复 ≥3 的提示条数（全量，未截断 TopN）。 */
+    redundant_read_hint_total?: number;
   };
   category_breakdown: Record<ShellCommandCategory, number>;
   success_trend: { day: string; total: number; failed: number }[];
@@ -119,12 +125,27 @@ export type ShellExecQueryParams = {
   sinceMs?: number;
   untilMs?: number;
   traceId?: string;
+  spanId?: string;
   channel?: string;
   agent?: string;
   commandContains?: string;
   minDurationMs?: number;
   maxDurationMs?: number;
 };
+
+/**
+ * 与「执行指令/命令分析」页一致地编码 `since_ms` / `until_ms`（向下取整、排除 NaN），
+ * 与 {@link appendShellParams} 行为一致；风险概览等应复用，避免与 summary 的查询参数漂移到 0 条。
+ */
+export function toShellTimeQuery(
+  sinceMs: number | null | undefined,
+  untilMs: number | null | undefined,
+): Pick<ShellExecQueryParams, "sinceMs" | "untilMs"> {
+  return {
+    sinceMs: sinceMs != null && Number.isFinite(sinceMs) ? Math.floor(sinceMs) : undefined,
+    untilMs: untilMs != null && Number.isFinite(untilMs) ? Math.floor(untilMs) : undefined,
+  };
+}
 
 function appendShellParams(sp: URLSearchParams, q: ShellExecQueryParams): void {
   appendWorkspaceNameParam(sp);
@@ -136,6 +157,9 @@ function appendShellParams(sp: URLSearchParams, q: ShellExecQueryParams): void {
   }
   if (q.traceId?.trim()) {
     sp.set("trace_id", q.traceId.trim());
+  }
+  if (q.spanId?.trim()) {
+    sp.set("span_id", q.spanId.trim());
   }
   if (q.channel?.trim()) {
     sp.set("channel", q.channel.trim());
@@ -159,14 +183,20 @@ export async function loadShellExecSummary(
   apiKey: string,
   q: ShellExecQueryParams,
 ): Promise<ShellExecSummary> {
+  console.log("[DEBUG] loadShellExecSummary called");
   const b = baseUrl.replace(/\/+$/, "");
   const sp = new URLSearchParams();
   appendShellParams(sp, q);
-  const res = await fetch(`${b}${COLLECTOR_API.shellExecSummary}?${sp.toString()}`, {
+  const url = `${b}${COLLECTOR_API.shellExecSummary}?${sp.toString()}`;
+  console.log("[DEBUG] loadShellExecSummary fetching:", url);
+  const res = await fetch(url, {
     headers: collectorAuthHeaders(apiKey),
     cache: "no-store",
   });
-  return readCollectorFetchResult<ShellExecSummary>(res, `shell summary HTTP ${res.status}`);
+  console.log("[DEBUG] loadShellExecSummary response status:", res.status);
+  const result = await readCollectorFetchResult<ShellExecSummary>(res, `shell summary HTTP ${res.status}`);
+  console.log("[DEBUG] loadShellExecSummary result:", result);
+  return result;
 }
 
 export async function loadShellExecList(

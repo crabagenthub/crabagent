@@ -35,7 +35,6 @@ import {
 import { readWorkspaceName, saveWorkspaceName, WORKSPACE_FILTER_EVENT, WORKSPACE_OPTIONS, type WorkspaceName } from "@/lib/workspace-filter";
 import {
   NavIconAlerts,
-  NavIconCommandExec,
   NavIconDataSecurity,
   NavIconMetrics,
   NavIconOverview,
@@ -507,7 +506,7 @@ export function SiteNav() {
   const observeItems: NavDef[] = useMemo(
     () => [
       { href: "/observe/overview", label: t("metrics"), Icon: NavIconMetrics },
-      { href: "/traces", label: t("traces"), Icon: NavIconTraces },
+      { href: "/traces?kind=threads", label: t("traces"), Icon: NavIconTraces },
     ],
     [t],
   );
@@ -515,9 +514,7 @@ export function SiteNav() {
   const auditItems: NavDef[] = useMemo(
     () => [
       { href: "/risk-overview", label: t("riskOverview"), Icon: NavIconResourceAudit },
-      { href: "/investigation-center", label: t("investigationCenter"), Icon: NavIconResourceAudit },
-      { href: "/resource-audit", label: t("resourceAudit"), Icon: NavIconResourceAudit },
-      { href: "/command-analysis", label: t("commandAnalysis"), Icon: NavIconCommandExec },
+      { href: "/events", label: t("investigationCenter"), Icon: NavIconResourceAudit },
     ],
     [t],
   );

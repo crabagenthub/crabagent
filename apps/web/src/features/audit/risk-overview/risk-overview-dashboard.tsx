@@ -17,20 +17,19 @@ import {
 } from "@/lib/observe-table-style";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { ReactEChart } from "@/shared/components/react-echart";
 import { AppPageShell } from "@/shared/components/app-page-shell";
 import { CRABAGENT_COLLECTOR_SETTINGS_EVENT } from "@/components/collector-settings-form";
 import { MessageHint, TitleHintIcon } from "@/shared/components/message-hint";
 import { ObserveDateRangeTrigger } from "@/shared/components/observe-date-range-trigger";
 import { loadApiKey, loadCollectorUrl } from "@/lib/collector";
+import { resolveObserveSinceUntil, type ObserveDateRange } from "@/lib/observe-date-range";
 import {
-  defaultObserveDateRange,
-  readStoredObserveDateRange,
-  resolveObserveSinceUntil,
-  writeStoredObserveDateRange,
-  type ObserveDateRange,
-} from "@/lib/observe-date-range";
+  defaultCommandAnalysisDateRange,
+  readCommandAnalysisDateRange,
+  writeCommandAnalysisDateRange,
+} from "@/lib/command-analysis-date-range";
 import { cn } from "@/lib/utils";
 import { LocalizedLink } from "@/shared/components/localized-link";
 import type { TableColumnProps } from "@arco-design/web-react";
@@ -46,9 +45,9 @@ import {
   type RiskOverviewTrendData,
 } from "@/lib/risk-overview-metrics";
 import {
-  riskTrendLineOption,
   eventTypePieOption,
-  riskMultiTrendLineOption,
+  riskTrendLineOption,
+  singleMetricLineOption,
 } from "@/lib/risk-overview-echarts-options";
 
 function fmtPct(n: number | null | undefined, digits = 2): string {
@@ -208,14 +207,12 @@ function ChartCard({ title, hint, children, className, rightSlot }: ChartCardPro
 }
 
 function singleMetricTrendOption(
-  points: { day: string; count: number }[],
+  points: { day: string; count: number }[] | undefined | null,
   seriesName: string,
   color: string,
 ) {
-  return riskMultiTrendLineOption(
-    points.map((p) => ({ date: p.day, values: [p.count] })),
-    [{ name: seriesName, color }],
-  );
+  const safePoints = points ?? [];
+  return singleMetricLineOption(safePoints, seriesName, color);
 }
 
 function metricDayDelta(points: { day: string; count: number }[]): number | null {
@@ -260,53 +257,81 @@ function topRankColorClass(rank: number): string {
 export function RiskOverviewDashboard() {
   const t = useTranslations("RiskOverview");
   const queryClient = useQueryClient();
-  const [mounted, setMounted] = useState(false);
-  const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultObserveDateRange());
+  /** 首屏在 useLayoutEffect 中从 localStorage 读入命令分析时间窗后再拉数，避免与命令执行页窗口不一致导致死循环/重复读为 0 */
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [dateRange, setDateRange] = useState<ObserveDateRange>(() => defaultCommandAnalysisDateRange());
   const [rankingView, setRankingView] = useState<RankingViewKey>("resourceTopResources");
 
-  const { sinceMs, untilMs } = useMemo(() => resolveObserveSinceUntil(dateRange), [dateRange]);
+  const dateRangeKey = useMemo(() => {
+    const key = JSON.stringify(dateRange);
+    console.log("[DEBUG] dateRangeKey updated:", key);
+    return key;
+  }, [dateRange]);
+  // 与 command-analysis 一致：KPI/分布等在 queryFn 内用当前页的 dateRange+Date.now() 解析，与 UI 与执行指令页 state 一致
+  const { sinceMs, untilMs } = useMemo(
+    () => resolveObserveSinceUntil(dateRange, Date.now()),
+    [dateRange],
+  );
+
+  const kpiQueryKey = useMemo(() => {
+    const key = [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "kpi", dateRangeKey];
+    console.log("[DEBUG] kpiQueryKey updated:", key);
+    return key;
+  }, [dateRangeKey]);
+
+  console.log("[DEBUG] bootstrapped:", bootstrapped, "kpiQueryKey:", kpiQueryKey);
 
   const kpiQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "kpi", sinceMs, untilMs],
-    queryFn: () => loadRiskOverviewKPI(sinceMs ?? null, untilMs ?? null),
-    enabled: mounted,
+    queryKey: kpiQueryKey,
+    queryFn: () => {
+      console.log("[DEBUG] kpiQuery queryFn running with dateRange:", dateRange);
+      return loadRiskOverviewKPI(dateRange);
+    },
+    enabled: bootstrapped,
+    staleTime: 0,
   });
 
   const distributionQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "distribution", sinceMs, untilMs],
-    queryFn: () => loadRiskOverviewDistribution(sinceMs ?? null, untilMs ?? null),
-    enabled: mounted,
+    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "distribution", dateRangeKey],
+    queryFn: () => loadRiskOverviewDistribution(dateRange),
+    enabled: bootstrapped,
+    staleTime: 0,
   });
 
   const trendQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "trend", sinceMs, untilMs],
-    queryFn: () => loadRiskOverviewTrend(sinceMs ?? null, untilMs ?? null),
-    enabled: mounted,
+    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewTrend, dateRangeKey],
+    queryFn: () => loadRiskOverviewTrend(dateRange),
+    enabled: bootstrapped,
+    staleTime: 0,
   });
 
   const dailyRiskTrendQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, sinceMs, untilMs],
-    queryFn: () => loadRiskOverviewDailyRiskTrends(sinceMs ?? null, untilMs ?? null),
-    enabled: mounted,
+    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, dateRangeKey],
+    queryFn: () => loadRiskOverviewDailyRiskTrends(dateRange),
+    enabled: bootstrapped,
+    staleTime: 0,
   });
 
   const rankingsQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "rankings", sinceMs, untilMs],
-    queryFn: () => loadRiskOverviewRankings(sinceMs ?? null, untilMs ?? null),
-    enabled: mounted,
+    queryKey: [COLLECTOR_QUERY_SCOPE.riskOverviewDailyRiskTrends, "rankings", dateRangeKey],
+    queryFn: () => loadRiskOverviewRankings(dateRange),
+    enabled: bootstrapped,
+    staleTime: 0,
   });
 
-  useEffect(() => {
-    setMounted(true);
-    const stored = readStoredObserveDateRange();
-    if (stored) {
-      setDateRange(stored);
-    }
+  useLayoutEffect(() => {
+    setDateRange(readCommandAnalysisDateRange());
+    setBootstrapped(true);
   }, []);
 
+  useEffect(() => {
+    console.log("[DEBUG] dateRange state changed:", dateRange);
+  }, [dateRange]);
+
   const handleDateRangeChange = useCallback((range: ObserveDateRange) => {
+    console.log("[DEBUG] handleDateRangeChange called:", range);
     setDateRange(range);
-    writeStoredObserveDateRange(range);
+    writeCommandAnalysisDateRange(range);
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -346,12 +371,25 @@ export function RiskOverviewDashboard() {
         sp.set("until_ms", String(Math.floor(untilMs)));
       }
       sp.set("source", "risk");
-      return `/investigation-center?${sp.toString()}`;
+      return `/events?${sp.toString()}`;
     },
     [sinceMs, untilMs],
   );
 
-  if (!mounted) {
+  const buildCommandAnalysisLink = useCallback(() => {
+    const sp = new URLSearchParams();
+    if (sinceMs != null && sinceMs > 0) {
+      sp.set("since_ms", String(Math.floor(sinceMs)));
+    }
+    if (untilMs != null && untilMs > 0) {
+      sp.set("until_ms", String(Math.floor(untilMs)));
+    }
+    sp.set("source", "risk");
+    const qs = sp.toString();
+    return qs ? `/command-analysis?${qs}` : `/command-analysis?source=risk`;
+  }, [sinceMs, untilMs]);
+
+  if (!bootstrapped) {
     return (
       <AppPageShell variant="overview">
         <main className="ca-page relative z-[1]">
@@ -403,16 +441,18 @@ export function RiskOverviewDashboard() {
             tracesHref="/audit/events?severity=P0,P1"
           />
           <KpiCard
-            title={t("kpiCommandExecutions")}
-            value={String(kpiQuery.data?.commandExecutions ?? 0)}
+            title={t("kpiCommandLoopAlerts")}
+            hint={t("kpiCommandLoopAlertsHint")}
+            value={String(kpiQuery.data?.commandLoopAlerts ?? 0)}
             momLabel={t("momLabel")}
-            tracesHref="/audit/events?type=command"
+            tracesHref={buildCommandAnalysisLink()}
           />
           <KpiCard
-            title={t("kpiResourceAccesses")}
-            value={String(kpiQuery.data?.resourceAccesses ?? 0)}
+            title={t("kpiCommandRedundantReads")}
+            hint={t("kpiCommandRedundantReadsHint")}
+            value={String(kpiQuery.data?.commandRedundantReads ?? 0)}
             momLabel={t("momLabel")}
-            tracesHref="/audit/events?type=resource"
+            tracesHref={buildCommandAnalysisLink()}
           />
         </div>
 
