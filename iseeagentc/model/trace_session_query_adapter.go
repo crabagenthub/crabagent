@@ -27,7 +27,7 @@ func QueryLegacyTracesDB(db QueryDB, limit int) ([]map[string]interface{}, error
 	rows, err := db.Query(`SELECT COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) AS thread_key, trace_id AS trace_root_id,
  NULL AS event_id, NULL AS session_id, NULL AS session_key, NULL AS agent_id, NULL AS agent_name, 'opik_trace' AS type,
  datetime(created_at_ms / 1000, 'unixepoch') AS created_at, 1 AS event_count, NULL AS channel, name AS chat_title
- FROM ` + CT.Traces + ` ORDER BY created_at_ms DESC LIMIT ?`, limit)
+ FROM `+CT.Traces+` ORDER BY created_at_ms DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func QuerySessionTraceRootDB(db QueryDB, sessionID string) (string, error) {
 	var traceID sql.NullString
 	err := db.QueryRow(`
 SELECT trace_id
-FROM ` + CT.Traces + `
+FROM `+CT.Traces+`
 WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?
 ORDER BY created_at_ms ASC
 LIMIT 1`, sessionID).Scan(&traceID)
@@ -81,7 +81,7 @@ func DeleteSessionDB(db QueryDB, sessionID string) (int64, error) {
 
 	rows, err := tx.Query(`
 SELECT trace_id
-FROM ` + CT.Traces + `
+FROM `+CT.Traces+`
 WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?`, sessionID)
 	if err != nil {
 		return 0, err
@@ -96,15 +96,15 @@ WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?`, sessionID)
 	_ = rows.Close()
 
 	for _, tid := range traceIDs {
-		_, _ = tx.Exec(`DELETE FROM ` + CT.SecurityAuditLogs + ` WHERE trace_id = ?`, tid)
+		_, _ = tx.Exec(`DELETE FROM `+CT.SecurityPolicyHits+` WHERE trace_id = ?`, tid)
 	}
 	res, err := tx.Exec(`
-DELETE FROM ` + CT.Traces + `
+DELETE FROM `+CT.Traces+`
 WHERE COALESCE(NULLIF(TRIM(thread_id), ''), trace_id) = ?`, sessionID)
 	if err != nil {
 		return 0, err
 	}
-	_, _ = tx.Exec(`DELETE FROM ` + CT.Threads + ` WHERE thread_id = ?`, sessionID)
+	_, _ = tx.Exec(`DELETE FROM `+CT.Threads+` WHERE thread_id = ?`, sessionID)
 	deleted, _ := res.RowsAffected()
 	if err := tx.Commit(); err != nil {
 		return 0, err

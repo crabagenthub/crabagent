@@ -76,9 +76,9 @@ const TEMPLATES: TemplateDef[] = [
     id: "sec_enforce_hit",
     code: "SEC_ENFORCE_HIT",
     severity: "P0",
-    conditionSummary: "agent_security_audit_logs.intercepted = 1",
+    conditionSummary: "agent_security_policy_hits.intercepted = 1",
     aggregateKey: "workspace + trace_id + policy_id",
-    sourceTable: "agent_security_audit_logs",
+    sourceTable: "agent_security_policy_hits",
     conditionField: "intercepted",
     matchType: "eq",
     countThreshold: 1,
@@ -341,7 +341,7 @@ function inferAdvancedCondition(
   metricKey: AlertMetricKey,
 ): Pick<AlertRule, "sourceTable" | "conditionField" | "matchType" | "countThreshold"> {
   if (eventType === "policy_hit") {
-    return { sourceTable: "agent_security_audit_logs", conditionField: "intercepted", matchType: "eq", countThreshold: 1 };
+    return { sourceTable: "agent_security_policy_hits", conditionField: "intercepted", matchType: "eq", countThreshold: 1 };
   }
   if (eventType === "resource") {
     return { sourceTable: "agent_resource_access", conditionField: "risk_flags", matchType: "contains", countThreshold: 1 };

@@ -68,7 +68,7 @@ func loadSecurityAuditEvents(db QueryDB, q SecurityAuditListQuery) ([]map[string
 	}
 	sqlStr := `SELECT id, created_at_ms, trace_id, span_id, workspace_name, project_name, findings_json,
  COALESCE(total_findings, 0) AS total_findings, hit_count, intercepted, observe_only
- FROM ` + CT.SecurityAuditLogs + ` ` + where + ` ORDER BY created_at_ms ` + dir + ` LIMIT ? OFFSET ?`
+ FROM ` + CT.SecurityPolicyHits + ` ` + where + ` ORDER BY created_at_ms ` + dir + ` LIMIT ? OFFSET ?`
 	params = append(params, q.Limit, q.Offset)
 	rows, err := db.Query(sqlStr, params...)
 	if err != nil {
@@ -100,7 +100,7 @@ func loadSecurityAuditEvents(db QueryDB, q SecurityAuditListQuery) ([]map[string
 func countSecurityAuditEventsModel(db QueryDB, q SecurityAuditListQuery) (int64, error) {
 	where, params := buildSecurityAuditWhere(q)
 	var n int64
-	err := db.QueryRow("SELECT COUNT(*) AS n FROM "+CT.SecurityAuditLogs+" "+where, params...).Scan(&n)
+	err := db.QueryRow("SELECT COUNT(*) AS n FROM "+CT.SecurityPolicyHits+" "+where, params...).Scan(&n)
 	return n, err
 }
 
@@ -112,7 +112,7 @@ func loadSecurityAuditPolicyEventCounts(db QueryDB, workspaceName *string) ([]Se
 		args = append(args, strings.TrimSpace(*workspaceName))
 	}
 	sqlStr := `SELECT json_extract(j.value, '$.policy_id') AS policy_id, COUNT(DISTINCT s.id) AS event_count
- FROM ` + CT.SecurityAuditLogs + ` AS s, json_each(s.findings_json) AS j
+ FROM ` + CT.SecurityPolicyHits + ` AS s, json_each(s.findings_json) AS j
  WHERE COALESCE(TRIM(json_extract(j.value, '$.policy_id')), '') <> '' ` + wsWhere + `
  GROUP BY json_extract(j.value, '$.policy_id')`
 	rows, err := db.Query(sqlStr, args...)

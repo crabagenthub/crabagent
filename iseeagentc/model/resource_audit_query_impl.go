@@ -372,7 +372,7 @@ func buildWhere(q ResourceAuditListQuery, db QueryDB) (string, []any) {
 		if pid != "" {
 			parts = append(parts, `EXISTS (
       SELECT 1
-      FROM `+CT.SecurityAuditLogs+` sal
+      FROM `+CT.SecurityPolicyHits+` sal
       JOIN json_each(sal.findings_json) j
       WHERE sal.trace_id = ra.trace_id
         AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(ra.span_id), ''), '')
@@ -528,7 +528,7 @@ func buildSpanAuditSelectSQL() string {
        ra.project_name,
        (
          SELECT GROUP_CONCAT(DISTINCT json_extract(j.value, '$.hint_type'))
-         FROM ` + CT.SecurityAuditLogs + ` sal
+         FROM ` + CT.SecurityPolicyHits + ` sal
          JOIN json_each(sal.findings_json) j
          WHERE sal.trace_id = ra.trace_id
            AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(ra.span_id), ''), '')
@@ -537,7 +537,7 @@ func buildSpanAuditSelectSQL() string {
        (
          SELECT CASE WHEN EXISTS (
            SELECT 1
-           FROM ` + CT.SecurityAuditLogs + ` sal2
+           FROM ` + CT.SecurityPolicyHits + ` sal2
            WHERE sal2.trace_id = ra.trace_id
              AND COALESCE(NULLIF(TRIM(sal2.span_id), ''), '') = COALESCE(NULLIF(TRIM(ra.span_id), ''), '')
          ) THEN 1 ELSE 0 END
@@ -786,7 +786,7 @@ SELECT ra.span_id,
        (
          SELECT CASE WHEN EXISTS (
            SELECT 1
-           FROM `+CT.SecurityAuditLogs+` sal2
+           FROM `+CT.SecurityPolicyHits+` sal2
            WHERE sal2.trace_id = ra.trace_id
              AND COALESCE(NULLIF(TRIM(sal2.span_id), ''), '') = COALESCE(NULLIF(TRIM(ra.span_id), ''), '')
          ) THEN 1 ELSE 0 END

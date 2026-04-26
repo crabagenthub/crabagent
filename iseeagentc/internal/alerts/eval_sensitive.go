@@ -12,7 +12,7 @@ import (
 func evalSensitive(db *sql.DB, ws string, since, until int64, r *model.AlertRuleRow, adv AdvancedFilter) (EvalResult, error) {
 	st := strings.ToLower(strings.TrimSpace(adv.SourceTable))
 	if st == "" {
-		st = "agent_security_audit_logs"
+		st = "agent_security_policy_hits"
 	}
 	if shouldExtendImmediateLookback(r, adv) {
 		minSince := until - 3*60*1000
@@ -23,7 +23,7 @@ func evalSensitive(db *sql.DB, ws string, since, until int64, r *model.AlertRule
 	wn := strings.TrimSpace(ws)
 
 	switch st {
-	case "agent_security_audit_logs":
+	case "agent_security_policy_hits":
 		return evalSecurityAuditCount(db, wn, since, until, r, adv)
 	case "agent_resource_access":
 		return evalResourceAccessCount(db, wn, since, until, r, adv)
@@ -49,12 +49,12 @@ func shouldExtendImmediateLookback(r *model.AlertRuleRow, adv AdvancedFilter) bo
 		return false
 	}
 	st := strings.ToLower(strings.TrimSpace(adv.SourceTable))
-	return st == "agent_resource_access" || st == "agent_security_audit_logs"
+	return st == "agent_resource_access" || st == "agent_security_policy_hits"
 }
 
 func securityAuditCountInRange(db *sql.DB, wn string, since, until int64, adv AdvancedFilter) (int, error) {
 	cf := strings.ToLower(strings.TrimSpace(adv.ConditionField))
-	q := `SELECT COUNT(*) FROM ` + model.CT.SecurityAuditLogs + ` WHERE created_at_ms >= ? AND created_at_ms <= ?`
+	q := `SELECT COUNT(*) FROM ` + model.CT.SecurityPolicyHits + ` WHERE created_at_ms >= ? AND created_at_ms <= ?`
 	var args []any
 	args = append(args, since, until)
 	if wn != "" {
@@ -215,7 +215,7 @@ func normalizeImmediateCountThreshold(r *model.AlertRuleRow, adv AdvancedFilter,
 	fm := strings.ToLower(strings.TrimSpace(adv.FrequencyMode))
 	st := strings.ToLower(strings.TrimSpace(adv.SourceTable))
 	cf := strings.ToLower(strings.TrimSpace(adv.ConditionField))
-	isSecurityImmediate := st == "agent_security_audit_logs" && (cf == "intercepted" || cf == "observe_only")
+	isSecurityImmediate := st == "agent_security_policy_hits" && (cf == "intercepted" || cf == "observe_only")
 	isResourceImmediate := st == "agent_resource_access" && cf == "risk_flags"
 	// immediate 计数型规则在阈值=1、operator=gt 时，统一按“命中一次即触发”（>0）处理。
 	if fm == "immediate" && op == "gt" && thr <= 1 && (isSecurityImmediate || isResourceImmediate) {
@@ -223,4 +223,3 @@ func normalizeImmediateCountThreshold(r *model.AlertRuleRow, adv AdvancedFilter,
 	}
 	return thr
 }
-

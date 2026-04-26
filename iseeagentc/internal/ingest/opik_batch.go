@@ -775,7 +775,7 @@ func derefStr(s *string) string {
 func prepareSecurityAuditInsert(tx *sql.Tx, db *sql.DB) ([]string, string) {
 	cols := map[string]struct{}{}
 	if sqlutil.IsSQLite(db) {
-		rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, sqltables.TableAgentSecurityAuditLogs))
+		rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, sqltables.TableAgentSecurityPolicyHits))
 		if err != nil {
 			return nil, ""
 		}
@@ -793,7 +793,7 @@ func prepareSecurityAuditInsert(tx *sql.Tx, db *sql.DB) ([]string, string) {
 		rows, err := tx.Query(`
 SELECT column_name
 FROM information_schema.columns
-WHERE table_schema = current_schema() AND table_name = $1`, sqltables.TableAgentSecurityAuditLogs)
+WHERE table_schema = current_schema() AND table_name = $1`, sqltables.TableAgentSecurityPolicyHits)
 		if err != nil {
 			return nil, ""
 		}
@@ -828,7 +828,7 @@ WHERE table_schema = current_schema() AND table_name = $1`, sqltables.TableAgent
 			placeholders[i] = fmt.Sprintf("$%d", i+1)
 		}
 	}
-	return picked, `INSERT INTO ` + sqltables.TableAgentSecurityAuditLogs + ` (` + strings.Join(picked, ", ") + `) VALUES (` + strings.Join(placeholders, ", ") + `)`
+	return picked, `INSERT INTO ` + sqltables.TableAgentSecurityPolicyHits + ` (` + strings.Join(picked, ", ") + `) VALUES (` + strings.Join(placeholders, ", ") + `)`
 }
 
 func securityAuditArgs(columns []string, now int64, traceID string, spanID interface{}, ws, proj, findingsJSON string, totalFindings, hitCount, intercepted, observeOnly int) []interface{} {

@@ -29,13 +29,13 @@ func TestApplyOpikBatchWritesAgentExecCommands(t *testing.T) {
 	body := map[string]interface{}{
 		"threads": []interface{}{
 			map[string]interface{}{
-				"thread_id":     threadID,
+				"thread_id":      threadID,
 				"workspace_name": "OpenClaw",
-				"project_name":  "openclaw",
-				"agent_name":    "ag1",
-				"channel_name":  "ch1",
-				"first_seen_ms": float64(1),
-				"last_seen_ms":  float64(2),
+				"project_name":   "openclaw",
+				"agent_name":     "ag1",
+				"channel_name":   "ch1",
+				"first_seen_ms":  float64(1),
+				"last_seen_ms":   float64(2),
 			},
 		},
 		"traces": []interface{}{
@@ -44,7 +44,7 @@ func TestApplyOpikBatchWritesAgentExecCommands(t *testing.T) {
 				"thread_id":      threadID,
 				"workspace_name": "OpenClaw",
 				"project_name":   "openclaw",
-				"created_at_ms":    float64(1000),
+				"created_at_ms":  float64(1000),
 			},
 		},
 		"spans": []interface{}{
@@ -125,7 +125,7 @@ func TestApplyOpikBatchDeletesExecWhenSpanNoLongerShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM `+sqltables.TableAgentExecCommands+` WHERE span_id = 'sp-x'`).Scan(&n); err != nil || n != 1 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + sqltables.TableAgentExecCommands + ` WHERE span_id = 'sp-x'`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("want 1 row got %d err %v", n, err)
 	}
 	// Second batch: same span id but non-shell tool name and no command in input
@@ -137,7 +137,7 @@ func TestApplyOpikBatchDeletesExecWhenSpanNoLongerShell(t *testing.T) {
 	if _, err := ApplyOpikBatch(db, body2); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM `+sqltables.TableAgentExecCommands+` WHERE span_id = 'sp-x'`).Scan(&n); err != nil || n != 0 {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + sqltables.TableAgentExecCommands + ` WHERE span_id = 'sp-x'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("want 0 rows got %d err %v", n, err)
 	}
 }
@@ -220,7 +220,7 @@ func TestApplyOpikBatchBackfillsSecurityAuditFromMetadata(t *testing.T) {
 	var hitCount, intercepted int
 	err = db.QueryRow(
 		`SELECT trace_id, COALESCE(span_id, ''), findings_json, hit_count, intercepted
-		 FROM `+sqltables.TableAgentSecurityAuditLogs+` WHERE trace_id = ?`,
+		 FROM `+sqltables.TableAgentSecurityPolicyHits+` WHERE trace_id = ?`,
 		"tr-sec-1",
 	).Scan(&traceID, &spanID, &findingsJSON, &hitCount, &intercepted)
 	if err != nil {
@@ -300,7 +300,7 @@ func TestApplyOpikBatchBackfillsSecurityAuditFromMergedPreviousMetadata(t *testi
 	}
 
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM `+sqltables.TableAgentSecurityAuditLogs+` WHERE trace_id = ? AND span_id = ?`,
+	if err := db.QueryRow(`SELECT COUNT(*) FROM `+sqltables.TableAgentSecurityPolicyHits+` WHERE trace_id = ? AND span_id = ?`,
 		"tr-prev-1", "sp-prev-1").Scan(&n); err != nil {
 		t.Fatal(err)
 	}

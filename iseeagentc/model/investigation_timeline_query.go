@@ -127,7 +127,7 @@ SELECT
     ELSE 'heuristic_risk'
   END AS why_flagged,
   '/command-analysis' AS source_page
-FROM `+CT.ExecCommands+` e
+FROM ` + CT.ExecCommands + ` e
 WHERE ` + strings.Join(w, " AND ")
 	return sql, params
 }
@@ -157,7 +157,7 @@ SELECT
     ELSE 'normal_resource_access'
   END AS why_flagged,
   '/resource-audit' AS source_page
-FROM `+CT.AgentResourceAccess+` ra
+FROM ` + CT.AgentResourceAccess + ` ra
 WHERE ` + strings.Join(w, " AND ")
 	return sql, params
 }
@@ -183,7 +183,7 @@ SELECT
   CASE WHEN COALESCE(s.intercepted, 0) <> 0 THEN 'intercepted' ELSE 'observe_only' END AS result,
   CASE WHEN COALESCE(s.intercepted, 0) <> 0 THEN 'policy_intercepted' ELSE 'policy_observe_only' END AS why_flagged,
   '/data-security-audit' AS source_page
-FROM `+CT.SecurityAuditLogs+` s
+FROM ` + CT.SecurityPolicyHits + ` s
 WHERE ` + strings.Join(w, " AND ")
 	return sql, params
 }

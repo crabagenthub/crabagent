@@ -436,7 +436,7 @@ WHERE %s
 GROUP BY day
 HAVING day IS NOT NULL AND day <> ''
 ORDER BY day ASC
-`, dayExprPol, CT.SecurityAuditLogs, strings.Join(polWhere, " AND "))
+`, dayExprPol, CT.SecurityPolicyHits, strings.Join(polWhere, " AND "))
 
 	polRows, err := db.Query(sqlutil.RebindIfPostgres(db, policySQL), polArgs...)
 	if err != nil {

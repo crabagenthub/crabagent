@@ -42,7 +42,7 @@ UNION ALL
          'policy_hit' AS event_type,
          COALESCE(s.created_at_ms, 0) AS time_ms,
          COALESCE(s.trace_id, '') AS trace_id
-  FROM agent_security_audit_logs s
+  FROM agent_security_policy_hits s
   WHERE COALESCE(s.created_at_ms, 0) >= 0
 ) u
 ORDER BY time_ms DESC, key DESC
@@ -78,7 +78,7 @@ UNION ALL
          'policy_hit' AS event_type,
          COALESCE(s.created_at_ms, 0) AS time_ms,
          COALESCE(s.trace_id, '') AS trace_id
-  FROM agent_security_audit_logs s
+  FROM agent_security_policy_hits s
   WHERE COALESCE(s.created_at_ms, 0) >= 0
 ) u
 ORDER BY time_ms DESC, key DESC

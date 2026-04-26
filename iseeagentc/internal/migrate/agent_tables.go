@@ -45,7 +45,7 @@ func RunAgentTableMigrations(db *sql.DB) error {
 		{sqltables.LegacyTableOpikTraces, sqltables.TableAgentTraces},
 		{sqltables.LegacyTableOpikThreads, sqltables.TableAgentThreads},
 		{sqltables.LegacyTableOpikRawIngest, sqltables.TableAgentRawIngest},
-		{sqltables.LegacyTableSecurityAuditLogs, sqltables.TableAgentSecurityAuditLogs},
+		{sqltables.LegacyTableSecurityAuditLogs, sqltables.TableAgentSecurityPolicyHits},
 		{sqltables.LegacyTableInterceptionPolicies, sqltables.TableAgentSecurityPolicies},
 	}
 
@@ -564,7 +564,7 @@ func ensureAgentAlertEventsWsFiredIndex(db *sql.DB) error {
 func ensureInvestigationTimelineIndexes(db *sql.DB) error {
 	ec := quoteIdent(db, sqltables.TableAgentExecCommands)
 	ra := quoteIdent(db, sqltables.TableAgentResourceAccess)
-	sa := quoteIdent(db, sqltables.TableAgentSecurityAuditLogs)
+	sa := quoteIdent(db, sqltables.TableAgentSecurityPolicyHits)
 	stmts := []string{
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_exec_commands_ws_start ON %s (workspace_name, start_time_ms DESC)`, ec),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_agent_exec_commands_trace_start ON %s (trace_id, start_time_ms DESC)`, ec),
@@ -597,7 +597,7 @@ func execPostgresAgentSchema(db *sql.DB) error {
 func sqliteAgentSchemaDDL() string {
 	th, tr, sp := sqltables.TableAgentThreads, sqltables.TableAgentTraces, sqltables.TableAgentSpans
 	at, fb, raw := sqltables.TableAgentAttachments, sqltables.TableAgentTraceFeedback, sqltables.TableAgentRawIngest
-	pol, sal := sqltables.TableAgentSecurityPolicies, sqltables.TableAgentSecurityAuditLogs
+	pol, sal := sqltables.TableAgentSecurityPolicies, sqltables.TableAgentSecurityPolicyHits
 	ec := sqltables.TableAgentExecCommands
 	ra := sqltables.TableAgentResourceAccess
 
@@ -833,7 +833,7 @@ func sqliteAgentSchemaDDL() string {
 func postgresAgentSchemaDDL() string {
 	th, tr, sp := sqltables.TableAgentThreads, sqltables.TableAgentTraces, sqltables.TableAgentSpans
 	at, fb, raw := sqltables.TableAgentAttachments, sqltables.TableAgentTraceFeedback, sqltables.TableAgentRawIngest
-	pol, sal := sqltables.TableAgentSecurityPolicies, sqltables.TableAgentSecurityAuditLogs
+	pol, sal := sqltables.TableAgentSecurityPolicies, sqltables.TableAgentSecurityPolicyHits
 	ec := sqltables.TableAgentExecCommands
 	ra := sqltables.TableAgentResourceAccess
 
