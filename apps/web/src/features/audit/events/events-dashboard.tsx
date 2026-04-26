@@ -184,13 +184,24 @@ export function EventsDashboard() {
   const commandKeywordFromUrl = searchParams.get("keyword_command")?.trim() ?? "";
   const resourceKeywordFromUrl = searchParams.get("keyword_resource")?.trim() ?? "";
   const policyKeywordFromUrl = searchParams.get("keyword_policy_hit")?.trim() ?? "";
-  const timelinePageFromUrlRaw = Number.parseInt(searchParams.get("page")?.trim() ?? "1", 10);
-  const timelinePageSizeFromUrlRaw = Number.parseInt(searchParams.get("page_size")?.trim() ?? "20", 10);
-  const timelinePageFromUrl = Number.isFinite(timelinePageFromUrlRaw) && timelinePageFromUrlRaw > 0 ? timelinePageFromUrlRaw : 1;
-  const timelinePageSizeFromUrl =
-    Number.isFinite(timelinePageSizeFromUrlRaw) && PAGE_SIZE_OPTIONS.includes(timelinePageSizeFromUrlRaw as any)
-      ? timelinePageSizeFromUrlRaw
-      : readStoredPageSize(20);
+  // 三种事件类型各自独立的分页参数
+  const commandPageFromUrlRaw = Number.parseInt(searchParams.get("command_page")?.trim() ?? "1", 10);
+  const commandPageSizeFromUrlRaw = Number.parseInt(searchParams.get("command_page_size")?.trim() ?? "20", 10);
+  const resourcePageFromUrlRaw = Number.parseInt(searchParams.get("resource_page")?.trim() ?? "1", 10);
+  const resourcePageSizeFromUrlRaw = Number.parseInt(searchParams.get("resource_page_size")?.trim() ?? "20", 10);
+  const policyPageFromUrlRaw = Number.parseInt(searchParams.get("policy_page")?.trim() ?? "1", 10);
+  const policyPageSizeFromUrlRaw = Number.parseInt(searchParams.get("policy_page_size")?.trim() ?? "20", 10);
+
+  const getSafePage = (raw: number) => Number.isFinite(raw) && raw > 0 ? raw : 1;
+  const getSafePageSize = (raw: number) =>
+    Number.isFinite(raw) && PAGE_SIZE_OPTIONS.includes(raw as any) ? raw : readStoredPageSize(20);
+
+  const commandPageFromUrl = getSafePage(commandPageFromUrlRaw);
+  const commandPageSizeFromUrl = getSafePageSize(commandPageSizeFromUrlRaw);
+  const resourcePageFromUrl = getSafePage(resourcePageFromUrlRaw);
+  const resourcePageSizeFromUrl = getSafePageSize(resourcePageSizeFromUrlRaw);
+  const policyPageFromUrl = getSafePage(policyPageFromUrlRaw);
+  const policyPageSizeFromUrl = getSafePageSize(policyPageSizeFromUrlRaw);
   const fromRiskCenter = searchParams.get("from") === "risk";
   const eventTypeFilterFromQuery = useMemo<TimelineRow["eventType"]>(
     () =>
@@ -222,8 +233,27 @@ export function EventsDashboard() {
   const [policyDateRange, setPolicyDateRange] = useState(defaultObserveDateRange);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [timelinePage, setTimelinePage] = useState(timelinePageFromUrl);
-  const [timelinePageSize, setTimelinePageSize] = useState(timelinePageSizeFromUrl);
+  // 三种事件类型各自的分页状态
+  const [commandPage, setCommandPage] = useState(commandPageFromUrl);
+  const [commandPageSize, setCommandPageSize] = useState(commandPageSizeFromUrl);
+  const [resourcePage, setResourcePage] = useState(resourcePageFromUrl);
+  const [resourcePageSize, setResourcePageSize] = useState(resourcePageSizeFromUrl);
+  const [policyPage, setPolicyPage] = useState(policyPageFromUrl);
+  const [policyPageSize, setPolicyPageSize] = useState(policyPageSizeFromUrl);
+
+  // 根据当前事件类型获取对应的分页状态
+  const currentPage = eventTypeFilterFromQuery === "command" ? commandPage : eventTypeFilterFromQuery === "resource" ? resourcePage : policyPage;
+  const currentPageSize = eventTypeFilterFromQuery === "command" ? commandPageSize : eventTypeFilterFromQuery === "resource" ? resourcePageSize : policyPageSize;
+  const setCurrentPage = (page: number) => {
+    if (eventTypeFilterFromQuery === "command") setCommandPage(page);
+    else if (eventTypeFilterFromQuery === "resource") setResourcePage(page);
+    else setPolicyPage(page);
+  };
+  const setCurrentPageSize = (size: number) => {
+    if (eventTypeFilterFromQuery === "command") setCommandPageSize(size);
+    else if (eventTypeFilterFromQuery === "resource") setResourcePageSize(size);
+    else setPolicyPageSize(size);
+  };
   const [messageInspectTrace, setMessageInspectTrace] = useState<TraceRecordRow | null>(null);
   const [messageInspectInitialSpanId, setMessageInspectInitialSpanId] = useState<string | null>(null);
 
@@ -419,22 +449,29 @@ export function EventsDashboard() {
     },
     [eventTypeFilterFromQuery, replaceUrlIfChangedDedupe, searchParams],
   );
-  const setTimelinePaginationInUrl = useCallback(
+  // 根据当前事件类型设置对应的分页 URL 参数
+  const setPaginationInUrl = useCallback(
     (nextPage: number, nextPageSize: number) => {
       const safePage = Math.max(1, Math.floor(nextPage) || 1);
       const safePageSize = [20, 50, 100].includes(nextPageSize) ? nextPageSize : 20;
       const currentSp = getMutableBaseSearchParams();
+
+      // 根据当前事件类型设置对应的分页参数
+      const pageKey = eventTypeFilterFromQuery === "command" ? "command_page" : eventTypeFilterFromQuery === "resource" ? "resource_page" : "policy_page";
+      const pageSizeKey = eventTypeFilterFromQuery === "command" ? "command_page_size" : eventTypeFilterFromQuery === "resource" ? "resource_page_size" : "policy_page_size";
+
       const qs = buildSearchParamsString(currentSp, {
-        page: safePage === 1 ? null : String(safePage),
-        page_size: safePageSize === 20 ? null : String(safePageSize),
+        [pageKey]: safePage === 1 ? null : String(safePage),
+        [pageSizeKey]: safePageSize === 20 ? null : String(safePageSize),
       });
       replaceUrlIfChangedDedupe(currentSp, qs);
     },
-    [getMutableBaseSearchParams, replaceUrlIfChangedDedupe, timelinePage, timelinePageSize],
+    [getMutableBaseSearchParams, replaceUrlIfChangedDedupe, eventTypeFilterFromQuery],
   );
 
   const enabled = mounted && Boolean(baseUrl.trim());
-  const timelineOffset = useMemo(() => Math.max(0, (timelinePage - 1) * timelinePageSize), [timelinePage, timelinePageSize]);
+  // 根据当前事件类型计算 offset
+  const currentOffset = useMemo(() => Math.max(0, (currentPage - 1) * currentPageSize), [currentPage, currentPageSize]);
   
   // Smart search detection: determine if keyword is step_id(span_id), message_id(trace_id), or generic keyword.
   const searchDetection = useMemo(() => {
@@ -482,14 +519,19 @@ export function EventsDashboard() {
   const resourceSearchParam = searchDetection.type === "keyword" ? searchDetection.value : undefined;
   const resourceUuidAmbiguousParam = searchDetection.type === "uuid_ambiguous" ? searchDetection.value : undefined;
 
+  // 三种事件类型各自的 offset
+  const commandOffset = useMemo(() => Math.max(0, (commandPage - 1) * commandPageSize), [commandPage, commandPageSize]);
+  const resourceOffset = useMemo(() => Math.max(0, (resourcePage - 1) * resourcePageSize), [resourcePage, resourcePageSize]);
+  const policyOffset = useMemo(() => Math.max(0, (policyPage - 1) * policyPageSize), [policyPage, policyPageSize]);
+
   const commandQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecList, baseUrl, apiKey, { sinceMs, untilMs, traceId: commandTraceIdParam, spanId: commandSpanIdParam, commandContains: commandContainsParam, uuidAmbiguous: commandUuidAmbiguousParam, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const }],
+    queryKey: [COLLECTOR_QUERY_SCOPE.shellExecList, baseUrl, apiKey, { sinceMs, untilMs, traceId: commandTraceIdParam, spanId: commandSpanIdParam, commandContains: commandContainsParam, uuidAmbiguous: commandUuidAmbiguousParam, limit: commandPageSize, offset: commandOffset, order: "desc" as const }],
     queryFn: async () => {
       const common = {
         sinceMs: sinceMs ?? undefined,
         untilMs: untilMs ?? undefined,
-        limit: timelinePageSize,
-        offset: timelineOffset,
+        limit: commandPageSize,
+        offset: commandOffset,
         order: "desc" as const,
       };
       if (commandUuidAmbiguousParam) {
@@ -530,8 +572,8 @@ export function EventsDashboard() {
         span_id: resourceSpanIdParam,
         search: resourceSearchParam,
         uuidAmbiguous: resourceUuidAmbiguousParam,
-        limit: timelinePageSize,
-        offset: timelineOffset,
+        limit: resourcePageSize,
+        offset: resourceOffset,
         order: "desc" as const,
         semantic_class: "all" as const,
         uri_prefix: undefined,
@@ -541,8 +583,8 @@ export function EventsDashboard() {
       const common = {
         sinceMs: sinceMs ?? undefined,
         untilMs: untilMs ?? undefined,
-        limit: timelinePageSize,
-        offset: timelineOffset,
+        limit: resourcePageSize,
+        offset: resourceOffset,
         order: "desc" as const,
         semantic_class: "all" as const,
         uri_prefix: undefined,
@@ -573,13 +615,13 @@ export function EventsDashboard() {
     refetchOnReconnect: false,
   });
   const securityQuery = useQuery({
-    queryKey: [COLLECTOR_QUERY_SCOPE.securityAuditEvents, baseUrl, apiKey, { sinceMs, untilMs, traceId: traceId || undefined, limit: timelinePageSize, offset: timelineOffset, order: "desc" as const }],
+    queryKey: [COLLECTOR_QUERY_SCOPE.securityAuditEvents, baseUrl, apiKey, { sinceMs, untilMs, traceId: traceId || undefined, limit: policyPageSize, offset: policyOffset, order: "desc" as const }],
     queryFn: () => loadSecurityAuditEvents(baseUrl, apiKey, {
       sinceMs: sinceMs ?? undefined,
       untilMs: untilMs ?? undefined,
       traceId: traceId || undefined,
-      limit: timelinePageSize,
-      offset: timelineOffset,
+      limit: policyPageSize,
+      offset: policyOffset,
       order: "desc",
     }),
     enabled: enabled && eventTypeFilterFromQuery === "policy_hit",
@@ -587,16 +629,30 @@ export function EventsDashboard() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  // 筛选条件变化时，重置当前事件类型的页码到第一页
   useEffect(() => {
     if (lastFilterResetSignatureRef.current === filterResetSignature) {
       return;
     }
     lastFilterResetSignatureRef.current = filterResetSignature;
-    if (timelinePageFromUrl === 1) {
+
+    const currentPageFromUrl = eventTypeFilterFromQuery === "command" ? commandPageFromUrl : eventTypeFilterFromQuery === "resource" ? resourcePageFromUrl : policyPageFromUrl;
+    if (currentPageFromUrl === 1) {
       return;
     }
-    setTimelinePaginationInUrl(1, timelinePageSize);
-  }, [filterResetSignature, timelinePageFromUrl, timelinePageSize, traceId, sinceMs, untilMs, eventTypeFilterFromQuery, activeKeywordFromUrl, setTimelinePaginationInUrl]);
+
+    // 重置当前事件类型的页码到第一页
+    if (eventTypeFilterFromQuery === "command") {
+      setCommandPage(1);
+    } else if (eventTypeFilterFromQuery === "resource") {
+      setResourcePage(1);
+    } else {
+      setPolicyPage(1);
+    }
+
+    const currentPageSize = eventTypeFilterFromQuery === "command" ? commandPageSize : eventTypeFilterFromQuery === "resource" ? resourcePageSize : policyPageSize;
+    setPaginationInUrl(1, currentPageSize);
+  }, [filterResetSignature, commandPageFromUrl, resourcePageFromUrl, policyPageFromUrl, commandPageSize, resourcePageSize, policyPageSize, traceId, sinceMs, untilMs, eventTypeFilterFromQuery, activeKeywordFromUrl, setPaginationInUrl]);
 
   const activeQuery = useMemo(() => {
     if (eventTypeFilterFromQuery === "command") return commandQuery;
@@ -985,9 +1041,19 @@ export function EventsDashboard() {
       title: t("policyId"),
       dataIndex: "id",
       key: "id",
-      width: 120,
+      width: 160,
       render: (_: unknown, row: SecurityRow) => (
-        <span className="text-xs">{formatShortId(row.id)}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-xs">{formatShortId(row.id)}</span>
+          <TraceCopyIconButton
+            text={row.id || ""}
+            ariaLabel={t("copy")}
+            tooltipLabel={t("copy")}
+            successLabel={t("copySuccessToast")}
+            className="shrink-0 p-1 hover:bg-neutral-100"
+            stopPropagation
+          />
+        </div>
       ),
     },
     {
@@ -1257,22 +1323,22 @@ export function EventsDashboard() {
                   <div className="mx-auto flex w-full max-w-[min(100%,1600px)] flex-col gap-3 px-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 lg:px-6">
                     <p className="text-sm text-muted-foreground">
                       {t("showingOfTotal", {
-                        from: String((timelinePage - 1) * timelinePageSize + 1),
-                        to: String(rows.length ? (timelinePage - 1) * timelinePageSize + rows.length : 0),
+                        from: String((currentPage - 1) * currentPageSize + 1),
+                        to: String(rows.length ? (currentPage - 1) * currentPageSize + rows.length : 0),
                         total: String(activeQuery.data?.total ?? 0),
                       })}
                     </p>
                     <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                       <span className="text-xs font-medium tabular-nums text-muted-foreground">
                         {t("paginationTotalPages", {
-                          count: String(Math.max(1, Math.ceil((activeQuery.data?.total ?? 0) / timelinePageSize) || 1)),
+                          count: String(Math.max(1, Math.ceil((activeQuery.data?.total ?? 0) / currentPageSize) || 1)),
                         })}
                       </span>
                       <ArcoPagination
                         className={cn("observe-traces-list-pagination", "mx-0")}
                         size="small"
-                        current={timelinePage}
-                        pageSize={timelinePageSize}
+                        current={currentPage}
+                        pageSize={currentPageSize}
                         total={activeQuery.data?.total ?? 0}
                         disabled={activeQuery.isFetching}
                         bufferSize={1}
@@ -1280,12 +1346,12 @@ export function EventsDashboard() {
                         sizeOptions={[...PAGE_SIZE_OPTIONS]}
                         showJumper
                         onChange={(page, ps) => {
-                          setTimelinePage(page);
-                          if (ps && ps !== timelinePageSize) {
-                            setTimelinePageSize(ps);
+                          setCurrentPage(page);
+                          if (ps && ps !== currentPageSize) {
+                            setCurrentPageSize(ps);
                             writeStoredPageSize(ps);
                           }
-                          setTimelinePaginationInUrl(page, ps || timelinePageSize);
+                          setPaginationInUrl(page, ps || currentPageSize);
                         }}
                       />
                     </div>
