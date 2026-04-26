@@ -520,7 +520,7 @@ export function SiteNav() {
   const auditItems: NavDef[] = useMemo(
     () => [
       { href: "/risk-overview", label: t("riskOverview"), Icon: NavIconResourceAudit },
-      { href: "/events", label: t("investigationCenter"), Icon: NavIconResourceAudit },
+      { href: "/events", label: t("events"), Icon: NavIconResourceAudit },
     ],
     [t],
   );

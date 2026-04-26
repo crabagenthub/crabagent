@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { InvestigationCenterDashboard } from "@/features/audit/investigation/investigation-center-dashboard";
+import { EventsDashboard } from "@/features/audit/events/events-dashboard";
 
-export default function InvestigationCenterPage() {
+export default function EventsPage() {
   return (
     <Suspense fallback={null}>
-      <InvestigationCenterDashboard />
+      <EventsDashboard />
     </Suspense>
   );
 }

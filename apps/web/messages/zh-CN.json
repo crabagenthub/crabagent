@@ -38,7 +38,7 @@
     "settings": "告警",
     "security": "安全",
     "riskCenter": "风险分诊",
-    "investigationCenter": "审计事件",
+    "events": "审计事件",
     "advancedAnalysis": "高级（折叠）",
     "advancedTools": "高级工具",
     "resourceAuditLegacy": "资源访问（旧版）",
@@ -921,7 +921,7 @@
     "impactChannel": "Channel",
     "impactWorkspace": "Workspace"
   },
-  "InvestigationCenter": {
+  "Events": {
     "fromRiskCenterLabel": "来自风险分诊",
     "backToRiskCenter": "返回风险分诊",
     "investigationGuideTitle": "调查流程",
@@ -1067,6 +1067,7 @@
     "colChars": "字符量",
     "colDuration": "耗时",
     "colTrace": "执行步骤",
+    "colStepId": "执行步骤ID",
     "colLinkage": "联动",
     "filterSameTrace": "仅本 Trace",
     "openSecurityAudit": "内容审计",

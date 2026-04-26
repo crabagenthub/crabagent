@@ -170,9 +170,9 @@ function resFlagColor(f: string): string {
   return "gray";
 }
 
-export function InvestigationCenterDashboard() {
+export function EventsDashboard() {
   const tNav = useTranslations("Nav");
-  const t = useTranslations("InvestigationCenter");
+  const t = useTranslations("Events");
   const tCmd = useTranslations("CommandAnalysis");
   const tRes = useTranslations("ResourceAudit");
   const searchParams = useSearchParams();
@@ -850,7 +850,7 @@ export function InvestigationCenterDashboard() {
       title: (
         <ObserveTableHeaderLabel>
           <span className="inline-flex items-center gap-1">
-            {tRes("colTrace")}
+            {tRes("colStepId")}
             <IconClockCircle className="size-3 shrink-0 text-neutral-400" aria-hidden />
           </span>
         </ObserveTableHeaderLabel>
@@ -1071,7 +1071,7 @@ export function InvestigationCenterDashboard() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Typography.Title heading={3} className="ca-page-title !m-0 text-2xl font-semibold">
-                {tNav("investigationCenter")}
+                {tNav("events")}
               </Typography.Title>
               <Popover
                 content={
