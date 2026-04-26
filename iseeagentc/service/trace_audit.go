@@ -17,7 +17,6 @@ type ResourceAuditEventsQuery struct {
 	URIPrefix     string
 	TraceID       string
 	SpanID        string
-	HintType      string
 	PolicyID      string
 	SpanName      string
 	WorkspaceName string
@@ -32,7 +31,6 @@ type ResourceAuditStatsQuery struct {
 	URIPrefix     string
 	TraceID       string
 	SpanID        string
-	HintType      string
 	PolicyID      string
 	WorkspaceName string
 	SemanticClass string
@@ -47,7 +45,6 @@ type SecurityAuditEventsQuery struct {
 	TraceID       string
 	SpanID        string
 	PolicyID      string
-	HintType      string
 	WorkspaceName string
 }
 
@@ -86,7 +83,6 @@ func (s *TraceAuditService) ResourceAuditEvents(req ResourceAuditEventsQuery) (m
 		URIPrefix:     strPtr(req.URIPrefix),
 		TraceID:       strPtr(req.TraceID),
 		SpanID:        strPtr(req.SpanID),
-		HintType:      strPtr(req.HintType),
 		PolicyID:      strPtr(req.PolicyID),
 		SpanName:      strPtr(req.SpanName),
 		WorkspaceName: strPtr(req.WorkspaceName),
@@ -116,7 +112,6 @@ func (s *TraceAuditService) ResourceAuditStats(req ResourceAuditStatsQuery) (mod
 		URIPrefix:     strPtr(req.URIPrefix),
 		TraceID:       strPtr(req.TraceID),
 		SpanID:        strPtr(req.SpanID),
-		HintType:      strPtr(req.HintType),
 		PolicyID:      strPtr(req.PolicyID),
 		WorkspaceName: strPtr(req.WorkspaceName),
 	}
@@ -140,7 +135,6 @@ func (s *TraceAuditService) SecurityAuditEvents(req SecurityAuditEventsQuery) (m
 		TraceID:       strPtr(req.TraceID),
 		SpanID:        strPtr(req.SpanID),
 		PolicyID:      strPtr(req.PolicyID),
-		HintType:      strPtr(req.HintType),
 		WorkspaceName: strPtr(req.WorkspaceName),
 	}
 	items, err := model.QuerySecurityAuditEventsDB(s.db, q)

@@ -95,8 +95,17 @@ function main() {
     entryConfig.collectorApiKey = collectorApiKey;
   }
 
+  // OpenClaw >= 2026.4.23：非内置插件的 `llm_input` / `llm_output` / `agent_end` 需显式开启，否则
+  // register 会记 diagnostic 并完全不注册这些 handler（`hasHooks("llm_input")` 为 false → 与 v2026.4.14 行为不一致）。
+  const prevEntry = plugins.entries[PLUGIN_ENTRY_ID];
+  const prev =
+    prevEntry && typeof prevEntry === "object" && !Array.isArray(prevEntry) ? { ...prevEntry } : {};
+  const prevHooks =
+    prev.hooks && typeof prev.hooks === "object" && !Array.isArray(prev.hooks) ? { ...prev.hooks } : {};
   plugins.entries[PLUGIN_ENTRY_ID] = {
+    ...prev,
     enabled: true,
+    hooks: { ...prevHooks, allowConversationAccess: true },
     config: entryConfig,
   };
 

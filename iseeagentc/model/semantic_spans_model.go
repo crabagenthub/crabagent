@@ -2,9 +2,11 @@ package model
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 
 	textparser "iseeagentc/internal/parser"
+	"iseeagentc/internal/sqlutil"
 )
 
 type SemanticSpanRow struct {
@@ -30,6 +32,38 @@ type SemanticSpanRow struct {
 	UsageBreakdown   map[string]float64     `json:"usage_breakdown"`
 }
 
+// tryResolveTraceIDByEmbeddedMessageID 当 query 的 id 实为渠道 message id（落在 trace 的 metadata / input 的 user_turn 中）
+// 但不同于 OpenClaw 生成的 trace_id 时，在 JSON 中搜索该 id 以解析到真实 trace_id。
+// 与 extractMsgIDFromTrace / 前端 /messages/:id 的用法对齐。
+func tryResolveTraceIDByEmbeddedMessageID(db QueryDB, candidate string) string {
+	c := strings.TrimSpace(candidate)
+	// 过短会误匹；UUID 等至少 8 字
+	if db == nil || len(c) < 8 {
+		return ""
+	}
+	var q string
+	if sqlutil.IsSQLite(db) {
+		q = `SELECT t.trace_id
+FROM ` + CT.Traces + ` t
+WHERE (instr(COALESCE(t.metadata_json, '') || COALESCE(t.input_json, ''), ?) > 0)
+ORDER BY (EXISTS (SELECT 1 FROM ` + CT.Spans + ` s WHERE s.trace_id = t.trace_id)) DESC,
+         COALESCE(t.created_at_ms, 0) DESC
+LIMIT 1`
+	} else {
+		q = `SELECT t.trace_id
+FROM ` + CT.Traces + ` t
+WHERE (position($1 in (COALESCE(t.metadata_json, '') || COALESCE(t.input_json, ''))) > 0)
+ORDER BY (EXISTS (SELECT 1 FROM ` + CT.Spans + ` s WHERE s.trace_id = t.trace_id)) DESC,
+         COALESCE(t.created_at_ms, 0) DESC
+LIMIT 1`
+	}
+	var out string
+	if err := db.QueryRow(q, c).Scan(&out); err != nil || strings.TrimSpace(out) == "" {
+		return ""
+	}
+	return out
+}
+
 func resolveCanonicalTraceIDForSpanModel(db QueryDB, tidRaw string) string {
 	tid := strings.TrimSpace(tidRaw)
 	if tid == "" {
@@ -44,10 +78,16 @@ WHERE t.trace_id = ?
 ORDER BY (EXISTS (SELECT 1 FROM ` + CT.Spans + ` s WHERE s.trace_id = t.trace_id)) DESC,
          COALESCE(t.created_at_ms, 0) DESC
 LIMIT 1`, tid, tid).Scan(&out)
-	if err != nil || strings.TrimSpace(out) == "" {
+	if err == nil && strings.TrimSpace(out) != "" {
+		return out
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return tid
 	}
-	return out
+	if r := tryResolveTraceIDByEmbeddedMessageID(db, tid); r != "" {
+		return r
+	}
+	return tid
 }
 
 func queryTraceInputByTraceIDModel(db QueryDB, canonicalTraceID string) map[string]interface{} {

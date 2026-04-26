@@ -41,7 +41,6 @@ type ResourceAuditListQuery struct {
 	TraceID       *string
 	SpanID        *string
 	WorkspaceName *string
-	HintType      *string
 	PolicyID      *string
 	SortMode      *string // "time_desc" | "risk_first" | "chars_desc"
 	SpanName      *string
@@ -527,12 +526,12 @@ func buildSpanAuditSelectSQL() string {
        ra.workspace_name,
        ra.project_name,
        (
-         SELECT GROUP_CONCAT(DISTINCT json_extract(j.value, '$.hint_type'))
+         SELECT GROUP_CONCAT(DISTINCT json_extract(j.value, '$.policy_name'))
          FROM ` + CT.SecurityPolicyHits + ` sal
          JOIN json_each(sal.findings_json) j
          WHERE sal.trace_id = ra.trace_id
            AND COALESCE(NULLIF(TRIM(sal.span_id), ''), '') = COALESCE(NULLIF(TRIM(ra.span_id), ''), '')
-           AND COALESCE(NULLIF(TRIM(json_extract(j.value, '$.hint_type')), ''), '') <> ''
+           AND COALESCE(NULLIF(TRIM(json_extract(j.value, '$.policy_name')), ''), '') <> ''
        ) AS policy_hint_flags,
        (
          SELECT CASE WHEN EXISTS (

@@ -217,7 +217,6 @@ interface InterceptionPolicy {
   severity?: string | null;
   policy_action?: string | null;
   detection_kind?: string | null;
-  hint_type?: string | null;
   created_at_ms?: number | null;
   updated_at_ms: number;
   pulled_at_ms?: number | null;

@@ -18,8 +18,6 @@ type InterceptionPolicy struct {
 	Enabled       int     `json:"enabled"`
 	Severity      string  `json:"severity"`
 	PolicyAction  *string `json:"policy_action,omitempty"`
-	InterceptMode *string `json:"intercept_mode,omitempty"`
-	HintType      *string `json:"hint_type,omitempty"`
 	DetectionKind *string `json:"detection_kind,omitempty"`
 	CreatedAtMs   *int64  `json:"created_at_ms,omitempty"`
 	PulledAtMs    *int64  `json:"pulled_at_ms"`
@@ -85,7 +83,7 @@ func loadAllPolicies(db QueryDB, workspaceName string) ([]InterceptionPolicy, er
 	ws := normalizeWorkspaceName(workspaceName)
 	rows, err := db.Query(`
 SELECT id, workspace_name, name, description, pattern, redact_type, targets_json, enabled,
-       severity, policy_action, intercept_mode, hint_type, detection_kind, created_at_ms, pulled_at_ms, updated_at_ms
+       severity, policy_action, detection_kind, created_at_ms, pulled_at_ms, updated_at_ms
 FROM `+CT.SecurityPolicies+`
 WHERE lower(workspace_name) = lower(?)
 ORDER BY updated_at_ms DESC`, ws)
@@ -96,11 +94,11 @@ ORDER BY updated_at_ms DESC`, ws)
 	items := make([]InterceptionPolicy, 0)
 	for rows.Next() {
 		var item InterceptionPolicy
-		var desc, pa, im, ht, dk sql.NullString
+		var desc, pa, dk sql.NullString
 		var created, pulled sql.NullInt64
 		if err := rows.Scan(
 			&item.ID, &item.WorkspaceName, &item.Name, &desc, &item.Pattern, &item.RedactType, &item.TargetsJSON, &item.Enabled,
-			&item.Severity, &pa, &im, &ht, &dk, &created, &pulled, &item.UpdatedAtMs,
+			&item.Severity, &pa, &dk, &created, &pulled, &item.UpdatedAtMs,
 		); err != nil {
 			return nil, err
 		}
@@ -111,14 +109,6 @@ ORDER BY updated_at_ms DESC`, ws)
 		if pa.Valid {
 			s := pa.String
 			item.PolicyAction = &s
-		}
-		if im.Valid {
-			s := im.String
-			item.InterceptMode = &s
-		}
-		if ht.Valid {
-			s := ht.String
-			item.HintType = &s
 		}
 		if dk.Valid {
 			s := dk.String
@@ -189,24 +179,18 @@ func upsertPolicyModel(db QueryDB, body map[string]interface{}, workspaceName st
 		v := "data_mask"
 		policyAction = &v
 	}
-	interceptMode := trimNilString(body["intercept_mode"])
-	if interceptMode == nil {
-		v := "enforce"
-		interceptMode = &v
-	}
 	detectionKind := trimNilString(body["detection_kind"])
 	if detectionKind == nil {
 		v := "regex"
 		detectionKind = &v
 	}
-	hintType := trimNilString(body["hint_type"])
 	desc := trimNilString(body["description"])
 
 	_, err := db.Exec(`
 INSERT INTO `+CT.SecurityPolicies+` (
   id, workspace_name, name, description, pattern, redact_type, targets_json, enabled,
-  severity, policy_action, intercept_mode, hint_type, detection_kind, created_at_ms, pulled_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  severity, policy_action, detection_kind, created_at_ms, pulled_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET
   workspace_name = excluded.workspace_name,
   name = excluded.name,
@@ -217,12 +201,10 @@ ON CONFLICT (id) DO UPDATE SET
   enabled = excluded.enabled,
   severity = excluded.severity,
   policy_action = excluded.policy_action,
-  intercept_mode = excluded.intercept_mode,
-  hint_type = excluded.hint_type,
   detection_kind = excluded.detection_kind,
   updated_at_ms = excluded.updated_at_ms`,
 		id, ws, name, desc, pattern, redactType, targets, enabled,
-		severity, policyAction, interceptMode, hintType, detectionKind, now, nil, now,
+		severity, policyAction, detectionKind, now, nil, now,
 	)
 	if err != nil {
 		return nil, err
@@ -239,7 +221,7 @@ ON CONFLICT (id) DO UPDATE SET
 	return &InterceptionPolicy{
 		ID: id, WorkspaceName: ws, Name: name, Description: desc, Pattern: pattern, RedactType: redactType,
 		TargetsJSON: targets, Enabled: enabled, Severity: severity, PolicyAction: policyAction,
-		InterceptMode: interceptMode, HintType: hintType, DetectionKind: detectionKind, UpdatedAtMs: now,
+		DetectionKind: detectionKind, UpdatedAtMs: now,
 	}, nil
 }
 

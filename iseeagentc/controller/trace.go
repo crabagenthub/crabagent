@@ -133,7 +133,6 @@ type ResourceAuditEventsRequest struct {
 	URIPrefix     string `form:"uri_prefix"`
 	TraceID       string `form:"trace_id"`
 	SpanID        string `form:"span_id"`
-	HintType      string `form:"hint_type"`
 	PolicyID      string `form:"policy_id"`
 	SpanName      string `form:"span_name"`
 	WorkspaceName string `form:"workspace_name"`
@@ -148,7 +147,6 @@ type ResourceAuditStatsRequest struct {
 	URIPrefix     string `form:"uri_prefix"`
 	TraceID       string `form:"trace_id"`
 	SpanID        string `form:"span_id"`
-	HintType      string `form:"hint_type"`
 	PolicyID      string `form:"policy_id"`
 	WorkspaceName string `form:"workspace_name"`
 	SemanticClass string `form:"semantic_class"`
@@ -163,7 +161,6 @@ type SecurityAuditEventsRequest struct {
 	TraceID       string `form:"trace_id"`
 	SpanID        string `form:"span_id"`
 	PolicyID      string `form:"policy_id"`
-	HintType      string `form:"hint_type"`
 	WorkspaceName string `form:"workspace_name"`
 }
 
@@ -1027,7 +1024,6 @@ func ResourceAuditEvents(c *gin.Context, req *ResourceAuditEventsRequest) {
 		URIPrefix:     req.URIPrefix,
 		TraceID:       req.TraceID,
 		SpanID:        req.SpanID,
-		HintType:      req.HintType,
 		PolicyID:      req.PolicyID,
 		SpanName:      req.SpanName,
 		WorkspaceName: req.WorkspaceName,
@@ -1063,7 +1059,6 @@ func ResourceAuditStats(c *gin.Context, req *ResourceAuditStatsRequest) {
 		URIPrefix:     req.URIPrefix,
 		TraceID:       req.TraceID,
 		SpanID:        req.SpanID,
-		HintType:      req.HintType,
 		PolicyID:      req.PolicyID,
 		WorkspaceName: req.WorkspaceName,
 		SemanticClass: req.SemanticClass,
@@ -1104,7 +1099,6 @@ func SecurityAuditEvents(c *gin.Context, req *SecurityAuditEventsRequest) {
 		TraceID:       req.TraceID,
 		SpanID:        req.SpanID,
 		PolicyID:      req.PolicyID,
-		HintType:      req.HintType,
 		WorkspaceName: req.WorkspaceName,
 	})
 	if err != nil {

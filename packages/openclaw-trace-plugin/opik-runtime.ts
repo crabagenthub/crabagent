@@ -939,8 +939,8 @@ export class OpikOpenClawRuntime {
     string,
     { parentThreadId: string; parentChannelName?: string }
   >();
-  /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。 */
-  private readonly persistPendingDir?: string;
+  /** `…/state/crabagent` — pending JSON 存 `pending/` 下，防崩溃或未触发 agent_end 丢上下文。可在 service `start` 晚到后由 {@link #attachPersistDirIfLate} 补挂，禁止为此重建整实例。 */
+  private persistPendingDir: string | undefined;
   private readonly traceBareAgentEnds: boolean;
   /**
    * 为 true（默认）时：延迟 non-LLM flush 仅在已能识别父级 `agent:…` 路由键时上报，避免纯 `feishu/oc_…` 等与 LLM 线程重复。
@@ -973,6 +973,21 @@ export class OpikOpenClawRuntime {
       this.hydratePendingFromDisk();
       this.hydrateSubagentAnchorsFromDisk();
     }
+  }
+
+  /**
+   * `registerService` 的 `start` 常晚于首次 hook：`getRuntime()` 已以无 `persistPendingDir` 构造。
+   * 在 index 中若为此 `runtime = null` 再建实例，会清空 `active` / `lateLlmRef`，`agent_end` 只能 flushNonLlm（No llm_input note）。
+   * 在拿到 `stateDir` 后仅补挂目录并 hydrate，不替换实例。
+   */
+  attachPersistDirIfLate(dir: string): void {
+    const t = dir.trim();
+    if (!t || this.persistPendingDir) {
+      return;
+    }
+    this.persistPendingDir = t;
+    this.hydratePendingFromDisk();
+    this.hydrateSubagentAnchorsFromDisk();
   }
 
   redactBatch(batch: OpikBatchPayload): OpikBatchPayload {
@@ -1468,9 +1483,31 @@ export class OpikOpenClawRuntime {
     return out;
   }
 
+  /**
+   * 在多个候选 session 键上查找同一 `ActiveTurn`（与 {@link #onLlmInput} 里对 `pendingKeys` 多键注册一致），
+   * 避免 `agent_end` / `llm_input` 的 `effectiveSk` 或入站/出站 ctx 微差时命中不了回合。
+   */
+  private findActiveForSession(sk: string, extra?: string[]): ActiveTurn | undefined {
+    for (const k of this.llmOutputLookupKeys(sk, extra)) {
+      const t = this.active.get(k);
+      if (t) {
+        return t;
+      }
+    }
+    return undefined;
+  }
+
+  private removeActiveEverywhere(turn: ActiveTurn): void {
+    for (const [k, v] of this.active) {
+      if (v === turn) {
+        this.active.delete(k);
+      }
+    }
+  }
+
   /** 结束上一轮并返回 batch（若有）。 */
   private closeTurn(sk: string, endReason: string, lateAliasKeys?: string[]): OpikBatchPayload | null {
-    const cur = this.active.get(sk);
+    const cur = this.findActiveForSession(sk, lateAliasKeys);
     if (!cur) {
       return null;
     }
@@ -1519,7 +1556,7 @@ export class OpikOpenClawRuntime {
     };
     if (cur.llmSpanId) {
       this.registerLateLlmOutputRef(
-        sk,
+        cur.sessionKey,
         {
           traceId: cur.traceId,
           spanId: cur.llmSpanId,
@@ -1529,7 +1566,7 @@ export class OpikOpenClawRuntime {
         lateAliasKeys,
       );
     }
-    this.active.delete(sk);
+    this.removeActiveEverywhere(cur);
     return batch;
   }
 
@@ -1557,12 +1594,23 @@ export class OpikOpenClawRuntime {
     const pendingKeys = this.expandPendingAliasKeysForUserTurn(basePendingKeys, sk);
     const peeked = this.peekPendingForSampling(pendingKeys, sk);
     const promptStr = typeof ev.prompt === "string" ? ev.prompt : undefined;
+    const systemStr = typeof ev.systemPrompt === "string" ? ev.systemPrompt : undefined;
     const pendingForKind =
       peeked && typeof peeked === "object" && !Array.isArray(peeked) ? peeked : ({} as Record<string, unknown>);
     const inferredRunKind = inferThreadRunKind(pendingForKind, promptStr);
+    /**
+     * 有 prompt/system/images 时说明本轮确实在调模型；即使 pending 与 session 键未对齐（peek 空、forceUser 为 false），
+     * 也禁止仅靠采样 return null，否则 agent_end 走 flushNonLlm、Collector 无 llm span（见 agent_end_without_llm / No llm_input note）。
+     */
+    const hasLlmHookPayload =
+      (promptStr && promptStr.trim().length > 0) ||
+      (systemStr && systemStr.trim().length > 0) ||
+      (typeof ev.imagesCount === "number" && ev.imagesCount > 0);
     /** 异步完成后的跟进 LLM 往往已无 pending 用户句，不能仅靠采样，否则 Collector 漏整条回复（OpenClaw UI 仍可见）。 */
     const forceTraceForUserMessage =
-      pendingLooksLikeExternalUserTurn(peeked) || inferredRunKind === "async_followup";
+      pendingLooksLikeExternalUserTurn(peeked) ||
+      inferredRunKind === "async_followup" ||
+      hasLlmHookPayload;
     if (!forceTraceForUserMessage && !shouldSample(sampleBps)) {
       /** 无用户 inbound 时仍可按采样跳过；有用户正文则强制本回合建 LLM trace。 */
       this.debugTrace?.("llm_input_sample_skipped", {
@@ -1703,6 +1751,11 @@ export class OpikOpenClawRuntime {
       spans: [spanRow],
     };
     this.active.set(sk, turn);
+    for (const k of pendingKeys) {
+      if (k !== sk) {
+        this.active.set(k, turn);
+      }
+    }
     return prev;
   }
 
@@ -1946,19 +1999,18 @@ export class OpikOpenClawRuntime {
     },
     sessionAliasKeys?: string[],
   ): OpikBatchPayload | null {
-    const keys = this.llmOutputLookupKeys(sk, sessionAliasKeys);
-    let cur: ActiveTurn | undefined;
-    for (const k of keys) {
-      const t0 = this.active.get(k);
-      if (t0?.llmSpanId) {
-        cur = t0;
-        break;
-      }
-    }
+    /** 与 onLlmInput 一致：对 pending 键做 `expandPendingAliasKeysForUserTurn`，否则仅落在 oc_/ou_ 等展开桶上的 ActiveTurn 在 agent_end / llm_output 查不到。 */
+    const baseForExpand =
+      sessionAliasKeys && sessionAliasKeys.length > 0
+        ? [...new Set(sessionAliasKeys.map((k) => k.trim() || "unknown-session"))]
+        : [sk];
+    const expanded = this.expandPendingAliasKeysForUserTurn(baseForExpand, sk);
+    const lookupKeys = this.llmOutputLookupKeys(sk, expanded);
+    const cur = this.findActiveForSession(sk, expanded);
     if (!cur || !cur.llmSpanId) {
       let late: LateLlmRef | undefined;
       let lateMatchedKey: string | undefined;
-      for (const k of keys) {
+      for (const k of lookupKeys) {
         const L = this.lateLlmOutputRefBySk.get(k);
         if (L) {
           late = L;
@@ -2017,7 +2069,7 @@ export class OpikOpenClawRuntime {
         this.debugTrace?.("llm_output_late_patch", {
           sessionKey: lateMatchedKey ?? sk,
           primarySk: sk,
-          lookupTried: keys.slice(0, 24),
+          lookupTried: lookupKeys.slice(0, 24),
           traceId: late.traceId,
           spanId: late.spanId,
           note: "agent_end 已关闭回合后到达的 llm_output，补写 span/trace",
@@ -2030,8 +2082,8 @@ export class OpikOpenClawRuntime {
       }
       this.debugTrace?.("llm_output_no_active_turn", {
         sessionKey: sk,
-        lookupTried: keys.slice(0, 24),
-        lookupCount: keys.length,
+        lookupTried: lookupKeys.slice(0, 24),
+        lookupCount: lookupKeys.length,
         lateFound: Boolean(late),
         hasPayload,
         provider: ev.provider,
@@ -2082,7 +2134,7 @@ export class OpikOpenClawRuntime {
     const uRec = ev.usage && isPlainObj(ev.usage) ? ev.usage : {};
     mergeTotalTokensFromUsage(metaOut, uRec);
     let clearedLate = false;
-    for (const k of keys) {
+    for (const k of lookupKeys) {
       const strayLate = this.lateLlmOutputRefBySk.get(k);
       if (strayLate) {
         this.clearLateLlmOutputRef(strayLate);
@@ -2107,7 +2159,7 @@ export class OpikOpenClawRuntime {
       toolExecution?: unknown;
     },
   ): void {
-    const cur = this.active.get(sk);
+    const cur = this.findActiveForSession(sk);
     if (!cur) {
       this.debugTrace?.("before_tool_no_active_turn", {
         sessionKey: sk,
@@ -2154,7 +2206,7 @@ export class OpikOpenClawRuntime {
       result?: unknown;
     },
   ): void {
-    const cur = this.active.get(sk);
+    const cur = this.findActiveForSession(sk);
     if (!cur) {
       this.debugTrace?.("after_tool_no_active_turn", {
         sessionKey: sk,
@@ -2200,7 +2252,12 @@ export class OpikOpenClawRuntime {
     ctx?: AgentCtx,
     pendingAliasKeys?: string[],
   ): OpikBatchPayload | null {
-    const cur = this.active.get(sk);
+    const baseForExpand =
+      pendingAliasKeys && pendingAliasKeys.length > 0
+        ? [...new Set(pendingAliasKeys.map((k) => k.trim() || "unknown-session"))]
+        : [sk];
+    const expanded = this.expandPendingAliasKeysForUserTurn(baseForExpand, sk);
+    const cur = this.findActiveForSession(sk, expanded);
     if (!cur) {
       if (!ctx) {
         this.debugTrace?.("agent_end_dropped_no_ctx", {
@@ -2250,12 +2307,12 @@ export class OpikOpenClawRuntime {
         }
       }
     }
-    return this.closeTurn(sk, "agent_end", pendingAliasKeys ?? [sk]);
+    return this.closeTurn(sk, "agent_end", expanded);
   }
 
   /** compaction / subagent 等：记一条 general span。 */
   addGeneralSpan(sk: string, name: string, payload: Record<string, unknown>): void {
-    const cur = this.active.get(sk);
+    const cur = this.findActiveForSession(sk);
     if (!cur) {
       this.debugTrace?.("general_span_dropped_no_active_turn", {
         sessionKey: sk,

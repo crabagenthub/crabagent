@@ -14,7 +14,6 @@ type SecurityAuditListQuery struct {
 	TraceID       *string
 	SpanID        *string
 	PolicyID      *string
-	HintType      *string
 	WorkspaceName *string
 }
 
@@ -49,10 +48,6 @@ func buildSecurityAuditWhere(q SecurityAuditListQuery) (string, []interface{}) {
 	if q.PolicyID != nil && strings.TrimSpace(*q.PolicyID) != "" {
 		parts = append(parts, `EXISTS (SELECT 1 FROM json_each(findings_json) WHERE json_extract(json_each.value, '$.policy_id') = ?)`)
 		params = append(params, strings.TrimSpace(*q.PolicyID))
-	}
-	if q.HintType != nil && strings.TrimSpace(*q.HintType) != "" {
-		parts = append(parts, `EXISTS (SELECT 1 FROM json_each(findings_json) WHERE lower(COALESCE(json_extract(json_each.value, '$.hint_type'), '')) = lower(?))`)
-		params = append(params, strings.TrimSpace(*q.HintType))
 	}
 	if len(parts) == 0 {
 		return "", params

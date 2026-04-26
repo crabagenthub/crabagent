@@ -212,13 +212,30 @@ func backfillSubagentParents(tx *sql.Tx, touched map[string]struct{}, db *sql.DB
 	}
 }
 
+type matchDetail struct {
+	MatchText  string  `json:"match_text"`
+	MatchCount int     `json:"match_count"`
+	Offset     [][]int `json:"offset"`
+	MaskText   string  `json:"mask_text"`
+}
+
+type positionMap struct {
+	Prompt         *matchDetail `json:"prompt,omitempty"`
+	AssistantTexts *matchDetail `json:"assistantTexts,omitempty"`
+	ToolParams     *matchDetail `json:"toolParams,omitempty"`
+	Metadata       *matchDetail `json:"metadata,omitempty"`
+}
+
 type securityAuditFinding struct {
-	PolicyID     string  `json:"policy_id"`
-	PolicyName   string  `json:"policy_name"`
-	MatchCount   int     `json:"match_count"`
-	PolicyAction string  `json:"policy_action"`
-	RedactType   string  `json:"redact_type"`
-	HintType     *string `json:"hint_type,omitempty"`
+	PolicyID      string      `json:"policy_id"`
+	PolicyName    string      `json:"policy_name"`
+	Severity      string      `json:"severity"`
+	DetectionKind string      `json:"detection_kind"`
+	Pattern       string      `json:"pattern"`
+	MatchCount    int         `json:"match_count"`
+	PolicyAction  string      `json:"policy_action"`
+	RedactType    string      `json:"redact_type"`
+	Position      positionMap `json:"position"`
 }
 
 type scanSummary struct {
@@ -247,8 +264,9 @@ type ingestInterceptionPolicy struct {
 	RedactType    string
 	Enabled       int
 	PolicyAction  *string
-	HintType      *string
 	DetectionKind *string
+	Severity      string
+	Targets       []string
 }
 
 func compareIngestPoliciesByRedactionOrder(a, b *ingestInterceptionPolicy) int {
@@ -291,7 +309,7 @@ func loadPoliciesForIngest(db *sql.DB, workspaceName string) ([]ingestIntercepti
 		ws = defaultWorkspace
 	}
 	rows, err := db.Query(fmt.Sprintf(`
-SELECT id, name, pattern, redact_type, enabled, policy_action, hint_type, detection_kind
+SELECT id, name, pattern, redact_type, enabled, policy_action, detection_kind, severity, targets_json
 FROM %s
 WHERE lower(workspace_name) = lower(?)
 ORDER BY updated_at_ms DESC`, sqltables.TableAgentSecurityPolicies), ws)
@@ -302,21 +320,31 @@ ORDER BY updated_at_ms DESC`, sqltables.TableAgentSecurityPolicies), ws)
 	items := make([]ingestInterceptionPolicy, 0)
 	for rows.Next() {
 		var it ingestInterceptionPolicy
-		var pa, ht, dk sql.NullString
-		if err := rows.Scan(&it.ID, &it.Name, &it.Pattern, &it.RedactType, &it.Enabled, &pa, &ht, &dk); err != nil {
+		var pa, dk, sev, targetsJSON sql.NullString
+		if err := rows.Scan(&it.ID, &it.Name, &it.Pattern, &it.RedactType, &it.Enabled, &pa, &dk, &sev, &targetsJSON); err != nil {
 			return nil, err
 		}
 		if pa.Valid {
 			s := pa.String
 			it.PolicyAction = &s
 		}
-		if ht.Valid {
-			s := ht.String
-			it.HintType = &s
-		}
 		if dk.Valid {
 			s := dk.String
 			it.DetectionKind = &s
+		}
+		if sev.Valid {
+			it.Severity = sev.String
+		} else {
+			it.Severity = "high"
+		}
+		if targetsJSON.Valid && targetsJSON.String != "" {
+			var targets []string
+			if err := json.Unmarshal([]byte(targetsJSON.String), &targets); err == nil {
+				it.Targets = targets
+			}
+		}
+		if len(it.Targets) == 0 {
+			it.Targets = []string{"prompt", "assistantTexts"}
 		}
 		items = append(items, it)
 	}
@@ -349,11 +377,113 @@ func compilePolicies(policies []ingestInterceptionPolicy) []compiledPolicy {
 	return out
 }
 
-func scanTextByPolicies(policies []compiledPolicy, text string) []securityAuditFinding {
+func applyMask(text string, redactType string) string {
+	switch strings.ToLower(strings.TrimSpace(redactType)) {
+	case "hash":
+		return "[HASHED]"
+	case "block":
+		return "[BLOCKED]"
+	default:
+		// mask: 保留前3后2，中间用*替代
+		if len(text) <= 5 {
+			return strings.Repeat("*", len(text))
+		}
+		return text[:3] + strings.Repeat("*", len(text)-5) + text[len(text)-2:]
+	}
+}
+
+func scanSingleField(re *regexp.Regexp, text string, redactType string) *matchDetail {
+	indices := re.FindAllStringIndex(text, -1)
+	if len(indices) == 0 {
+		return nil
+	}
+	offsets := make([][]int, 0, len(indices))
+	for _, idx := range indices {
+		offsets = append(offsets, []int{idx[0], idx[1]})
+	}
+	// 取第一个匹配的文本作为示例
+	matchedText := text[indices[0][0]:indices[0][1]]
+	return &matchDetail{
+		MatchText:  matchedText,
+		MatchCount: len(indices),
+		Offset:     offsets,
+		MaskText:   applyMask(matchedText, redactType),
+	}
+}
+
+func extractToolParams(metadata string) string {
+	// 从 metadata 中提取工具调用参数
+	if metadata == "" {
+		return ""
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(metadata), &m); err != nil {
+		return ""
+	}
+	// 尝试提取 tool_calls 或类似字段
+	var parts []string
+	if tc, ok := m["tool_calls"].([]interface{}); ok {
+		for _, t := range tc {
+			if to, ok := t.(map[string]interface{}); ok {
+				if fn, ok := to["function"].(map[string]interface{}); ok {
+					if args, ok := fn["arguments"].(string); ok {
+						parts = append(parts, args)
+					}
+				}
+			}
+		}
+	}
+	if tc, ok := m["tool_calls"].(map[string]interface{}); ok {
+		for _, v := range tc {
+			if s, ok := v.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func scanByTargets(cp compiledPolicy, input, output, metadata string) (positionMap, int) {
+	pos := positionMap{}
+	totalCount := 0
+	redactType := strings.TrimSpace(cp.Policy.RedactType)
+	if redactType == "" {
+		redactType = "mask"
+	}
+
+	for _, target := range cp.Policy.Targets {
+		switch strings.ToLower(strings.TrimSpace(target)) {
+		case "prompt":
+			if detail := scanSingleField(cp.Regex, input, redactType); detail != nil {
+				pos.Prompt = detail
+				totalCount += detail.MatchCount
+			}
+		case "assistanttexts", "assistant_texts":
+			if detail := scanSingleField(cp.Regex, output, redactType); detail != nil {
+				pos.AssistantTexts = detail
+				totalCount += detail.MatchCount
+			}
+		case "tool_params", "toolparams":
+			toolText := extractToolParams(metadata)
+			if detail := scanSingleField(cp.Regex, toolText, redactType); detail != nil {
+				pos.ToolParams = detail
+				totalCount += detail.MatchCount
+			}
+		case "metadata":
+			if detail := scanSingleField(cp.Regex, metadata, redactType); detail != nil {
+				pos.Metadata = detail
+				totalCount += detail.MatchCount
+			}
+		}
+	}
+	return pos, totalCount
+}
+
+func scanTextByPolicies(policies []compiledPolicy, input, output, metadata string) []securityAuditFinding {
 	out := make([]securityAuditFinding, 0)
 	for _, cp := range policies {
-		n := len(cp.Regex.FindAllStringIndex(text, -1))
-		if n <= 0 {
+		pos, totalCount := scanByTargets(cp, input, output, metadata)
+		if totalCount <= 0 {
 			continue
 		}
 		action := "data_mask"
@@ -364,13 +494,20 @@ func scanTextByPolicies(policies []compiledPolicy, text string) []securityAuditF
 		if redactType == "" {
 			redactType = "mask"
 		}
+		detectionKind := "regex"
+		if cp.Policy.DetectionKind != nil {
+			detectionKind = *cp.Policy.DetectionKind
+		}
 		out = append(out, securityAuditFinding{
-			PolicyID:     cp.Policy.ID,
-			PolicyName:   cp.Policy.Name,
-			MatchCount:   n,
-			PolicyAction: action,
-			RedactType:   redactType,
-			HintType:     cp.Policy.HintType,
+			PolicyID:      cp.Policy.ID,
+			PolicyName:    cp.Policy.Name,
+			Severity:      cp.Policy.Severity,
+			DetectionKind: detectionKind,
+			Pattern:       cp.Policy.Pattern,
+			MatchCount:    totalCount,
+			PolicyAction:  action,
+			RedactType:    redactType,
+			Position:      pos,
 		})
 	}
 	return out
@@ -539,17 +676,12 @@ func extractSecurityScanFromMetadata(metadata interface{}) (spanSecurityScan, bo
 			if redactType == "" {
 				redactType = "mask"
 			}
-			var hintType *string
-			if ht := jString(obj, "hint_type"); ht != "" {
-				hintType = &ht
-			}
 			findings = append(findings, securityAuditFinding{
 				PolicyID:     policyID,
 				PolicyName:   policyName,
 				MatchCount:   matchCount,
 				PolicyAction: policyAction,
 				RedactType:   redactType,
-				HintType:     hintType,
 			})
 		}
 	}
@@ -700,8 +832,10 @@ func scanOpikBatchForSecurityAudit(env map[string]interface{}, policies []compil
 			if traceID == "" {
 				continue
 			}
-			text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
-			findings := scanTextByPolicies(policies, text)
+			input := derefStr(jsonStr(row["input"]))
+			output := derefStr(jsonStr(row["output"]))
+			metadata := derefStr(jsonStr(row["metadata"]))
+			findings := scanTextByPolicies(policies, input, output, metadata)
 			sum := summarizeFindings(findings)
 			if sum.HitCount <= 0 {
 				continue
@@ -720,8 +854,10 @@ func scanOpikBatchForSecurityAudit(env map[string]interface{}, policies []compil
 			if spanID == "" || traceID == "" {
 				continue
 			}
-			text := fmt.Sprintf("%s\n%s\n%s", derefStr(jsonStr(row["input"])), derefStr(jsonStr(row["output"])), derefStr(jsonStr(row["metadata"])))
-			findings := scanTextByPolicies(policies, text)
+			input := derefStr(jsonStr(row["input"]))
+			output := derefStr(jsonStr(row["output"]))
+			metadata := derefStr(jsonStr(row["metadata"]))
+			findings := scanTextByPolicies(policies, input, output, metadata)
 			sum := summarizeFindings(findings)
 			if sum.HitCount <= 0 {
 				continue

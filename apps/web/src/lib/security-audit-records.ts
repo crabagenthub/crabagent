@@ -3,12 +3,30 @@ import { readCollectorFetchResult } from "@/lib/collector-json";
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 /** Collector `findings_json` 解析后单项（无明文、无 vault 原文）。 */
+export type MatchDetail = {
+  match_text: string;
+  match_count: number;
+  offset: [number, number][];
+  mask_text: string;
+};
+
+export type PositionMap = {
+  prompt?: MatchDetail;
+  assistantTexts?: MatchDetail;
+  toolParams?: MatchDetail;
+  metadata?: MatchDetail;
+};
+
 export type SecurityAuditFinding = {
   policy_id: string;
   policy_name: string;
+  severity: string;
+  detection_kind: string;
+  pattern: string;
   match_count: number;
   policy_action: string;
   redact_type: string;
+  position: PositionMap;
 };
 
 export type SecurityAuditEventRow = {

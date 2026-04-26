@@ -73,6 +73,9 @@ go run .
     "entries": {
       "openclaw-trace-plugin": {
         "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true
+        },
         "config": {
           "collectorBaseUrl": "http://127.0.0.1:8087",
           "collectorApiKey": "dev-local-key"
@@ -83,7 +86,7 @@ go run .
 }
 ```
 
-4. 若你配置了 `plugins.allow`（非空白名单），必须把 **`openclaw-trace-plugin`** 加进列表，否则工作区插件会被禁用；`pnpm openclaw:merge-config -- --write` 会自动追加。
+4. 若你配置了 `plugins.allow`（非空白名单），必须把 **`openclaw-trace-plugin`** 加进列表，否则工作区插件会被禁用；`pnpm openclaw:merge-config -- --write` 会自动追加。自 **OpenClaw 2026.4.23** 起，**非内置**插件必须在 `plugins.entries.openclaw-trace-plugin.hooks` 中设置 **`allowConversationAccess: true`**，否则 `llm_input` / `llm_output` / `agent_end` 不会注册（合并脚本会写入该项）。
 5. 启动 Collector（需与 `collectorApiKey` 一致，环境变量 `CRABAGENT_API_KEY`）。
 6. 重启 OpenClaw Gateway。
 

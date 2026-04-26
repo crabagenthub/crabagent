@@ -31,14 +31,30 @@ export type LocationInfo = {
   };
 };
 
+export type MatchDetail = {
+  match_text: string;
+  match_count: number;
+  offset: [number, number][];
+  mask_text: string;
+};
+
+export type PositionMap = {
+  prompt?: MatchDetail;
+  assistantTexts?: MatchDetail;
+  toolParams?: MatchDetail;
+  metadata?: MatchDetail;
+};
+
 export type RedactionAuditFinding = {
   policy_id: string;
   policy_name: string;
+  severity: string;
+  detection_kind: string;
+  pattern: string;
   match_count: number;
   policy_action: string;
   redact_type: RedactionType;
-  matched_text?: string;
-  location?: LocationInfo;
+  position: PositionMap;
 };
 
 export type RedactionAuditInterceptionMeta = {
