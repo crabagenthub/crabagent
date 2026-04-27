@@ -14,7 +14,6 @@ import (
 type resourceAccessSpanRecord struct {
 	SpanID        string
 	TraceID       string
-	ParentSpanID  sql.NullString
 	Name          sql.NullString
 	SpanType      sql.NullString
 	StartTimeMs   sql.NullInt64
@@ -222,7 +221,7 @@ func fetchResourceAccessSpanRecords(db *sql.DB, ids []string) ([]resourceAccessS
 	placeholders := strings.Repeat("?,", len(ids))
 	placeholders = placeholders[:len(placeholders)-1]
 
-	q := fmt.Sprintf(`SELECT span_id, trace_id, parent_span_id, name, span_type,
+	q := fmt.Sprintf(`SELECT span_id, trace_id, name, span_type,
 		start_time_ms, end_time_ms, duration_ms, input_json, output_json, error_info_json, metadata_json
 		FROM %s WHERE span_id IN (%s)`, sqltables.TableAgentSpans, placeholders)
 
@@ -241,7 +240,7 @@ func fetchResourceAccessSpanRecords(db *sql.DB, ids []string) ([]resourceAccessS
 	for rows.Next() {
 		var r resourceAccessSpanRecord
 		err := rows.Scan(
-			&r.SpanID, &r.TraceID, &r.ParentSpanID, &r.Name, &r.SpanType,
+			&r.SpanID, &r.TraceID, &r.Name, &r.SpanType,
 			&r.StartTimeMs, &r.EndTimeMs, &r.DurationMs, &r.InputJSON, &r.OutputJSON, &r.ErrorInfoJSON, &r.MetadataJSON,
 		)
 		if err != nil {
