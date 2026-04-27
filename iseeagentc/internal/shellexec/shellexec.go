@@ -17,6 +17,7 @@ import (
 	textparser "iseeagentc/internal/parser"
 
 	toml "github.com/pelletier/go-toml/v2"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 func isFiniteFloat(x float64) bool {
@@ -24,8 +25,6 @@ func isFiniteFloat(x float64) bool {
 }
 
 const tokenRiskStdoutCharsDefault = 24_000
-const tokenApproxDivisor = 4
-const usdPerMtok = 0.5
 
 // SpanRow is a scanned agent_spans row for shell analytics.
 type SpanRow struct {
@@ -265,11 +264,11 @@ type ParsedShellSpan struct {
 	StdoutPreview    *string              `json:"stdoutPreview"`
 	StderrPreview    *string              `json:"stderrPreview"`
 	EstTokens        int                  `json:"estTokens"`
-	EstUsd           float64              `json:"estUsd"`
 	TokenRisk        bool                 `json:"tokenRisk"`
 	CommandNotFound  bool                 `json:"commandNotFound"`
 	PermissionDenied bool                 `json:"permissionDenied"`
 	IllegalArgHint   bool                 `json:"illegalArgHint"`
+	RiskFlags        []string             `json:"riskFlags"`
 	Cwd              *string              `json:"cwd"`
 	EnvKeys          []string             `json:"envKeys"`
 	UserID           *string              `json:"userId"`
@@ -286,7 +285,6 @@ type ParsedShellSpanLite struct {
 	StdoutLen        int                  `json:"stdoutLen"`
 	StderrLen        int                  `json:"stderrLen"`
 	EstTokens        int                  `json:"estTokens"`
-	EstUsd           float64              `json:"estUsd"`
 	TokenRisk        bool                 `json:"tokenRisk"`
 	CommandNotFound  bool                 `json:"commandNotFound"`
 	PermissionDenied bool                 `json:"permissionDenied"`
@@ -309,7 +307,6 @@ func ToParsedShellSpanLite(p ParsedShellSpan) ParsedShellSpanLite {
 		StdoutLen:        p.StdoutLen,
 		StderrLen:        p.StderrLen,
 		EstTokens:        p.EstTokens,
-		EstUsd:           math.Round(p.EstUsd*10000) / 10000,
 		TokenRisk:        p.TokenRisk,
 		CommandNotFound:  p.CommandNotFound,
 		PermissionDenied: p.PermissionDenied,
@@ -700,8 +697,21 @@ func ParseShellSpanRow(inputJSON, outputJSON, errorInfoJSON, metadataJSON, threa
 		t := true
 		success = &t
 	}
-	estTokens := int(math.Ceil(float64(stdoutLen+stderrLen) / float64(tokenApproxDivisor)))
-	estUsd := (float64(estTokens) / 1_000_000) * usdPerMtok
+
+	// 使用 tiktoken 计算真实的 token 数量（cl100k_base 编码）
+	textToEncode := stdoutText + "\n" + stderrText
+	if errStr != "" {
+		textToEncode = errStr + "\n" + textToEncode
+	}
+	estTokens := 0
+	if textToEncode != "" {
+		tkm, err := tiktoken.EncodingForModel("gpt-4") // 使用 cl100k_base 编码
+		if err == nil {
+			tokens := tkm.Encode(textToEncode, nil, nil)
+			estTokens = len(tokens)
+		}
+	}
+
 	thr := tokenRiskStdoutCharsDefault
 	if tokenRiskStdoutChars != nil && *tokenRiskStdoutChars >= 0 {
 		thr = *tokenRiskStdoutChars
@@ -741,7 +751,6 @@ func ParseShellSpanRow(inputJSON, outputJSON, errorInfoJSON, metadataJSON, threa
 		StdoutPreview:    stdoutPreview,
 		StderrPreview:    stderrPreview,
 		EstTokens:        estTokens,
-		EstUsd:           estUsd,
 		TokenRisk:        tokenRisk,
 		CommandNotFound:  commandNotFound,
 		PermissionDenied: permissionDenied,
@@ -883,12 +892,11 @@ type LoopAlert struct {
 }
 
 type TokenRiskEntry struct {
-	SpanID      string  `json:"span_id"`
-	TraceID     string  `json:"trace_id"`
-	Command     string  `json:"command"`
-	StdoutChars int     `json:"stdout_chars"`
-	EstTokens   int     `json:"est_tokens"`
-	EstUsd      float64 `json:"est_usd"`
+	SpanID      string `json:"span_id"`
+	TraceID     string `json:"trace_id"`
+	Command     string `json:"command"`
+	StdoutChars int    `json:"stdout_chars"`
+	EstTokens   int    `json:"est_tokens"`
 }
 
 type ShellDiagnostics struct {
@@ -937,7 +945,6 @@ func ParsedShellSpanFromExecDB(
 	succ sql.NullInt64,
 	stdoutLen, stderrLen int,
 	estTok int,
-	estUsd float64,
 	tokenRisk bool,
 	cnf, pden, iarg bool,
 	uid sql.NullString,
@@ -984,7 +991,6 @@ func ParsedShellSpanFromExecDB(
 		StdoutPreview:    nil,
 		StderrPreview:    nil,
 		EstTokens:        estTok,
-		EstUsd:           estUsd,
 		TokenRisk:        tokenRisk,
 		CommandNotFound:  cnf,
 		PermissionDenied: pden,
@@ -1226,7 +1232,6 @@ func ComputeShellSummaryFromRows(rows []SpanRow, opts ComputeSummaryOptions) She
 		tokenRisks = append(tokenRisks, TokenRiskEntry{
 			SpanID: x.row.SpanID, TraceID: x.row.TraceID, Command: cmd,
 			StdoutChars: x.p.StdoutLen, EstTokens: x.p.EstTokens,
-			EstUsd: math.Round(x.p.EstUsd*10000) / 10000,
 		})
 	}
 	sort.Slice(tokenRisks, func(i, j int) bool {

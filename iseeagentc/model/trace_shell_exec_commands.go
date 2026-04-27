@@ -111,11 +111,7 @@ type shellExecRecord struct {
 	StdoutLen          int64
 	StderrLen          int64
 	EstTokens          int64
-	EstUsd             float64
-	TokenRisk          int
-	CmdNF              int
-	Perm               int
-	IllArg             int
+	RiskFlags          sql.NullString
 	UserID             sql.NullString
 	InputJSON          sql.NullString
 	OutputJSON         sql.NullString
@@ -134,8 +130,8 @@ func scanShellExecRecordCore(sc interface {
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
 		&r.Status, &r.ErrorInfo,
-		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
-		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
+		&r.StdoutLen, &r.StderrLen, &r.EstTokens,
+		&r.RiskFlags,
 		&r.UserID,
 	)
 	return r, err
@@ -151,8 +147,8 @@ func scanShellExecRecordWithSpan(sc interface {
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
 		&r.Status, &r.ErrorInfo,
-		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
-		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
+		&r.StdoutLen, &r.StderrLen, &r.EstTokens,
+		&r.RiskFlags,
 		&r.UserID,
 		&r.InputJSON, &r.OutputJSON, &r.ErrorInfoJSON, &r.MetadataJSON, &r.ThreadMetadataJSON,
 	)
@@ -165,8 +161,8 @@ func shellExecSelectCols() string {
  e.span_name, e.start_time_ms, e.end_time_ms, e.duration_ms,
  e.command, e.command_key, e.category, e.platform,
  e.status, e.error_info,
- e.stdout_len, e.stderr_len, e.est_tokens, e.est_usd,
- e.token_risk, e.command_not_found, e.permission_denied, e.illegal_arg_hint,
+ e.stdout_len, e.stderr_len, e.est_tokens,
+ e.risk_flags,
  e.user_id`
 }
 
@@ -184,16 +180,39 @@ func shellExecRecordToSpanRow(r shellExecRecord, cfg shellexec.ResourceAuditConf
 		}
 	}
 
+	// Parse risk_flags into []string and determine individual flags
+	var riskFlags []string
+	tokenRisk := false
+	cmdNF := false
+	perm := false
+	illArg := false
+	if r.RiskFlags.Valid && r.RiskFlags.String != "" {
+		riskFlags = strings.Split(r.RiskFlags.String, ",")
+		for _, flag := range riskFlags {
+			switch flag {
+			case "token_risk":
+				tokenRisk = true
+			case "command_not_found":
+				cmdNF = true
+			case "permission_denied":
+				perm = true
+			case "illegal_arg_hint":
+				illArg = true
+			}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
 		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
-		int(r.EstTokens), r.EstUsd,
-		r.TokenRisk != 0,
-		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
+		int(r.EstTokens),
+		tokenRisk,
+		cmdNF, perm, illArg,
 		r.UserID,
 		cfg,
 	)
+	p.RiskFlags = riskFlags
 	return shellexec.SpanRow{
 		SpanID:      r.SpanID,
 		TraceID:     r.TraceID,
@@ -375,16 +394,40 @@ func shellExecRecordToListItem(r shellExecRecord, cfg shellexec.ResourceAuditCon
 		}
 	}
 
+	// Parse risk_flags into []string and determine individual flags
+	var riskFlags []string
+	tokenRisk := false
+	cmdNF := false
+	perm := false
+	illArg := false
+	if r.RiskFlags.Valid && r.RiskFlags.String != "" {
+		riskFlags = strings.Split(r.RiskFlags.String, ",")
+		for _, flag := range riskFlags {
+			switch flag {
+			case "token_risk":
+				tokenRisk = true
+			case "command_not_found":
+				cmdNF = true
+			case "permission_denied":
+				perm = true
+			case "illegal_arg_hint":
+				illArg = true
+			}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
 		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
-		int(r.EstTokens), r.EstUsd,
-		r.TokenRisk != 0,
-		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
+		int(r.EstTokens),
+		tokenRisk,
+		cmdNF, perm, illArg,
 		r.UserID,
 		cfg,
 	)
+	p.RiskFlags = riskFlags
+
 	tool := "tool"
 	return ShellExecListItem{
 		SpanID:             r.SpanID,
@@ -594,16 +637,39 @@ func QueryShellExecDetailFromExec(db *sql.DB, spanID string) (*ShellExecDetailRe
 		}
 	}
 
+	// Parse risk_flags into []string and determine individual flags
+	var riskFlags []string
+	tokenRisk := false
+	cmdNF := false
+	perm := false
+	illArg := false
+	if r.RiskFlags.Valid && r.RiskFlags.String != "" {
+		riskFlags = strings.Split(r.RiskFlags.String, ",")
+		for _, flag := range riskFlags {
+			switch flag {
+			case "token_risk":
+				tokenRisk = true
+			case "command_not_found":
+				cmdNF = true
+			case "permission_denied":
+				perm = true
+			case "illegal_arg_hint":
+				illArg = true
+			}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
 		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
-		int(r.EstTokens), r.EstUsd,
-		r.TokenRisk != 0,
-		r.CmdNF != 0, r.Perm != 0, r.IllArg != 0,
+		int(r.EstTokens),
+		tokenRisk,
+		cmdNF, perm, illArg,
 		r.UserID,
 		cfg,
 	)
+	p.RiskFlags = riskFlags
 	if r.InputJSON.Valid || r.OutputJSON.Valid || r.ErrorInfoJSON.Valid {
 		in := nullStrPtrToStrPtr(r.InputJSON)
 		out := nullStrPtrToStrPtr(r.OutputJSON)

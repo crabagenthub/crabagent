@@ -117,13 +117,13 @@ SELECT
   COALESCE(e.trace_id, '') AS trace_id,
   NULLIF(TRIM(e.span_id), '') AS span_id,
   COALESCE(NULLIF(TRIM(e.command), ''), 'command') AS subject,
-  ('status=' || COALESCE(e.status, 'unknown') || CASE WHEN COALESCE(e.error_info, '') <> '' THEN ' / error=' || substr(e.error_info, 1, 50) ELSE '' END || ' / risk=' || CASE WHEN COALESCE(e.token_risk, 0) <> 0 THEN 'true' ELSE 'false' END) AS evidence,
+  ('status=' || COALESCE(e.status, 'unknown') || CASE WHEN COALESCE(e.error_info, '') <> '' THEN ' / error=' || substr(e.error_info, 1, 50) ELSE '' END || ' / risk=' || CASE WHEN e.risk_flags LIKE '%token_risk%' THEN 'true' ELSE 'false' END) AS evidence,
   COALESCE(NULLIF(TRIM(e.agent_name), ''), 'unknown') AS actor,
   COALESCE(NULLIF(TRIM(e.command), ''), 'command') AS target,
   e.status AS result,
   CASE
     WHEN COALESCE(e.status, 'success') = 'error' THEN 'command_failed'
-    WHEN COALESCE(e.token_risk, 0) <> 0 THEN 'token_risk'
+    WHEN e.risk_flags LIKE '%token_risk%' THEN 'token_risk'
     ELSE 'heuristic_risk'
   END AS why_flagged,
   '/command-analysis' AS source_page

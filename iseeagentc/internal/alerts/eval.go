@@ -48,11 +48,11 @@ func evalErrorFamily(db *sql.DB, ws string, since, until int64, r *model.AlertRu
 	if st == "agent_exec_commands" || st == "" {
 		switch cf {
 		case "permission_denied":
-			return execFlagCountEval(db, ws, since, until, "e.permission_denied = 1", r, "permission_denied count", adv)
+			return execFlagCountEval(db, ws, since, until, "e.risk_flags LIKE '%permission_denied%'", r, "permission_denied count", adv)
 		case "command_not_found":
-			return execFlagCountEval(db, ws, since, until, "e.command_not_found = 1", r, "command_not_found count", adv)
+			return execFlagCountEval(db, ws, since, until, "e.risk_flags LIKE '%command_not_found%'", r, "command_not_found count", adv)
 		case "token_risk":
-			return execFlagCountEval(db, ws, since, until, "e.token_risk = 1", r, "token_risk count", adv)
+			return execFlagCountEval(db, ws, since, until, "e.risk_flags LIKE '%token_risk%'", r, "token_risk count", adv)
 		case "loop_alerts":
 			return evalLoopFromShellSummary(db, ws, since, until, r)
 		}

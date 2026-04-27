@@ -54,6 +54,22 @@ func SyncAgentExecCommandRow(tx *sql.Tx, db *sql.DB, nowMs int64, cfg shellexec.
 		errorInfo = *errorInfoJSON
 	}
 
+	// Build risk_flags from individual risk indicators
+	var riskFlags []string
+	if p.TokenRisk {
+		riskFlags = append(riskFlags, "token_risk")
+	}
+	if p.CommandNotFound {
+		riskFlags = append(riskFlags, "command_not_found")
+	}
+	if p.PermissionDenied {
+		riskFlags = append(riskFlags, "permission_denied")
+	}
+	if p.IllegalArgHint {
+		riskFlags = append(riskFlags, "illegal_arg_hint")
+	}
+	riskFlagsStr := strings.Join(riskFlags, ",")
+
 	wsOut := strings.TrimSpace(spanWorkspace)
 	if workspaceNameAug != nil && strings.TrimSpace(*workspaceNameAug) != "" {
 		wsOut = strings.TrimSpace(*workspaceNameAug)
@@ -63,10 +79,9 @@ func SyncAgentExecCommandRow(tx *sql.Tx, db *sql.DB, nowMs int64, cfg shellexec.
   span_id, trace_id, workspace_name, project_name, thread_key, agent_name, channel_name,
   span_name, start_time_ms, end_time_ms, duration_ms,
   command, command_key, category, platform, status, error_info,
-  stdout_len, stderr_len, est_tokens, est_usd, token_risk,
-  command_not_found, permission_denied, illegal_arg_hint,
+  stdout_len, stderr_len, est_tokens, risk_flags,
   user_id, parser_version, created_at_ms, updated_at_ms
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(span_id) DO UPDATE SET
   trace_id = excluded.trace_id,
   workspace_name = excluded.workspace_name,
@@ -87,11 +102,6 @@ ON CONFLICT(span_id) DO UPDATE SET
   stdout_len = excluded.stdout_len,
   stderr_len = excluded.stderr_len,
   est_tokens = excluded.est_tokens,
-  est_usd = excluded.est_usd,
-  token_risk = excluded.token_risk,
-  command_not_found = excluded.command_not_found,
-  permission_denied = excluded.permission_denied,
-  illegal_arg_hint = excluded.illegal_arg_hint,
   user_id = excluded.user_id,
   parser_version = excluded.parser_version,
   created_at_ms = COALESCE(%[1]s.created_at_ms, excluded.created_at_ms),
@@ -104,8 +114,8 @@ ON CONFLICT(span_id) DO UPDATE SET
 		optPositiveMs(startMs), optPositiveMs(endMs), optPositiveMs(durMs),
 		p.Command, p.CommandKey, p.Category, p.Platform,
 		status, errorInfo,
-		p.StdoutLen, p.StderrLen, p.EstTokens, p.EstUsd, boolTo01(p.TokenRisk),
-		boolTo01(p.CommandNotFound), boolTo01(p.PermissionDenied), boolTo01(p.IllegalArgHint),
+		p.StdoutLen, p.StderrLen, p.EstTokens,
+		riskFlagsStr,
 		p.UserID, 1, nowMs, nowMs,
 	}
 	_, err := tx.Exec(sqlutil.RebindIfPostgres(db, q), args...)

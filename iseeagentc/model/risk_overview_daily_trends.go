@@ -143,9 +143,9 @@ WITH base AS (
   SELECT %s AS day,
          e.trace_id,
          COALESCE(NULLIF(TRIM(e.command_key), ''), NULLIF(TRIM(e.command), ''), '') AS cmd_key,
-         COALESCE(e.permission_denied, 0) AS permission_denied,
-         COALESCE(e.command_not_found, 0) AS command_not_found,
-         COALESCE(e.token_risk, 0) AS token_risk
+         CASE WHEN e.risk_flags LIKE '%%permission_denied%%' THEN 1 ELSE 0 END AS permission_denied,
+         CASE WHEN e.risk_flags LIKE '%%command_not_found%%' THEN 1 ELSE 0 END AS command_not_found,
+         CASE WHEN e.risk_flags LIKE '%%token_risk%%' THEN 1 ELSE 0 END AS token_risk
   FROM %s e
   WHERE %s
 ),
