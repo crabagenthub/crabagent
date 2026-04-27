@@ -145,9 +145,15 @@ func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
 	}
 	chars := CalculateChars(output)
 
-	// Extract snippet from output
-	primaryText := extractPrimaryTextFromToolResult(output)
-	snippet := TruncateSnippet(primaryText, 200)
+	// Calculate uri_repeat_count: count how many times this URI appears in the same trace
+	uriRepeatCount := 0
+	if err := tx.QueryRow(
+		sqlutil.RebindIfPostgres(db, fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE trace_id = ? AND resource_uri = ? AND span_id != ?`, tbl)),
+		traceID, resourceInfo.URI, spanID,
+	).Scan(&uriRepeatCount); err != nil {
+		// If query fails, default to 0
+		uriRepeatCount = 0
+	}
 
 	// Extract policy hint flags from metadata (still written by security policy matching in Plugin)
 	policyHintFlags := ""
@@ -178,9 +184,9 @@ func SyncAgentResourceAccessRow(tx *sql.Tx, db *sql.DB, nowMs int64,
 	q := fmt.Sprintf(`INSERT INTO %[1]s (
   span_id, trace_id, workspace_name, project_name, thread_key, agent_name, channel_name,
   span_name, start_time_ms, end_time_ms, duration_ms,
-  resource_uri, access_mode, semantic_kind, chars, snippet, uri_repeat_count,
+  resource_uri, access_mode, semantic_kind, chars, uri_repeat_count,
   risk_flags, policy_hint_flags, created_at_ms, updated_at_ms
- ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(span_id) DO UPDATE SET
   trace_id = excluded.trace_id,
   workspace_name = excluded.workspace_name,
@@ -196,7 +202,6 @@ ON CONFLICT(span_id) DO UPDATE SET
   access_mode = excluded.access_mode,
   semantic_kind = excluded.semantic_kind,
   chars = excluded.chars,
-  snippet = excluded.snippet,
   uri_repeat_count = excluded.uri_repeat_count,
   risk_flags = excluded.risk_flags,
   policy_hint_flags = excluded.policy_hint_flags,
@@ -208,7 +213,7 @@ ON CONFLICT(span_id) DO UPDATE SET
 		wsOut, nullablePtrStr(projectNameAug), nullablePtrStr(threadKey), nullablePtrStr(agentName), nullablePtrStr(channelName),
 		strings.TrimSpace(spanName),
 		optPositiveMs(startMs), optPositiveMs(endMs), optPositiveMs(durMs),
-		resourceInfo.URI, accessMode, semanticKind, chars, snippet, 0, // uri_repeat_count calculated at query time
+		resourceInfo.URI, accessMode, semanticKind, chars, uriRepeatCount,
 		"", policyHintFlags, nowMs, nowMs, // risk_flags calculated at query time
 	}
 	_, err := tx.Exec(sqlutil.RebindIfPostgres(db, q), args...)

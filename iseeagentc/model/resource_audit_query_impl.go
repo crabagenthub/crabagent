@@ -58,7 +58,6 @@ type RawAuditRow struct {
 	AccessMode      string
 	SemanticKind    string
 	Chars           sql.NullInt64
-	Snippet         sql.NullString
 	ThreadKey       string
 	WorkspaceName   string
 	ProjectName     string
@@ -80,7 +79,6 @@ type ResourceAuditEventJson struct {
 	ResourceURI    string   `json:"resource_uri"`
 	AccessMode     *string  `json:"access_mode"`
 	Chars          *int64   `json:"chars"`
-	Snippet        *string  `json:"snippet"`
 	SemanticClass  string   `json:"semantic_class"`
 	URIRepeatCount int      `json:"uri_repeat_count"`
 	RiskFlags      []string `json:"risk_flags"`
@@ -400,19 +398,6 @@ func buildWhere(q ResourceAuditListQuery, db QueryDB) (string, []any) {
 	return "WHERE " + strings.Join(parts, " AND "), params
 }
 
-func truncateSnippet(s string) *string {
-	if s == "" {
-		empty := ""
-		return &empty
-	}
-	runes := []rune(s)
-	if len(runes) <= 500 {
-		return &s
-	}
-	out := string(runes[:499]) + "…"
-	return &out
-}
-
 // mapRawRowToAuditEvent maps from agent_resource_access table to ResourceAuditEventJson
 func mapRawRowToAuditEvent(r RawAuditRow, config ResourceAuditQueryConfig) ResourceAuditEventJson {
 	uri := r.ResourceURI
@@ -426,11 +411,6 @@ func mapRawRowToAuditEvent(r RawAuditRow, config ResourceAuditQueryConfig) Resou
 	if r.Chars.Valid {
 		c := r.Chars.Int64
 		chars = &c
-	}
-
-	var snippet *string
-	if r.Snippet.Valid && r.Snippet.String != "" {
-		snippet = truncateSnippet(r.Snippet.String)
 	}
 
 	uriRepeat := 0
@@ -458,39 +438,21 @@ func mapRawRowToAuditEvent(r RawAuditRow, config ResourceAuditQueryConfig) Resou
 	}
 	riskFlags = uniqStrings(riskFlags)
 
-	tk := r.ThreadKey
-	if tk == "" {
-		tk = r.TraceID
-	}
-	ws := r.WorkspaceName
-	if ws == "" {
-		ws = "default"
-	}
-	pn := r.ProjectName
-	if pn == "" {
-		pn = "openclaw"
-	}
-
-	var dur *int64
+	var durMs *int64
 	if r.DurationMs.Valid {
-		d := r.DurationMs.Int64
-		dur = &d
+		v := r.DurationMs.Int64
+		durMs = &v
 	}
 
 	return ResourceAuditEventJson{
 		SpanID:         r.SpanID,
 		TraceID:        r.TraceID,
-		ThreadKey:      tk,
-		WorkspaceName:  ws,
-		ProjectName:    pn,
 		SpanName:       r.SpanName,
-		SpanType:       "tool", // All resource access entries are from tool spans
 		StartedAtMs:    r.StartTimeMs,
-		DurationMs:     dur,
+		DurationMs:     durMs,
 		ResourceURI:    uri,
 		AccessMode:     accessMode,
 		Chars:          chars,
-		Snippet:        snippet,
 		SemanticClass:  semanticClass,
 		URIRepeatCount: uriRepeat,
 		RiskFlags:      riskFlags,
@@ -521,7 +483,6 @@ func buildSpanAuditSelectSQL() string {
        ra.access_mode,
        ra.semantic_kind,
        ra.chars,
-       ra.snippet,
        COALESCE(NULLIF(TRIM(ra.thread_key), ''), ra.trace_id) AS thread_key,
        ra.workspace_name,
        ra.project_name,
@@ -604,7 +565,6 @@ func scanRawAuditRow(
 	accessMode sql.NullString,
 	semanticKind sql.NullString,
 	chars sql.NullInt64,
-	snippet sql.NullString,
 	threadKey, wsName, projName sql.NullString,
 	policyFlags sql.NullString,
 	policyHitAny sql.NullInt64,
@@ -629,7 +589,6 @@ func scanRawAuditRow(
 		AccessMode:      nullStr(accessMode),
 		SemanticKind:    nullStr(semanticKind),
 		Chars:           chars,
-		Snippet:         snippet,
 		ThreadKey:       nullStr(threadKey),
 		WorkspaceName:   nullStr(wsName),
 		ProjectName:     nullStr(projName),
@@ -673,21 +632,20 @@ func queryResourceAuditEventsInternal(db QueryDB, q ResourceAuditListQuery) ([]R
 		var startTimeMs, endTimeMs, durationMs sql.NullInt64
 		var resourceURI, accessMode, semanticKind sql.NullString
 		var chars sql.NullInt64
-		var snippet sql.NullString
 		var threadKey, ws, proj sql.NullString
 		var polFlags sql.NullString
 		var polHit sql.NullInt64
 		var uriRep sql.NullInt64
 		if err := rows.Scan(
 			&spanID, &traceID, &spanName, &startTimeMs, &endTimeMs, &durationMs,
-			&resourceURI, &accessMode, &semanticKind, &chars, &snippet,
+			&resourceURI, &accessMode, &semanticKind, &chars,
 			&threadKey, &ws, &proj,
 			&polFlags, &polHit, &uriRep,
 		); err != nil {
 			return nil, err
 		}
 		raw := scanRawAuditRow(spanID, traceID, spanName, startTimeMs, endTimeMs, durationMs,
-			resourceURI, accessMode, semanticKind, chars, snippet,
+			resourceURI, accessMode, semanticKind, chars,
 			threadKey, ws, proj, polFlags, polHit, uriRep)
 		events = append(events, mapRawRowToAuditEvent(raw, cfg))
 	}

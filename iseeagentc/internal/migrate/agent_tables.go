@@ -373,10 +373,11 @@ CREATE TABLE %s (
   access_mode TEXT NOT NULL DEFAULT 'read' CHECK (access_mode IN ('read', 'write', 'delete', 'connect', 'execute', 'list')),
   semantic_kind TEXT NOT NULL DEFAULT 'other',
   chars INTEGER NOT NULL DEFAULT 0,
-  snippet TEXT,
   uri_repeat_count INTEGER NOT NULL DEFAULT 0,
   risk_flags TEXT NOT NULL DEFAULT '',
   policy_hint_flags TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error', 'timeout', 'cancelled')),
+  error_info TEXT,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms
 );
@@ -384,7 +385,8 @@ CREATE INDEX idx_agent_resource_access_trace ON %s(trace_id);
 CREATE INDEX idx_agent_resource_access_start ON %s(start_time_ms DESC);
 CREATE INDEX idx_agent_resource_access_semantic ON %s(semantic_kind);
 CREATE INDEX idx_agent_resource_access_uri ON %s(resource_uri);
-`, ra, tr, ra, ra, ra, ra)
+CREATE INDEX idx_agent_resource_access_status ON %s(status);
+`, ra, tr, ra, ra, ra, ra, ra)
 	} else {
 		ddl = fmt.Sprintf(`
 CREATE TABLE %s (
@@ -403,10 +405,11 @@ CREATE TABLE %s (
   access_mode TEXT NOT NULL DEFAULT 'read' CHECK (access_mode IN ('read', 'write', 'delete', 'connect', 'execute', 'list')),
   semantic_kind TEXT NOT NULL DEFAULT 'other',
   chars INTEGER NOT NULL DEFAULT 0,
-  snippet TEXT,
   uri_repeat_count INTEGER NOT NULL DEFAULT 0,
   risk_flags TEXT NOT NULL DEFAULT '',
   policy_hint_flags TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error', 'timeout', 'cancelled')),
+  error_info TEXT,
   created_at_ms BIGINT NOT NULL,
   updated_at_ms BIGINT
 );
@@ -414,7 +417,8 @@ CREATE INDEX idx_agent_resource_access_trace ON %s(trace_id);
 CREATE INDEX idx_agent_resource_access_start ON %s(start_time_ms DESC);
 CREATE INDEX idx_agent_resource_access_semantic ON %s(semantic_kind);
 CREATE INDEX idx_agent_resource_access_uri ON %s(resource_uri);
-`, ra, tr, ra, ra, ra, ra)
+CREATE INDEX idx_agent_resource_access_status ON %s(status);
+`, ra, tr, ra, ra, ra, ra, ra)
 	}
 	if _, err := db.Exec(ddl); err != nil {
 		return fmt.Errorf("migrate: create %s: %w", sqltables.TableAgentResourceAccess, err)
@@ -813,7 +817,6 @@ func sqliteAgentSchemaDDL() string {
       access_mode TEXT NOT NULL DEFAULT 'read' CHECK (access_mode IN ('read', 'write', 'delete', 'connect', 'execute', 'list')),
       semantic_kind TEXT NOT NULL DEFAULT 'other',
       chars INTEGER NOT NULL DEFAULT 0,
-      snippet TEXT,
       uri_repeat_count INTEGER NOT NULL DEFAULT 0,
       risk_flags TEXT NOT NULL DEFAULT '',
       policy_hint_flags TEXT NOT NULL DEFAULT '',
@@ -1047,7 +1050,6 @@ func postgresAgentSchemaDDL() string {
       access_mode TEXT NOT NULL DEFAULT 'read' CHECK (access_mode IN ('read', 'write', 'delete', 'connect', 'execute', 'list')),
       semantic_kind TEXT NOT NULL DEFAULT 'other',
       chars INTEGER NOT NULL DEFAULT 0,
-      snippet TEXT,
       uri_repeat_count INTEGER NOT NULL DEFAULT 0,
       risk_flags TEXT NOT NULL DEFAULT '',
       policy_hint_flags TEXT NOT NULL DEFAULT '',
