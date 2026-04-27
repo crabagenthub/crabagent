@@ -8,8 +8,8 @@ import (
 
 // ResourceInfo represents classified resource access information
 type ResourceInfo struct {
-	Kind    string // file, memory, glob, tool_io, other
-	Mode    string // read, write
+	Kind    string // file, memory, glob, tool_io, network, other
+	Mode    string // read, write, delete, connect, execute, list
 	URI     string
 	Chars   int64
 	Snippet string
@@ -17,10 +17,13 @@ type ResourceInfo struct {
 
 // ToolClassificationConfig defines tool classification rules
 type ToolClassificationConfig struct {
-	FileReadTools  []string `toml:"fileReadTools"`
-	FileWriteTools []string `toml:"fileWriteTools"`
-	MemoryTools    []string `toml:"memoryTools"`
-	GlobTools      []string `toml:"globTools"`
+	FileReadTools   []string `toml:"fileReadTools"`
+	FileWriteTools  []string `toml:"fileWriteTools"`
+	FileDeleteTools []string `toml:"fileDeleteTools"`
+	MemoryTools     []string `toml:"memoryTools"`
+	GlobTools       []string `toml:"globTools"`
+	ConnectTools    []string `toml:"connectTools"`
+	ExecuteTools    []string `toml:"executeTools"`
 }
 
 // DefaultToolClassificationConfig returns the default tool classification rules
@@ -33,12 +36,24 @@ func DefaultToolClassificationConfig() *ToolClassificationConfig {
 		FileWriteTools: []string{
 			"write_file", "fs.writeFile", "echo", "tee",
 			"write", "writefile", "edit", "edit_file", "apply_patch",
+			"mv", "cp", "move", "copy",
+		},
+		FileDeleteTools: []string{
+			"rm", "remove", "delete", "trash", "unlink", "rmdir",
 		},
 		MemoryTools: []string{
 			"memory.read", "memory.write", "context.get",
 		},
 		GlobTools: []string{
 			"glob", "fs.readdir", "ls", "list_dir", "listdir",
+		},
+		ConnectTools: []string{
+			"connect", "dial", "open_connection", "fetch", "request",
+			"http.get", "http.post", "curl", "wget",
+		},
+		ExecuteTools: []string{
+			"execute", "exec", "run", "spawn", "shell", "bash", "sh",
+			"python", "node", "npm", "go run",
 		},
 	}
 }
@@ -73,6 +88,17 @@ func ClassifyResourceAccess(spanName string, params map[string]interface{}, conf
 		}
 	}
 
+	// Check file delete tools
+	for _, tool := range config.FileDeleteTools {
+		if strings.Contains(nameLower, strings.ToLower(tool)) {
+			return ResourceInfo{
+				Kind: "file",
+				Mode: "delete",
+				URI:  ExtractResourceURI(params),
+			}
+		}
+	}
+
 	// Check memory tools
 	for _, tool := range config.MemoryTools {
 		if strings.Contains(nameLower, strings.ToLower(tool)) {
@@ -89,7 +115,7 @@ func ClassifyResourceAccess(spanName string, params map[string]interface{}, conf
 		}
 	}
 
-	// Check glob tools
+	// Check glob tools - list operation
 	for _, tool := range config.GlobTools {
 		if strings.Contains(nameLower, strings.ToLower(tool)) {
 			pattern := strFromMap(params, "glob_pattern")
@@ -104,8 +130,40 @@ func ClassifyResourceAccess(spanName string, params map[string]interface{}, conf
 			}
 			return ResourceInfo{
 				Kind: "glob",
-				Mode: "read",
+				Mode: "list",
 				URI:  "file://glob/" + pattern,
+			}
+		}
+	}
+
+	// Check connect tools
+	for _, tool := range config.ConnectTools {
+		if strings.Contains(nameLower, strings.ToLower(tool)) {
+			uri := strFromMap(params, "url")
+			if uri == "" {
+				uri = strFromMap(params, "uri")
+			}
+			if uri == "" {
+				uri = strFromMap(params, "host")
+			}
+			if uri == "" {
+				uri = "network://connection"
+			}
+			return ResourceInfo{
+				Kind: "network",
+				Mode: "connect",
+				URI:  uri,
+			}
+		}
+	}
+
+	// Check execute tools
+	for _, tool := range config.ExecuteTools {
+		if strings.Contains(nameLower, strings.ToLower(tool)) {
+			return ResourceInfo{
+				Kind: "other",
+				Mode: "execute",
+				URI:  "exec://" + spanName,
 			}
 		}
 	}
@@ -318,7 +376,13 @@ func fileResourceFromShellCommand(params map[string]interface{}) *ShellFileResou
 
 	bin := normalizeCmdBin(tokens[0])
 	switch bin {
-	case "trash", "rm", "mv", "cp":
+	case "trash", "rm", "rmdir", "unlink":
+		uri := firstPathOperand(tokens)
+		if uri == "" {
+			return nil
+		}
+		return &ShellFileResource{URI: uri, AccessMode: "delete"}
+	case "mv", "cp":
 		uri := firstPathOperand(tokens)
 		if uri == "" {
 			return nil

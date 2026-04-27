@@ -3,6 +3,7 @@ import { collectorItemsArray, readCollectorFetchResult } from "@/lib/collector-j
 import { COLLECTOR_API } from "@/lib/collector-api-paths";
 
 export type ResourceAuditSemanticClassParam = "all" | "file" | "memory" | "tool_io";
+export type ResourceAccessMode = "read" | "write" | "delete" | "connect" | "execute" | "list";
 
 export type ResourceAuditEventRow = {
   span_id: string;
@@ -17,7 +18,7 @@ export type ResourceAuditEventRow = {
   started_at_ms: number;
   duration_ms: number | null;
   resource_uri: string;
-  access_mode: string | null;
+  access_mode: ResourceAccessMode | null;
   chars: number | null;
   snippet: string | null;
   semantic_class: string;
@@ -199,7 +200,7 @@ function normalizeEvent(r: Record<string, unknown>): ResourceAuditEventRow {
         ? Number(r.duration_ms)
         : null,
     resource_uri: String(r.resource_uri ?? ""),
-    access_mode: r.access_mode != null ? String(r.access_mode) : null,
+    access_mode: r.access_mode != null ? (String(r.access_mode) as ResourceAccessMode) : null,
     chars:
       r.chars != null && r.chars !== "" && Number.isFinite(Number(r.chars)) ? Number(r.chars) : null,
     snippet: r.snippet != null ? String(r.snippet) : null,
