@@ -42,17 +42,16 @@ func SyncAgentExecCommandRow(tx *sql.Tx, db *sql.DB, nowMs int64, cfg shellexec.
 	thr := cfg.ShellExec.TokenRisks.StdoutCharsThreshold
 	p := shellexec.ParseShellSpanRow(inputJSON, outputJSON, errorInfoJSON, metadataJSON, nil, cfg, &thr)
 
-	var exitCode interface{}
-	if p.ExitCode != nil {
-		exitCode = *p.ExitCode
+	// Determine status from success field
+	status := "success"
+	if p.Success != nil && !*p.Success {
+		status = "error"
 	}
-	var success interface{}
-	if p.Success != nil {
-		if *p.Success {
-			success = 1
-		} else {
-			success = 0
-		}
+
+	// Extract error_info from errorInfoJSON if present
+	var errorInfo interface{}
+	if errorInfoJSON != nil && strings.TrimSpace(*errorInfoJSON) != "" {
+		errorInfo = *errorInfoJSON
 	}
 
 	wsOut := strings.TrimSpace(spanWorkspace)
@@ -63,11 +62,11 @@ func SyncAgentExecCommandRow(tx *sql.Tx, db *sql.DB, nowMs int64, cfg shellexec.
 	q := fmt.Sprintf(`INSERT INTO %[1]s (
   span_id, trace_id, workspace_name, project_name, thread_key, agent_name, channel_name,
   span_name, start_time_ms, end_time_ms, duration_ms,
-  command, command_key, category, platform, exit_code, success,
-  stdout_len, stderr_len, est_tokens, est_usd,
-  token_risk, command_not_found, permission_denied, illegal_arg_hint,
+  command, command_key, category, platform, status, error_info,
+  stdout_len, stderr_len, est_tokens, est_usd, token_risk,
+  command_not_found, permission_denied, illegal_arg_hint,
   user_id, parser_version, created_at_ms, updated_at_ms
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(span_id) DO UPDATE SET
   trace_id = excluded.trace_id,
   workspace_name = excluded.workspace_name,
@@ -83,8 +82,8 @@ ON CONFLICT(span_id) DO UPDATE SET
   command_key = excluded.command_key,
   category = excluded.category,
   platform = excluded.platform,
-  exit_code = excluded.exit_code,
-  success = excluded.success,
+  status = excluded.status,
+  error_info = excluded.error_info,
   stdout_len = excluded.stdout_len,
   stderr_len = excluded.stderr_len,
   est_tokens = excluded.est_tokens,
@@ -103,12 +102,11 @@ ON CONFLICT(span_id) DO UPDATE SET
 		wsOut, nullablePtrStr(projectNameAug), nullablePtrStr(threadKey), nullablePtrStr(agentName), nullablePtrStr(channelName),
 		strings.TrimSpace(spanName),
 		optPositiveMs(startMs), optPositiveMs(endMs), optPositiveMs(durMs),
-		p.Command, p.CommandKey, string(p.Category), p.Platform,
-		exitCode, success,
-		p.StdoutLen, p.StderrLen, p.EstTokens, p.EstUsd,
-		boolTo01(p.TokenRisk), boolTo01(p.CommandNotFound), boolTo01(p.PermissionDenied), boolTo01(p.IllegalArgHint),
-		p.UserID,
-		1, nowMs, nowMs,
+		p.Command, p.CommandKey, p.Category, p.Platform,
+		status, errorInfo,
+		p.StdoutLen, p.StderrLen, p.EstTokens, p.EstUsd, boolTo01(p.TokenRisk),
+		boolTo01(p.CommandNotFound), boolTo01(p.PermissionDenied), boolTo01(p.IllegalArgHint),
+		p.UserID, 1, nowMs, nowMs,
 	}
 	_, err := tx.Exec(sqlutil.RebindIfPostgres(db, q), args...)
 	return err

@@ -162,15 +162,21 @@ func insertTestData(db *sql.DB) {
 			tokenRisk = 1
 		}
 
+		// Determine status from exit code
+		status := "success"
+		if cmd.exitCode != 0 {
+			status = "error"
+		}
+
 		_, err = db.Exec(`
 			INSERT INTO `+sqltables.TableAgentExecCommands+` (
 				span_id, trace_id, span_name, start_time_ms, end_time_ms, duration_ms,
-				command, command_key, category, platform, exit_code, success,
+				command, command_key, category, platform, status, error_info,
 				stdout_len, stderr_len, est_tokens, est_usd, token_risk,
 				created_at_ms, updated_at_ms
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unix', ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unix', ?, '', ?, ?, ?, ?, ?, ?, ?)`,
 			cmd.spanId, cmd.traceId, "bash", cmd.startTimeMs, cmd.startTimeMs+cmd.durationMs, cmd.durationMs,
-			cmd.command, cmd.command, cmd.category, cmd.exitCode,
+			cmd.command, cmd.command, cmd.category, status,
 			cmd.stdoutLen, cmd.stderrLen, cmd.estTokens, float64(cmd.estTokens)*0.0001, tokenRisk,
 			baseTime, baseTime)
 		if err != nil {

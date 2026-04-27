@@ -8,23 +8,23 @@ import (
 
 // ShellReplayItem is one shell execution step for observational replay (ordered timeline).
 type ShellReplayItem struct {
-	SpanID       string  `json:"span_id"`
-	TraceID      string  `json:"trace_id"`
-	StartTimeMs  *int64  `json:"start_time_ms"`
-	DurationMs   *int64  `json:"duration_ms"`
-	Command      string  `json:"command"`
-	CommandKey   string  `json:"command_key"`
-	Category     string  `json:"category"`
-	Platform     string  `json:"platform"`
-	ExitCode     *int    `json:"exit_code"`
-	Success      *bool   `json:"success"`
-	TokenRisk    bool    `json:"token_risk"`
-	SpanName     string  `json:"span_name"`
-	Workspace    *string `json:"workspace_name"`
-	Project      *string `json:"project_name"`
-	ThreadKey    *string `json:"thread_key"`
-	AgentName    *string `json:"agent_name"`
-	ChannelName  *string `json:"channel_name"`
+	SpanID      string  `json:"span_id"`
+	TraceID     string  `json:"trace_id"`
+	StartTimeMs *int64  `json:"start_time_ms"`
+	DurationMs  *int64  `json:"duration_ms"`
+	Command     string  `json:"command"`
+	CommandKey  string  `json:"command_key"`
+	Category    string  `json:"category"`
+	Platform    string  `json:"platform"`
+	Status      string  `json:"status"`
+	ErrorInfo   string  `json:"error_info,omitempty"`
+	TokenRisk   bool    `json:"token_risk"`
+	SpanName    string  `json:"span_name"`
+	Workspace   *string `json:"workspace_name"`
+	Project     *string `json:"project_name"`
+	ThreadKey   *string `json:"thread_key"`
+	AgentName   *string `json:"agent_name"`
+	ChannelName *string `json:"channel_name"`
 }
 
 // QueryShellExecReplay returns shell rows from agent_exec_commands for a trace, time-ordered.
@@ -34,7 +34,7 @@ func QueryShellExecReplay(db *sql.DB, traceID string) ([]ShellReplayItem, error)
 		return nil, nil
 	}
 	q := fmt.Sprintf(`SELECT span_id, trace_id, start_time_ms, duration_ms, command, command_key, category, platform,
- exit_code, success, token_risk, span_name, workspace_name, project_name, thread_key, agent_name, channel_name
+ status, error_info, token_risk, span_name, workspace_name, project_name, thread_key, agent_name, channel_name
  FROM %s WHERE trace_id = ? ORDER BY (start_time_ms IS NULL) ASC, start_time_ms ASC, span_id ASC`, CT.ExecCommands)
 	rows, err := db.Query(q, tid)
 	if err != nil {
@@ -45,12 +45,12 @@ func QueryShellExecReplay(db *sql.DB, traceID string) ([]ShellReplayItem, error)
 	for rows.Next() {
 		var it ShellReplayItem
 		var start, dur sql.NullInt64
-		var exit sql.NullInt64
-		var succ sql.NullInt64
 		var tr int
 		var ws, proj, tk, ag, ch sql.NullString
+		var st sql.NullString
+		var errInfo sql.NullString
 		if err := rows.Scan(&it.SpanID, &it.TraceID, &start, &dur, &it.Command, &it.CommandKey, &it.Category, &it.Platform,
-			&exit, &succ, &tr, &it.SpanName, &ws, &proj, &tk, &ag, &ch); err != nil {
+			&st, &errInfo, &tr, &it.SpanName, &ws, &proj, &tk, &ag, &ch); err != nil {
 			return nil, err
 		}
 		if start.Valid {
@@ -61,13 +61,13 @@ func QueryShellExecReplay(db *sql.DB, traceID string) ([]ShellReplayItem, error)
 			v := dur.Int64
 			it.DurationMs = &v
 		}
-		if exit.Valid {
-			v := int(exit.Int64)
-			it.ExitCode = &v
+		if st.Valid {
+			it.Status = st.String
+		} else {
+			it.Status = "success"
 		}
-		if succ.Valid {
-			v := succ.Int64 != 0
-			it.Success = &v
+		if errInfo.Valid {
+			it.ErrorInfo = errInfo.String
 		}
 		it.TokenRisk = tr != 0
 		if ws.Valid {
@@ -92,5 +92,8 @@ func QueryShellExecReplay(db *sql.DB, traceID string) ([]ShellReplayItem, error)
 		}
 		out = append(out, it)
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -106,8 +106,8 @@ type shellExecRecord struct {
 	CommandKey         string
 	Category           string
 	Platform           string
-	ExitCode           sql.NullInt64
-	Success            sql.NullInt64
+	Status             sql.NullString
+	ErrorInfo          sql.NullString
 	StdoutLen          int64
 	StderrLen          int64
 	EstTokens          int64
@@ -133,7 +133,7 @@ func scanShellExecRecordCore(sc interface {
 		&r.WorkspaceName, &r.ProjectName, &r.ThreadKey, &r.AgentName, &r.ChannelName,
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
-		&r.ExitCode, &r.Success,
+		&r.Status, &r.ErrorInfo,
 		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
 		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
 		&r.UserID,
@@ -150,7 +150,7 @@ func scanShellExecRecordWithSpan(sc interface {
 		&r.WorkspaceName, &r.ProjectName, &r.ThreadKey, &r.AgentName, &r.ChannelName,
 		&r.SpanName, &r.StartTimeMs, &r.EndTimeMs, &r.DurationMs,
 		&r.Command, &r.CommandKey, &r.Category, &r.Platform,
-		&r.ExitCode, &r.Success,
+		&r.Status, &r.ErrorInfo,
 		&r.StdoutLen, &r.StderrLen, &r.EstTokens, &r.EstUsd,
 		&r.TokenRisk, &r.CmdNF, &r.Perm, &r.IllArg,
 		&r.UserID,
@@ -164,7 +164,7 @@ func shellExecSelectCols() string {
  e.workspace_name, e.project_name, e.thread_key, e.agent_name, e.channel_name,
  e.span_name, e.start_time_ms, e.end_time_ms, e.duration_ms,
  e.command, e.command_key, e.category, e.platform,
- e.exit_code, e.success,
+ e.status, e.error_info,
  e.stdout_len, e.stderr_len, e.est_tokens, e.est_usd,
  e.token_risk, e.command_not_found, e.permission_denied, e.illegal_arg_hint,
  e.user_id`
@@ -173,9 +173,20 @@ func shellExecSelectCols() string {
 func shellExecRecordToSpanRow(r shellExecRecord, cfg shellexec.ResourceAuditConfig) shellexec.SpanRow {
 	nm := sql.NullString{String: r.SpanName, Valid: strings.TrimSpace(r.SpanName) != ""}
 	st := sql.NullString{String: "tool", Valid: true}
+
+	// Convert status to success bool for shellexec
+	var success sql.NullInt64
+	if r.Status.Valid {
+		if r.Status.String == "success" {
+			success = sql.NullInt64{Int64: 1, Valid: true}
+		} else {
+			success = sql.NullInt64{Int64: 0, Valid: true}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
-		r.ExitCode, r.Success,
+		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,
@@ -354,9 +365,19 @@ func FetchShellExecRowsForSummary(db *sql.DB, q ShellExecBaseQuery) ([]shellexec
 }
 
 func shellExecRecordToListItem(r shellExecRecord, cfg shellexec.ResourceAuditConfig) ShellExecListItem {
+	// Convert status to success bool for shellexec
+	var success sql.NullInt64
+	if r.Status.Valid {
+		if r.Status.String == "success" {
+			success = sql.NullInt64{Int64: 1, Valid: true}
+		} else {
+			success = sql.NullInt64{Int64: 0, Valid: true}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
-		r.ExitCode, r.Success,
+		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,
@@ -562,9 +583,20 @@ func QueryShellExecDetailFromExec(db *sql.DB, spanID string) (*ShellExecDetailRe
 	}
 	cfg := shellexec.LoadResourceAuditConfig()
 	thr := cfg.ShellExec.TokenRisks.StdoutCharsThreshold
+
+	// Convert status to success bool for shellexec
+	var success sql.NullInt64
+	if r.Status.Valid {
+		if r.Status.String == "success" {
+			success = sql.NullInt64{Int64: 1, Valid: true}
+		} else {
+			success = sql.NullInt64{Int64: 0, Valid: true}
+		}
+	}
+
 	p := shellexec.ParsedShellSpanFromExecDB(
 		r.Command, r.CommandKey, r.Category, r.Platform,
-		r.ExitCode, r.Success,
+		sql.NullInt64{}, success,
 		int(r.StdoutLen), int(r.StderrLen),
 		int(r.EstTokens), r.EstUsd,
 		r.TokenRisk != 0,

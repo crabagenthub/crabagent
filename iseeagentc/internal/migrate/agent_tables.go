@@ -148,8 +148,8 @@ CREATE TABLE %s (
   command_key TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT 'other',
   platform TEXT NOT NULL DEFAULT 'unix',
-  exit_code INTEGER,
-  success INTEGER,
+  status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error', 'timeout', 'cancelled')),
+  error_info TEXT,
   stdout_len INTEGER NOT NULL DEFAULT 0,
   stderr_len INTEGER NOT NULL DEFAULT 0,
   est_tokens INTEGER NOT NULL DEFAULT 0,
@@ -166,7 +166,8 @@ CREATE TABLE %s (
 CREATE INDEX idx_agent_exec_commands_trace ON %s(trace_id);
 CREATE INDEX idx_agent_exec_commands_start ON %s(start_time_ms DESC);
 CREATE INDEX idx_agent_exec_commands_category ON %s(category);
-`, ec, tr, ec, ec, ec)
+CREATE INDEX idx_agent_exec_commands_status ON %s(status);
+`, ec, tr, ec, ec, ec, ec)
 	} else {
 		ddl = fmt.Sprintf(`
 CREATE TABLE %s (
@@ -185,8 +186,8 @@ CREATE TABLE %s (
   command_key TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT 'other',
   platform TEXT NOT NULL DEFAULT 'unix',
-  exit_code INTEGER,
-  success INTEGER,
+  status TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'error', 'timeout', 'cancelled')),
+  error_info TEXT,
   stdout_len INTEGER NOT NULL DEFAULT 0,
   stderr_len INTEGER NOT NULL DEFAULT 0,
   est_tokens INTEGER NOT NULL DEFAULT 0,
@@ -203,7 +204,8 @@ CREATE TABLE %s (
 CREATE INDEX idx_agent_exec_commands_trace ON %s(trace_id);
 CREATE INDEX idx_agent_exec_commands_start ON %s(start_time_ms DESC);
 CREATE INDEX idx_agent_exec_commands_category ON %s(category);
-`, ec, tr, ec, ec, ec)
+CREATE INDEX idx_agent_exec_commands_status ON %s(status);
+`, ec, tr, ec, ec, ec, ec)
 	}
 	if _, err := db.Exec(ddl); err != nil {
 		return fmt.Errorf("migrate: create exec commands table: %w", err)
